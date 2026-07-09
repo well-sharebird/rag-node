@@ -1,0 +1,202 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # 1. etcd：Milvus 元数据存储
+  # ============================================
+  etcd:
+    container_name: milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.32          # 修复 CVE-2026-44283 等
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+      # 建议启用认证（生产环境必须），此处为简化示例未启用
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    restart: unless-stopped
+    networks:
+      - rag_network
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # 2. MinIO：Milvus 向量数据存储
+  # ============================================
+  minio:
+    container_name: milvus-minio
+    image: minio/minio:RELEASE.2026-05-27T19-17-22Z   # 修复 CVE-2026-40344, CVE-2026-42600
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    ports:
+      - "9001:9001"      # 仅暴露 Console，API 端口 9000 仅供内部使用
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - rag_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # 3. Milvus Standalone：向量数据库核心
+  # ============================================
+  milvus-standalone:
+    container_name: milvus-standalone
+    image: milvusdb/milvus:v2.6.19               # 修复 CVE-2026-26190 (CVSS 9.8)
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      # 如启用 Milvus 认证，可添加：
+      # MILVUS_USER: ${MILVUS_USER}
+      # MILVUS_PASSWORD: ${MILVUS_PASSWORD}
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+    ports:
+      - "19530:19530"    # gRPC 接口（对外提供服务）
+      - "9091:9091"      # 健康检查及监控端口（建议通过防火墙限制访问）
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rag_network
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 16G
+        reservations:
+          cpus: '2'
+          memory: 8G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # 4. Attu：Milvus 可视化管理工具
+  # ============================================
+  attu:
+    container_name: attu
+    image: zilliz/attu:v2.6.1                    # 与 Milvus v2.6.x 兼容
+    environment:
+      MILVUS_URL: milvus-standalone:19530
+      # 如需认证，添加：
+      # MILVUS_USERNAME: ${MILVUS_USER}
+      # MILVUS_PASSWORD: ${MILVUS_PASSWORD}
+    ports:
+      - "8000:3000"      # Web UI
+    depends_on:
+      milvus-standalone:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rag_network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # 5. PostgreSQL：业务元数据存储
+  # ============================================
+  postgres:
+    container_name: rag-postgres
+    image: postgres:16.12-alpine                # 修复 CVE-2026-6476 等
+    environment:
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DB}
+      TZ: Asia/Shanghai
+    # 生产环境建议不暴露端口，仅内部访问
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - ./volumes/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks:
+      - rag_network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # 6. Redis：缓存（修复多个 RCE 漏洞）
+  # ============================================
+  redis:
+    container_name: rag-redis
+    image: redis:7.4.11-alpine                 # 修复 CVE-2026-23631, CVE-2026-25243 等
+    # 生产环境不建议暴露端口
+    # ports:
+    #   - "6379:6379"
+    volumes:
+      - ./volumes/redis:/data
+    command: sh -c "redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}"
+    restart: unless-stopped
+    networks:
+      - rag_network
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ============================================
+# 网络定义
+# ============================================
+networks:
+  rag_network:
+    driver: bridge
