@@ -1,12 +1,13 @@
 from __future__ import annotations
 import os
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class Settings(BaseSettings):
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore", "populate_by_name": True}
 
     # ============================================================
     # Application
@@ -18,12 +19,12 @@ class Settings(BaseSettings):
     # ============================================================
     # PostgreSQL — business metadata + system settings
     # ============================================================
-    pg_host: str = "localhost"
-    pg_port: int = 5432
-    pg_user: str = "rag"
-    pg_password: str = "rag_password"
-    pg_db: str = "rag"
-    pg_pool_size: int = 20
+    pg_host: str = Field(default="localhost", validation_alias="PG_HOST")
+    pg_port: int = Field(default=5432, validation_alias="PG_PORT")
+    pg_user: str = Field(default="rag", validation_alias="PG_USER")
+    pg_password: str = Field(default="rag_password", validation_alias="PG_PASSWORD")
+    pg_db: str = Field(default="rag", validation_alias="PG_DB")
+    pg_pool_size: int = Field(default=20, validation_alias="PG_POOL_SIZE")
     pg_max_overflow: int = 10
     pg_pool_recycle: int = 3600
     pg_pool_timeout: int = 30
@@ -54,11 +55,11 @@ class Settings(BaseSettings):
     # ============================================================
     # Milvus — vector database
     # ============================================================
-    milvus_host: str = "localhost"
-    milvus_port: int = 19530
-    milvus_user: str = ""
-    milvus_password: str = ""
-    milvus_db_name: str = "default"
+    milvus_host: str = Field(default="localhost", validation_alias="MILVUS_HOST")
+    milvus_port: int = Field(default=19530, validation_alias="MILVUS_PORT")
+    milvus_user: str = Field(default="", validation_alias="MILVUS_USER")
+    milvus_password: str = Field(default="", validation_alias="MILVUS_PASSWORD")
+    milvus_db_name: str = Field(default="default", validation_alias="MILVUS_DB_NAME")
 
     @property
     def milvus_uri(self) -> str:
@@ -73,10 +74,10 @@ class Settings(BaseSettings):
     # ============================================================
     # Redis — cache + queue + metrics
     # ============================================================
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_password: str = ""
-    redis_db: int = 0
+    redis_host: str = Field(default="localhost", validation_alias="REDIS_HOST")
+    redis_port: int = Field(default=6379, validation_alias="REDIS_PORT")
+    redis_password: str = Field(default="", validation_alias="REDIS_PASSWORD")
+    redis_db: int = Field(default=0, validation_alias="REDIS_DB")
     redis_pool_size: int = 20
     redis_pool_timeout: int = 30
     redis_socket_timeout: int = 10
@@ -92,11 +93,11 @@ class Settings(BaseSettings):
     # ============================================================
     # MinIO — document object storage
     # ============================================================
-    minio_host: str = "localhost"
-    minio_port: int = 9000
-    minio_access_key: str = "minioadmin"
-    minio_secret_key: str = "minioadmin"
-    minio_bucket: str = "rag-documents"
+    minio_host: str = Field(default="localhost", validation_alias="MINIO_HOST")
+    minio_port: int = Field(default=9000, validation_alias="MINIO_PORT")
+    minio_access_key: str = Field(default="minioadmin", validation_alias="MINIO_ACCESS_KEY")
+    minio_secret_key: str = Field(default="minioadmin", validation_alias="MINIO_SECRET_KEY")
+    minio_bucket: str = Field(default="rag-documents", validation_alias="MINIO_BUCKET")
     minio_secure: bool = False
 
     @property
@@ -120,6 +121,26 @@ class Settings(BaseSettings):
     # ============================================================
     rate_limit_requests: int = 100  # per minute
     rate_limit_window_seconds: int = 60
+
+    # ============================================================
+    # Elasticsearch — full-text search (BM25)
+    # ============================================================
+    es_host: str = Field(default="localhost", validation_alias="ES_HOST")
+    es_port: int = Field(default=9200, validation_alias="ES_PORT")
+    es_index_prefix: str = Field(default="rag", validation_alias="ES_INDEX_PREFIX")
+
+    # ============================================================
+    # Neo4j — knowledge graph
+    # ============================================================
+    neo4j_uri: str = Field(default="bolt://localhost:7687", validation_alias="NEO4J_URI")
+    neo4j_user: str = Field(default="neo4j", validation_alias="NEO4J_USER")
+    neo4j_password: str = Field(default="neo4j_password", validation_alias="NEO4J_PASSWORD")
+
+    # ============================================================
+    # Kafka — message queue
+    # ============================================================
+    kafka_bootstrap_servers: str = Field(default="localhost:9092", validation_alias="KAFKA_BOOTSTRAP_SERVERS")
+    kafka_consumer_group: str = Field(default="rag-consumer", validation_alias="KAFKA_CONSUMER_GROUP")
 
 
 settings = Settings()

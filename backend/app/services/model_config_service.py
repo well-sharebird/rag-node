@@ -94,42 +94,18 @@ def model_config_to_embedding_params(model: ModelConfig) -> dict:
         model: ModelConfig with model_type='embedding'
 
     Returns:
-        Dict with provider, model_name, api_url, api_key, dimension
+        Dict with provider, model_name, api_url, api_key, dim
     """
     config = model.metadata_json or {}
 
-    if model.adapter_type == "api":
-        return {
-            "provider": "api",
-            "model_name": model.model_id,
-            "api_url": model.api_url,
-            "api_key": model.api_key,
-            "dimension": model.embedding_dim or config.get("embedding_dim", 1024),
-        }
-    elif model.adapter_type == "ollama":
-        return {
-            "provider": "ollama",
-            "model_name": model.model_id,
-            "api_url": model.api_url or "http://localhost:11434",
-            "api_key": "",
-            "dimension": model.embedding_dim or config.get("embedding_dim", 1024),
-        }
-    elif model.adapter_type == "vllm":
-        return {
-            "provider": "vllm",
-            "model_name": model.model_id,
-            "api_url": model.api_url,
-            "api_key": model.api_key or "ollama",
-            "dimension": model.embedding_dim or config.get("embedding_dim", 1024),
-        }
-    else:  # local
-        return {
-            "provider": "local",
-            "model_name": model.model_id,
-            "api_url": "",
-            "api_key": "",
-            "dimension": model.embedding_dim or config.get("embedding_dim", 1024),
-        }
+    # All providers (api, ollama, vllm) use the same API interface
+    return {
+        "provider": model.adapter_type,
+        "model_name": model.model_id,
+        "api_url": model.api_url,
+        "api_key": model.api_key,
+        "dim": model.embedding_dim or config.get("embedding_dim", 1024),
+    }
 
 
 def model_config_to_rerank_params(model: ModelConfig) -> dict:

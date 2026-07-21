@@ -11,12 +11,19 @@ def get_minio_client() -> Minio:
     """Returns a singleton MinIO client. The underlying urllib3 PoolManager handles HTTP keep-alive."""
     global _minio_client
     if _minio_client is None:
+        import urllib3
+        # Use smaller retry count and timeout for faster startup
+        http_client = urllib3.PoolManager(
+            timeout=urllib3.Timeout(connect=2.0, read=5.0),
+            retries=urllib3.Retry(total=1, connect=1, backoff_factor=0.3),
+        )
         _minio_client = Minio(
             endpoint=settings.minio_endpoint,
             access_key=settings.minio_access_key,
             secret_key=settings.minio_secret_key,
             secure=settings.minio_secure,
-            region="us-east-1",  # Explicit region to avoid time skew issues
+            region="us-east-1",
+            http_client=http_client,
         )
         logger.info(
             "MinIO client created | endpoint=%s bucket=%s",

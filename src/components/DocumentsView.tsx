@@ -101,19 +101,26 @@ export function DocumentsView() {
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative">
-      <header className="h-20 px-8 bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex items-center justify-between sticky top-0 z-10 shrink-0">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">{t('doc.title')}</h1>
-          <p className="text-sm text-slate-500">{t('doc.desc')}</p>
+      <header className="h-[52px] px-5 bg-white flex items-center justify-between shrink-0" style={{ borderBottom: '0.5px solid #e2e1dd' }}>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('doc.title')}</h1>
+          <span className="text-[11px] text-[#9b9b9b] hidden sm:inline">{t('doc.desc')}</span>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" className="gap-2 bg-white rounded-xl h-auto py-2.5 shadow-sm border-slate-200 hover:bg-slate-50">
-            <LinkIcon className="w-4 h-4" />{t('doc.importUrl')}
-          </Button>
-          <Button className="bg-[#1677ff] hover:bg-[#0958d9] text-white gap-2 rounded-xl h-auto py-2.5 shadow-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <UploadCloud className="w-4 h-4" />{uploading ? t('doc.status.processing') : t('doc.upload')}
-          </Button>
-          <input type="file" multiple className="hidden" ref={fileInputRef} onChange={(e) => handleFileUpload(e.target.files)} />
+        <div className="flex gap-2">
+          <button className="text-[13px] px-3 py-1.5 rounded-md border text-[#6b6b6b] hover:text-[#1a1a1a] hover:bg-[#f1f0ed] transition-colors" style={{ borderColor: '#e2e1dd' }}>
+            <LinkIcon className="w-4 h-4 inline mr-1" />{t('doc.importUrl')}
+          </button>
+          <button
+            className="text-[13px] px-3 py-1.5 rounded-md text-white font-medium transition-colors hover:opacity-90"
+            style={{ background: '#534ab7' }}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            <UploadCloud className="w-4 h-4 inline mr-1" />{uploading ? t('doc.status.processing') : t('doc.upload')}
+          </button>
+          <input type="file" multiple className="hidden" ref={fileInputRef}
+            accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.html,.htm,.jpg,.jpeg,.png,.tiff,.tif,.bmp"
+            onChange={(e) => handleFileUpload(e.target.files)} />
         </div>
       </header>
 

@@ -17,7 +17,6 @@ class ModelType(str, Enum):
 
 class AdapterType(str, Enum):
     """Adapter/inference backend type"""
-    LOCAL = "local"  # Local inference (sentence-transformers, transformers)
     API = "api"  # REST API (OpenAI-compatible, Anthropic, etc.)
     OLLAMA = "ollama"  # Ollama local server
     VLLM = "vllm"  # vLLM inference server
@@ -34,8 +33,6 @@ class ModelProvider(str, Enum):
     BAICHUAN = "baichuan"
     ZHIPU = "zhipu"
     MOONSHOT = "moonshot"
-    LOCAL = "local"
-
     # Commercial APIs
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -43,13 +40,8 @@ class ModelProvider(str, Enum):
     AZURE = "azure"
     AWS = "aws"
 
-    # Embedding specific
-    BAAI = "baai"  # Beijing Academy of AI
-    SENTENCE_TRANSFORMERS = "sentence_transformers"
-
-    # Rerank specific
+    # Embedding/Rerank
     XEVA = "xeva"
-    BAAI_RERANK = "baai_rerank"
 
     # Vision
     STABILITY = "stability"
@@ -306,14 +298,14 @@ COMMON_PRESETS: list[ModelPreset] = [
     # Embedding Presets
     ModelPreset(
         id="bge-m3",
-        name="BGE-M3",
-        description="BAAI's multilingual embedding model",
+        name="BGE-Large-ZH",
+        description="Chinese embedding via Xinference-compatible API",
         model_type=ModelType.EMBEDDING,
-        adapter_type=AdapterType.LOCAL,
-        provider=ModelProvider.BAAI,
-        model_id="BAAI/bge-m3",
+        adapter_type=AdapterType.API,
+        provider=ModelProvider.ALIBABA,
+        model_id="bge-large-zh-v1.5",
         default_config={"embedding_dim": 1024, "normalization": True},
-        recommended_for=["multilingual", "retrieval"],
+        recommended_for=["chinese", "retrieval"],
     ),
     ModelPreset(
         id="text-embedding-3-large",
@@ -331,20 +323,20 @@ COMMON_PRESETS: list[ModelPreset] = [
     ModelPreset(
         id="bge-reranker-v2-m3",
         name="bge-reranker-v2-m3",
-        description="BAAI's reranking model",
+        description="BAAI's reranking model via API",
         model_type=ModelType.RERANK,
-        adapter_type=AdapterType.LOCAL,
-        provider=ModelProvider.BAAI_RERANK,
-        model_id="BAAI/bge-reranker-v2-m3",
+        adapter_type=AdapterType.API,
+        provider=ModelProvider.ALIBABA,
+        model_id="bge-reranker-v2-m3",
         default_config={"top_n": 10},
         recommended_for=["reranking", "multilingual"],
     ),
     ModelPreset(
         id="qwen-rerank",
         name="Qwen3-Rerank",
-        description="Alibaba's reranking model",
+        description="Alibaba's reranking model via API",
         model_type=ModelType.RERANK,
-        adapter_type=AdapterType.LOCAL,
+        adapter_type=AdapterType.API,
         provider=ModelProvider.ALIBABA,
         model_id="Qwen/Qwen3-Rerank",
         default_config={"top_n": 10},

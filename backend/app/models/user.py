@@ -45,6 +45,8 @@ class User(Base):
     roles = relationship("Role", secondary=user_roles, back_populates="users")
     api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
+    token_usages = relationship("TokenUsage", back_populates="user")
+    quota = relationship("UserQuota", back_populates="user", uselist=False)
 
     def has_role(self, role_name: str) -> bool:
         """Check if user has a specific role"""
@@ -109,6 +111,7 @@ class APIKey(Base):
 
     # Relationships
     user = relationship("User", back_populates="api_keys")
+    token_usages = relationship("TokenUsage", back_populates="api_key")
 
 
 class AuditLog(Base):

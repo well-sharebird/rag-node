@@ -1,149 +1,111 @@
 version: '3.8'
 
 services:
-  # ============================================
-  # 1. etcd：Milvus 元数据存储
-  # ============================================
   etcd:
     container_name: milvus-etcd
-    image: quay.io/coreos/etcd:v3.5.32          # 修复 CVE-2026-44283 等
+    image: quay.io/coreos/etcd:v3.5.32
     environment:
       - ETCD_AUTO_COMPACTION_MODE=revision
       - ETCD_AUTO_COMPACTION_RETENTION=1000
-      - ETCD_QUOTA_BACKEND_BYTES=4294967296
-      - ETCD_SNAPSHOT_COUNT=50000
-      # 建议启用认证（生产环境必须），此处为简化示例未启用
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd
+      - ./volumes/etcd:/etcd
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
     restart: unless-stopped
     networks:
       - rag_network
-    healthcheck:
-      test: ["CMD", "etcdctl", "endpoint", "health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ============================================
-  # 2. MinIO：Milvus 向量数据存储
-  # ============================================
   minio:
     container_name: milvus-minio
-    image: minio/minio:RELEASE.2026-05-27T19-17-22Z   # 修复 CVE-2026-40344, CVE-2026-42600
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data
-    command: minio server /minio_data --console-address ":9001"
+      - ./volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ':9001'
     ports:
-      - "9001:9001"      # 仅暴露 Console，API 端口 9000 仅供内部使用
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      - '9001:9001'
+      - "9000:9000"
     restart: unless-stopped
     networks:
       - rag_network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ============================================
-  # 3. Milvus Standalone：向量数据库核心
-  # ============================================
   milvus-standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.6.19               # 修复 CVE-2026-26190 (CVSS 9.8)
-    command: ["milvus", "run", "standalone"]
+    image: milvusdb/milvus:v2.2.16
+    command: ['milvus', 'run', 'standalone']
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
-      # 如启用 Milvus 认证，可添加：
-      # MILVUS_USER: ${MILVUS_USER}
-      # MILVUS_PASSWORD: ${MILVUS_PASSWORD}
     volumes:
-      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus
+      - ./volumes/milvus:/var/lib/milvus
     ports:
-      - "19530:19530"    # gRPC 接口（对外提供服务）
-      - "9091:9091"      # 健康检查及监控端口（建议通过防火墙限制访问）
+      - '19530:19530'
+      - '9091:9091'
     depends_on:
-      etcd:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
+      - etcd
+      - minio
     restart: unless-stopped
     networks:
       - rag_network
-    deploy:
-      resources:
-        limits:
-          cpus: '4'
-          memory: 16G
-        reservations:
-          cpus: '2'
-          memory: 8G
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ============================================
-  # 4. Attu：Milvus 可视化管理工具
-  # ============================================
   attu:
     container_name: attu
-    image: zilliz/attu:v2.6.1                    # 与 Milvus v2.6.x 兼容
+    image: zilliz/attu:v2.4.0
     environment:
       MILVUS_URL: milvus-standalone:19530
-      # 如需认证，添加：
-      # MILVUS_USERNAME: ${MILVUS_USER}
-      # MILVUS_PASSWORD: ${MILVUS_PASSWORD}
     ports:
-      - "8000:3000"      # Web UI
+      - '8001:3000'
     depends_on:
-      milvus-standalone:
-        condition: service_healthy
+      - milvus-standalone
     restart: unless-stopped
     networks:
       - rag_network
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ============================================
-  # 5. PostgreSQL：业务元数据存储
-  # ============================================
   postgres:
     container_name: rag-postgres
-    image: postgres:16.12-alpine                # 修复 CVE-2026-6476 等
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${PG_USER}
-      POSTGRES_PASSWORD: ${PG_PASSWORD}
-      POSTGRES_DB: ${PG_DB}
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: rag_db
       TZ: Asia/Shanghai
-    # 生产环境建议不暴露端口，仅内部访问
-    # ports:
-    #   - "5432:5432"
     volumes:
       - ./volumes/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - rag_network
+
+  redis:
+    container_name: rag-redis
+    image: redis:6-alpine
+    command: redis-server --appendonly yes --requirepass redis123
+    volumes:
+      - ./volumes/redis:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - rag_network
+
+  # ============================================
+  # 7. Elasticsearch：全文检索引擎（BM25）
+  # ============================================
+  elasticsearch:
+    container_name: rag-elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=rag-cluster
+    volumes:
+      - ./volumes/elasticsearch:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
     restart: unless-stopped
     networks:
       - rag_network
@@ -152,29 +114,84 @@ services:
         limits:
           cpus: '2'
           memory: 4G
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB}"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
   # ============================================
-  # 6. Redis：缓存（修复多个 RCE 漏洞）
+  # 8. Neo4j：知识图谱数据库
   # ============================================
-  redis:
-    container_name: rag-redis
-    image: redis:7.4.11-alpine                 # 修复 CVE-2026-23631, CVE-2026-25243 等
-    # 生产环境不建议暴露端口
-    # ports:
-    #   - "6379:6379"
+  neo4j:
+    container_name: rag-neo4j
+    image: registry.cn-hangzhou.aliyuncs.com/neo4j/neo4j:5.14-community
+    environment:
+      - NEO4J_AUTH=neo4j/neo4j_password
+      - NEO4J_PLUGINS=["apoc"]
     volumes:
-      - ./volumes/redis:/data
-    command: sh -c "redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}"
+      - ./volumes/neo4j/data:/data
+      - ./volumes/neo4j/logs:/logs
+      - ./volumes/neo4j/import:/import
+      - ./volumes/neo4j/plugins:/plugins
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    restart: unless-stopped
+    networks:
+      - rag_network
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+  # ============================================
+  # 9. Kafka：消息队列（文档处理流水线）
+  # ============================================
+  kafka:
+    container_name: rag-kafka
+    image: registry.cn-hangzhou.aliyuncs.com/confluentinc/cp-kafka:7.5.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_HOST://localhost:9092,PLAINTEXT://kafka:29092
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENERS: PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093,PLAINTEXT://0.0.0.0:29092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - ./volumes/kafka:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+    restart: unless-stopped
+    networks:
+      - rag_network
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+
+  # ============================================
+  # 10. Prometheus：监控指标采集
+  # ============================================
+  prometheus:
+    container_name: rag-prometheus
+    image: registry.cn-hangzhou.aliyuncs.com/prom/prometheus:v2.47.0
+    volumes:
+      - ./volumes/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./volumes/prometheus/data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
     restart: unless-stopped
     networks:
       - rag_network
@@ -183,20 +200,33 @@ services:
         limits:
           cpus: '1'
           memory: 2G
-    healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-# ============================================
-# 网络定义
-# ============================================
+  # ============================================
+  # 11. Grafana：监控可视化
+  # ============================================
+  grafana:
+    container_name: rag-grafana
+    image: registry.cn-hangzhou.aliyuncs.com/grafana/grafana:10.1.0
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=grafana_password
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-piechart-panel
+    volumes:
+      - ./volumes/grafana:/var/lib/grafana
+      - ./volumes/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    networks:
+      - rag_network
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+
 networks:
   rag_network:
     driver: bridge

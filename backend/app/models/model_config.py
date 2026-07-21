@@ -59,6 +59,9 @@ class ModelConfig(Base):
         UniqueConstraint('model_type', 'name', name='uq_model_type_name'),
     )
 
+    # Relationships
+    token_usages = relationship("TokenUsage", back_populates="model_config")
+
     @property
     def tags_list(self) -> list[str]:
         import json

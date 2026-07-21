@@ -5,21 +5,25 @@ type Language = 'zh' | 'en';
 
 const translations = {
   en: {
-    // Layout
+    // Layout — Apple-style, all features preserved
+    'nav.workspace': 'Workspace',
+    'nav.tools': 'Tools',
+    'nav.system': 'System',
     'nav.dashboard': 'Dashboard',
-    'nav.knowledgeBases': 'Knowledge Bases',
+    'nav.knowledge-bases': 'Knowledge Bases',
     'nav.documents': 'Documents',
-    'nav.retrievalTest': 'Retrieval Bench',
-    'nav.apiExplorer': 'API Explorer',
+    'nav.qa-chat': 'AI Assistant',
+    'nav.retrieval-test': 'Retrieval Bench',
+    'nav.data-ingestion': 'Data Ingestion',
+    'nav.api-explorer': 'API Explorer',
     'nav.monitoring': 'Health & Metrics',
-    'nav.settings': 'System Settings',
-    'section.overview': 'Overview',
-    'section.production': 'Knowledge Production',
-    'section.management': 'Knowledge Management',
-    'section.retrieval': 'Intelligent Retrieval',
-    'section.application': 'Knowledge Application',
-    'section.operations': 'Operations & Security',
-    'status.title': 'System Status',
+    'nav.evaluation': 'Evaluation',
+    'nav.users-roles': 'Users & Roles',
+    'nav.settings': 'Settings',
+    // Legacy nav IDs for backward compatibility
+    'nav.data-sources': 'Data Sources',
+    'nav.model-management': 'Models',
+    'nav.model-management-page': 'Models',
     
     // Dashboard
     'dashboard.title': 'Dashboard',
@@ -75,7 +79,7 @@ const translations = {
     'doc.importUrl': 'Import URL',
     'doc.upload': 'Upload Files',
     'doc.dragDrop': 'Drag and drop documents here',
-    'doc.supports': 'Supports PDF, DOCX, TXT, Markdown, HTML (Max 50MB per file)',
+    'doc.supports': 'Supports PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, Images (Max 50MB per file)',
     'doc.browse': 'Browse Files',
     'doc.search': 'Search documents by name...',
     'doc.allKb': 'All Knowledge Bases',
@@ -117,6 +121,8 @@ const translations = {
     // Placeholder
     'apiExplorer.desc': 'Test your RAG service endpoints, generate API keys, and view integration snippets.',
     'monitoring.desc': 'Service health, performance metrics, and alerting',
+
+    // Evaluation (moved to proper location)
     
     // Settings
     'settings.title': 'System Settings',
@@ -176,6 +182,8 @@ const translations = {
     'nav.knowledgeGraph': 'Knowledge Graph',
     'nav.qaChat': 'AI Q&A',
     'nav.modelManagement': 'Model Management',
+    'nav.tokenUsage': 'Token Usage',
+    'nav.quotaManagement': 'Quota Management',
 
     // QA Chat
     'qa.title': 'AI Q&A',
@@ -186,6 +194,29 @@ const translations = {
     'qa.placeholder': 'Ask a question about your knowledge base...',
     'qa.comingSoon': 'AI Q&A coming soon. Select a knowledge base and ask questions. The assistant will retrieve relevant chunks and generate answers with citation sources.',
     'qa.sourcePreview': 'Source preview will appear here when connected to LLM backend.',
+    'qa.error': 'Sorry, the request failed. Please try again later.',
+    'qa.loading': 'Searching knowledge base...',
+    'qa.send': 'Send',
+    'qa.stop': 'Stop',
+    'qa.viewSource': 'View source document',
+    'qa.feedbackPrompt': 'Was this answer helpful?',
+    'qa.streamError': 'Stream connection lost',
+    'qa.reasoning': '思考过程',
+
+    // Feedback
+    'feedback.up': 'Thanks for your feedback!',
+    'feedback.down': 'Thanks for your feedback',
+    'feedback.helpful': 'Helpful',
+    'feedback.notHelpful': 'Not helpful',
+    'feedback.reason': 'Why was this not helpful?',
+    'feedback.reason.irrelevant': 'Irrelevant to question',
+    'feedback.reason.incorrect': 'Information is incorrect',
+    'feedback.reason.incomplete': 'Information is incomplete',
+    'feedback.reason.outdated': 'Information is outdated',
+    'feedback.reason.harmful': 'Harmful content',
+    'feedback.reason.other': 'Other reason',
+    'feedback.submit': 'Submit feedback',
+    'feedback.cancel': 'Cancel',
 
     // Monitoring
     'monitoring.title': 'System Monitoring',
@@ -218,6 +249,12 @@ const translations = {
     'dashboard.vectorDb': 'Vector DB',
     'dashboard.embeddingApi': 'Embedding API',
     'dashboard.docProcessor': 'Doc Processor',
+    'dashboard.qaChat': 'Ask AI',
+    'dashboard.docCol': 'Document',
+    'dashboard.qualityMetrics': 'Quality Metrics',
+    'dashboard.metricCol': 'Metric',
+    'dashboard.valueCol': 'Value',
+    'dashboard.targetCol': 'Target',
 
     // Retrieval
     'retrieval.history': 'Search History',
@@ -234,6 +271,13 @@ const translations = {
     'toast.error': 'Error',
     'toast.deleteConfirm': 'Are you sure you want to delete?',
     'toast.copied': 'Copied',
+
+    // Data Ingestion
+    'dataIngestion.sources': 'Data Sources',
+    'dataIngestion.models': 'Models',
+    'usersRoles.title': 'Users & Roles',
+    'usersRoles.desc': 'Manage system users and role-based access control',
+    'usersRoles.comingSoon': 'User and role management. Configure SSO, RBAC permissions, and team access controls.',
 
     // Data Source Management
     'dataSource.title': 'Data Sources',
@@ -291,6 +335,27 @@ const translations = {
     'dataSource.localFileDesc': 'Local files can be uploaded via Documents view',
 
     // Model Management
+    // Skill Registry
+    'nav.skill-management': 'Skill Registry',
+    'skill.title': 'Skill Registry',
+    'skill.create': 'New Skill',
+    'skill.refresh': 'Refresh',
+    'skill.search': 'Search skills...',
+    'skill.selectPrompt': 'Select a skill from the list to view details',
+    'skill.publish': 'Publish Version',
+    'skill.versions': 'Versions',
+    'skill.deps': 'Deps',
+    'skill.noVersions': 'No versions published yet',
+    'skill.tags': 'Tags',
+    'skill.addTag': 'Add Tag',
+    'skill.noTags': 'No tags defined',
+    'skill.setTag': 'Set Tag',
+    'skill.locks': 'User Locks',
+    'skill.addLock': 'Add Lock',
+    'skill.setLock': 'Set User Lock',
+    'skill.lockHint': 'Lock a user to a specific version',
+    'skill.depTree': 'Dependency Tree',
+
     'model.title': 'Models',
     'model.desc': 'Configure AI models: LLM, embedding, rerank, vision, speech',
     'model.createFromPreset': 'Create from Preset',
@@ -334,25 +399,95 @@ const translations = {
     'model.type.embedding': 'Embedding',
     'model.type.rerank': 'Rerank',
     'model.type.vision': 'Vision',
+
+    // Token Usage Analysis
+    'tokenUsage.title': 'Token Usage',
+    'tokenUsage.desc': 'View and analyze token consumption',
+    'tokenUsage.totalTokens': 'Total Tokens',
+    'tokenUsage.totalCost': 'Total Cost',
+    'tokenUsage.avgRequests': 'Avg Requests',
+    'tokenUsage.avgTokensPerRequest': 'Avg Tokens/Request',
+    'tokenUsage.quotaUsage': 'Quota Usage',
+    'tokenUsage.dailyQuota': 'Daily Quota',
+    'tokenUsage.monthlyQuota': 'Monthly Quota',
+    'tokenUsage.remaining': 'Remaining',
+    'tokenUsage.usageTrend': 'Usage Trend',
+    'tokenUsage.noData': 'No data available',
+    'tokenUsage.requests': 'requests',
+
+    // Quota Management
+    'quota.title': 'Quota Management',
+    'quota.desc': 'Manage user token usage quotas',
+    'quota.totalUsers': 'Total Users',
+    'quota.configured': 'Configured Quotas',
+    'quota.nearingLimit': 'Nearing Limit',
+    'quota.user': 'User',
+    'quota.status': 'Status',
+    'quota.dailyQuotaCol': 'Daily Quota',
+    'quota.monthlyQuotaCol': 'Monthly Quota',
+    'quota.used': 'Used (D/M)',
+    'quota.exceededAction': 'Exceeded Action',
+    'quota.actions': 'Actions',
+    'quota.status.normal': 'Normal',
+    'quota.status.warning': 'Warning',
+    'quota.status.disabled': 'Disabled',
+    'quota.edit': 'Edit',
+    'quota.editTitle': 'Edit Quota',
+    'quota.dailyTokenLimit': 'Daily Token Limit',
+    'quota.monthlyTokenLimit': 'Monthly Token Limit',
+    'quota.dailyCostLimit': 'Daily Cost Limit',
+    'quota.monthlyCostLimit': 'Monthly Cost Limit',
+    'quota.exceededAction.block': 'Block',
+    'quota.exceededAction.warn': 'Warn',
+    'quota.exceededAction.log': 'Log',
+    'quota.enableQuota': 'Enable Quota Limit',
+    'quota.save': 'Save',
+    'quota.cancel': 'Cancel',
+    'quota.noQuotas': 'No quota configured',
     'model.type.speechToText': 'Speech-to-Text',
     'model.type.textToSpeech': 'Text-to-Speech',
   },
   zh: {
-    // Layout
-    'nav.dashboard': '总览',
-    'nav.knowledgeBases': '知识库管理',
-    'nav.documents': '文档资源',
-    'nav.retrievalTest': '检索测试',
-    'nav.apiExplorer': 'API 接口',
+    // Layout — Apple-style, all features preserved
+    'nav.workspace': '工作区',
+    'nav.tools': '工具',
+    'nav.system': '系统',
+    'nav.dashboard': '仪表盘',
+    'nav.knowledge-bases': '知识库',
+    'nav.documents': '文档',
+    'nav.qa-chat': 'AI 助手',
+    'nav.retrieval-test': '检索测试',
+    'nav.data-ingestion': '数据摄取',
+    'nav.api-explorer': 'API 接口',
     'nav.monitoring': '系统监控',
-    'nav.settings': '系统配置',
-    'section.overview': '系统概览',
-    'section.production': '知识生产与构建',
-    'section.management': '知识管理与治理',
-    'section.retrieval': '智能检索与问答',
-    'section.application': '知识应用与消费',
-    'section.operations': '运维与安全保障',
-    'status.title': '系统状态',
+    'nav.evaluation': '质量评估',
+    'nav.users-roles': '用户与角色',
+    'nav.settings': '系统设置',
+
+    // Evaluation
+    'evaluation.comingSoon': 'RAG 质量评估，使用 RAGAS 指标和金样本测试。',
+    'evaluation.title': 'RAG 评估',
+    'evaluation.desc': '评估检索增强生成质量',
+    'evaluation.goldenSamples': '金样本',
+    'evaluation.runs': '评估运行',
+    'evaluation.newSample': '新建样本',
+    'evaluation.run': '运行评估',
+    'evaluation.question': '问题',
+    'evaluation.expectedAnswer': '期望答案',
+    'evaluation.difficulty': '难度',
+    'evaluation.easy': '简单',
+    'evaluation.medium': '中等',
+    'evaluation.hard': '困难',
+    'evaluation.noSamples': '暂无金样本',
+    'evaluation.noRuns': '暂无评估运行',
+    'evaluation.createSample': '创建测试样本来评估 RAG 质量',
+    'evaluation.runEval': '点击"运行评估"开始质量评估',
+    // Legacy nav IDs for backward compatibility
+    'nav.data-sources': '多源接入',
+    'nav.model-management': '模型管理',
+    'nav.model-management-page': '模型管理',
+    'nav.token-usage': 'Token 使用',
+    'nav.quota-management': '配额管理',
     
     // Dashboard
     'dashboard.title': '仪表盘',
@@ -408,7 +543,7 @@ const translations = {
     'doc.importUrl': '导入 URL',
     'doc.upload': '上传文件',
     'doc.dragDrop': '将文档拖放到此处',
-    'doc.supports': '支持 PDF, DOCX, TXT, Markdown, HTML (单文件最大 50MB)',
+    'doc.supports': '支持 PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, 图片 (单文件最大 50MB)',
     'doc.browse': '浏览文件',
     'doc.search': '按名称搜索文档...',
     'doc.allKb': '所有知识库',
@@ -509,6 +644,53 @@ const translations = {
     'nav.knowledgeGraph': '知识图谱',
     'nav.qaChat': 'AI 智能问答',
     'nav.modelManagement': '模型管理',
+    'nav.tokenUsage': 'Token 使用分析',
+    'nav.quotaManagement': '配额管理',
+
+    // Token Usage Analysis
+    'tokenUsage.title': 'Token 使用分析',
+    'tokenUsage.desc': '查看和分析 Token 消耗情况',
+    'tokenUsage.totalTokens': '总 Token',
+    'tokenUsage.totalCost': '总费用',
+    'tokenUsage.avgRequests': '日均请求',
+    'tokenUsage.avgTokensPerRequest': '平均 Token/请求',
+    'tokenUsage.quotaUsage': '配额使用情况',
+    'tokenUsage.dailyQuota': '今日配额',
+    'tokenUsage.monthlyQuota': '本月配额',
+    'tokenUsage.remaining': '剩余',
+    'tokenUsage.usageTrend': '使用趋势',
+    'tokenUsage.noData': '暂无数据',
+    'tokenUsage.requests': '次请求',
+
+    // Quota Management
+    'quota.title': '配额管理',
+    'quota.desc': '管理用户 Token 使用配额',
+    'quota.totalUsers': '总用户数',
+    'quota.configured': '已配置配额',
+    'quota.nearingLimit': '即将超额',
+    'quota.user': '用户',
+    'quota.status': '状态',
+    'quota.dailyQuotaCol': '每日配额',
+    'quota.monthlyQuotaCol': '每月配额',
+    'quota.used': '已用 (日/月)',
+    'quota.exceededAction': '超额处理',
+    'quota.actions': '操作',
+    'quota.status.normal': '正常',
+    'quota.status.warning': '警告',
+    'quota.status.disabled': '未启用',
+    'quota.edit': '编辑',
+    'quota.editTitle': '编辑配额',
+    'quota.dailyTokenLimit': '每日 Token 限制',
+    'quota.monthlyTokenLimit': '每月 Token 限制',
+    'quota.dailyCostLimit': '每日费用限制',
+    'quota.monthlyCostLimit': '每月费用限制',
+    'quota.exceededAction.block': '阻断',
+    'quota.exceededAction.warn': '警告',
+    'quota.exceededAction.log': '记录',
+    'quota.enableQuota': '启用配额限制',
+    'quota.save': '保存',
+    'quota.cancel': '取消',
+    'quota.noQuotas': '暂无配额配置',
 
     // QA Chat
     'qa.title': 'AI 智能问答',
@@ -519,6 +701,9 @@ const translations = {
     'qa.placeholder': '输入您的问题...',
     'qa.comingSoon': 'AI 问答功能即将上线。选择知识库后提问，助手将检索相关片段并生成带引用来源的回答。',
     'qa.sourcePreview': '接入 LLM 后端后，此处将展示引用来源。',
+    'qa.error': '抱歉，请求失败。请稍后重试。',
+    'qa.loading': '正在检索知识库...',
+    'qa.send': '发送',
 
     // Monitoring
     'monitoring.title': '系统监控',
@@ -551,6 +736,12 @@ const translations = {
     'dashboard.vectorDb': '向量数据库',
     'dashboard.embeddingApi': '嵌入模型 API',
     'dashboard.docProcessor': '文档处理器',
+    'dashboard.qaChat': 'AI 问答',
+    'dashboard.docCol': '文档',
+    'dashboard.qualityMetrics': '质量指标',
+    'dashboard.metricCol': '指标',
+    'dashboard.valueCol': '当前值',
+    'dashboard.targetCol': '目标',
 
     // Retrieval
     'retrieval.history': '检索历史',
@@ -567,6 +758,13 @@ const translations = {
     'toast.error': '操作失败',
     'toast.deleteConfirm': '确定要删除吗？',
     'toast.copied': '已复制',
+
+    // Data Ingestion
+    'dataIngestion.sources': '数据源',
+    'dataIngestion.models': '模型配置',
+    'usersRoles.title': '用户与角色',
+    'usersRoles.desc': '管理系统用户和基于角色的访问控制',
+    'usersRoles.comingSoon': '用户与角色管理。配置 SSO 单点登录、RBAC 权限控制及团队访问策略。',
 
     // Data Source Management
     'dataSource.title': '多源知识接入',
@@ -624,6 +822,27 @@ const translations = {
     'dataSource.localFileDesc': '本地文件可通过知识库的文档上传功能直接添加',
 
     // Model Management
+    // Skill Registry
+    'nav.skill-management': '技能仓库',
+    'skill.title': '技能仓库',
+    'skill.create': '新建技能',
+    'skill.refresh': '刷新',
+    'skill.search': '搜索技能...',
+    'skill.selectPrompt': '从列表中选择一个技能查看详情',
+    'skill.publish': '发布版本',
+    'skill.versions': '版本列表',
+    'skill.deps': '依赖',
+    'skill.noVersions': '暂无已发布版本',
+    'skill.tags': '标签',
+    'skill.addTag': '添加标签',
+    'skill.noTags': '未定义标签',
+    'skill.setTag': '设置标签',
+    'skill.locks': '用户锁定',
+    'skill.addLock': '添加锁定',
+    'skill.setLock': '设置用户锁定',
+    'skill.lockHint': '将用户锁定到指定版本',
+    'skill.depTree': '依赖关系树',
+
     'model.title': '模型管理',
     'model.desc': '配置和管理各类 AI 模型，包括对话、向量、重排序、视觉、语音等',
     'model.createFromPreset': '从预设创建',
@@ -678,7 +897,7 @@ type DynamicTranslationKey = `section.${string}` | `nav.${string}` | `dataSource
 interface I18nContextType {
   language: Language;
   setLanguage: (lang: Language) => void;
-  t: (key: TranslationKey | DynamicTranslationKey) => string;
+  t: (key: string) => string;
   toast: {
     success: (message: string) => void;
     error: (message: string) => void;
@@ -692,7 +911,7 @@ const I18nContext = createContext<I18nContextType | undefined>(undefined);
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<Language>('zh'); // Default to Chinese
 
-  const t = (key: TranslationKey | DynamicTranslationKey) => {
+  const t = (key: string) => {
     return translations[language][key as TranslationKey] || translations.en[key as TranslationKey] || key;
   };
 

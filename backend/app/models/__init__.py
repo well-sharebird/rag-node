@@ -6,6 +6,7 @@ from app.models.system_setting import SystemSetting
 from app.models.model_config import ModelConfig
 from app.models.data_source import DataSource, SyncJob, SyncedItem
 from app.models.user import User, Role, Permission, APIKey, AuditLog
+from app.models.token_usage import TokenUsage, UserQuota, ModelProvider
 
 __all__ = [
     "Base",
@@ -21,4 +22,7 @@ __all__ = [
     "Permission",
     "APIKey",
     "AuditLog",
+    "TokenUsage",
+    "UserQuota",
+    "ModelProvider",
 ]

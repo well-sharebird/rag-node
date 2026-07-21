@@ -42,7 +42,7 @@ async def get_current_user(
         raise credentials_exception
 
     token = credentials.credentials
-    payload = verify_token(token, settings.SECRET_KEY)
+    payload = verify_token(token, settings.secret_key)
 
     if payload is None:
         raise credentials_exception
@@ -78,6 +78,26 @@ async def get_current_user(
     return user
 
 
+async def get_current_admin_user(
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> User:
+    """
+    Get current admin user from JWT token.
+    Requires user to have admin/superuser role.
+    """
+    user = await get_current_user(credentials, db)
+
+    # Check if user is admin or superuser
+    if user.is_superuser or user.has_role("admin") or user.has_role("Admin"):
+        return user
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin access required",
+    )
+
+
 async def get_current_user_optional(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security_optional)],
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -91,7 +111,7 @@ async def get_current_user_optional(
 
     try:
         token = credentials.credentials
-        payload = verify_token(token, settings.SECRET_KEY)
+        payload = verify_token(token, settings.secret_key)
 
         if payload is None or payload.get("type") != "access":
             return None
@@ -171,7 +191,24 @@ async def get_current_user_or_api_key(
     )
 
 
-async def require_permission(permission: str):
+def require_role(role_name: str):
+    """
+    Dependency factory that requires a specific role.
+    Usage: Depends(require_role("Admin"))
+    """
+    async def role_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        if not current_user.has_role(role_name):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required role: {role_name}",
+            )
+        return current_user
+    return role_checker
+
+
+def require_permission(permission: str):
     """
     Dependency factory that requires a specific permission.
     Usage: Depends(require_permission("document.create"))

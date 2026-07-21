@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  elasticsearch:
+    container_name: rag-elasticsearch
+    image: elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - cluster.name=rag-cluster
+    volumes:
+      - ./volumes/elasticsearch:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    restart: unless-stopped
+    networks:
+      - rag_network
+
+networks:
+  rag_network:
+    driver: bridge

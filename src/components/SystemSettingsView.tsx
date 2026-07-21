@@ -128,14 +128,14 @@ export function SystemSettingsView() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#F8FAFC]">
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <header className="h-20 px-8 bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex items-center justify-between shrink-0 z-10">
-        <div className="space-y-1">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">{t('settings.title')}</h1>
-          <p className="text-[13px] text-slate-500">{t('settings.desc')}</p>
+      <header className="h-[52px] px-5 bg-white flex items-center justify-between shrink-0" style={{ borderBottom: '0.5px solid #e2e1dd' }}>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('settings.title')}</h1>
+          <span className="text-[11px] text-[#9b9b9b] hidden sm:inline">{t('settings.desc')}</span>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-4 text-[11px] text-slate-500 font-mono tracking-tight font-semibold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/50 hidden md:flex">
             <span>{t('settings.status.version').replace('{v}', settingsVersion)}</span>
@@ -155,7 +155,7 @@ export function SystemSettingsView() {
             </Button>
             <Dialog open={isPublishOpen} onOpenChange={setIsPublishOpen}>
               <DialogTrigger render={
-                <Button size="sm" className="bg-[#1677ff] hover:bg-[#0958d9] rounded-xl shadow-sm font-medium transition-colors" disabled={!hasChanges || saving}>
+                <Button size="sm" className="bg-[#534ab7] hover:bg-[#4438a0] rounded-xl shadow-sm font-medium transition-colors" disabled={!hasChanges || saving}>
                   <Save className="w-4 h-4 mr-2" />
                   {saving ? 'Saving...' : t('settings.action.publish')}
                 </Button>
@@ -172,7 +172,7 @@ export function SystemSettingsView() {
                 </DialogHeader>
                 <DialogFooter className="mt-4">
                   <Button variant="ghost" onClick={() => setIsPublishOpen(false)} className="rounded-xl">Cancel</Button>
-                  <Button className="bg-[#1677ff] hover:bg-[#0958d9] rounded-xl shadow-sm" onClick={handlePublish}>Confirm</Button>
+                  <Button className="bg-[#534ab7] hover:bg-[#4438a0] rounded-xl shadow-sm" onClick={handlePublish}>Confirm</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -195,11 +195,11 @@ export function SystemSettingsView() {
                   className={cn(
                     "w-full flex items-center gap-3 px-4 py-3 text-sm rounded-xl transition-all duration-200 text-left font-medium",
                     isActive 
-                      ? "bg-white text-[#1677ff] shadow-sm border border-slate-200/60" 
+                      ? "bg-white text-[#534ab7] shadow-sm border border-slate-200/60" 
                       : "text-slate-600 hover:text-slate-900 hover:bg-slate-100/50 border border-transparent"
                   )}
                 >
-                  <category.icon className={cn("w-4.5 h-4.5", isActive ? "text-[#1677ff]" : "text-slate-400")} />
+                  <category.icon className={cn("w-4.5 h-4.5", isActive ? "text-[#534ab7]" : "text-slate-400")} />
                   {category.label}
                 </button>
               );

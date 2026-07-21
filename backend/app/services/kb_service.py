@@ -19,8 +19,20 @@ def _make_collection_name() -> str:
 def _create_milvus_collection(milvus, collection_name: str, dim: int = 1024):
     if milvus.has_collection(collection_name):
         return
-    milvus.create_collection(collection_name=collection_name, dimension=dim, metric_type="IP", auto_id=True)
-    logger.info("Milvus collection created: %s", collection_name)
+
+    # Use IndexParams for pymilvus 3.0+ compatibility
+    from pymilvus.milvus_client.index import IndexParams
+    index_params = IndexParams()
+    index_params.add_index(field_name="vector", index_type="FLAT", metric_type="IP")
+
+    milvus.create_collection(
+        collection_name=collection_name,
+        dimension=dim,
+        metric_type="IP",
+        auto_id=True,
+        index_params=index_params,
+    )
+    logger.info("Milvus collection created: %s (dim=%d)", collection_name, dim)
 
 
 def _drop_milvus_collection(milvus, collection_name: str):
@@ -49,8 +61,14 @@ async def get_knowledge_base(db: AsyncSession, kb_id: str) -> KnowledgeBase:
 
 
 async def create_knowledge_base(db: AsyncSession, milvus, data: KBCreateRequest) -> KnowledgeBase:
+    # Get embedding dimension from configured model
+    from app.services.model_config_service import get_default_model, ModelType
+
+    embedding_model = await get_default_model(db, ModelType.EMBEDDING.value)
+    dim = embedding_model.embedding_dim if embedding_model else 1024
+
     collection_name = _make_collection_name()
-    _create_milvus_collection(milvus, collection_name)
+    _create_milvus_collection(milvus, collection_name, dim)
 
     kb = KnowledgeBase(
         name=data.name, description=data.description,
@@ -59,7 +77,7 @@ async def create_knowledge_base(db: AsyncSession, milvus, data: KBCreateRequest)
     db.add(kb)
     await db.flush()
     await db.refresh(kb)
-    logger.info("Knowledge base created | id=%s name=%s collection=%s", kb.id, kb.name, collection_name)
+    logger.info("Knowledge base created | id=%s name=%s collection=%s dim=%d", kb.id, kb.name, collection_name, dim)
     return kb
 
 

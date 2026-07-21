@@ -34,14 +34,14 @@ DEFAULT_PERMISSIONS = [
 
 DEFAULT_ROLES = [
     {
-        "name": "admin",
-        "description": "Full access to all resources",
+        "name": "Admin",
+        "description": "平台全量控制：用户管理、角色分配、系统配置、审计日志查看、告警管理",
         "is_system": True,
         "permissions": [p for p in DEFAULT_PERMISSIONS],
     },
     {
-        "name": "editor",
-        "description": "Can create and edit documents and knowledge bases",
+        "name": "Editor",
+        "description": "知识库内容运营：上传文档、管理连接器、审查分块质量、运行评估测试",
         "is_system": True,
         "permissions": [
             ("knowledge_base", "create"),
@@ -57,8 +57,8 @@ DEFAULT_ROLES = [
         ],
     },
     {
-        "name": "viewer",
-        "description": "Read-only access",
+        "name": "Viewer",
+        "description": "纯查询权限：在授权知识库范围内提问、查看引用来源、反馈答案质量",
         "is_system": True,
         "permissions": [
             ("knowledge_base", "read"),
@@ -66,6 +66,22 @@ DEFAULT_ROLES = [
             ("retrieval", "search"),
             ("retrieval", "chat"),
             ("settings", "read"),
+        ],
+    },
+    {
+        "name": "Developer",
+        "description": "程序化集成：通过 API 构建自定义应用、集成聊天机器人、管理 API Keys",
+        "is_system": True,
+        "permissions": [
+            ("knowledge_base", "read"),
+            ("document", "read"),
+            ("retrieval", "search"),
+            ("retrieval", "chat"),
+            ("settings", "read"),
+            ("api_key", "create"),
+            ("api_key", "read"),
+            ("api_key", "update"),
+            ("api_key", "delete"),
         ],
     },
 ]
@@ -77,11 +93,10 @@ async def init_roles_and_permissions(db: AsyncSession):
 
     # Create permissions
     for resource, action in DEFAULT_PERMISSIONS:
-        result = await db.execute(
-            select(Permission).where(
-                Permission.name == f"{resource}.{action}"
-            )
+        stmt = select(Permission).where(
+            Permission.name == f"{resource}.{action}"
         )
+        result = await db.execute(stmt)
         perm = result.scalar_one_or_none()
 
         if not perm:
@@ -98,9 +113,8 @@ async def init_roles_and_permissions(db: AsyncSession):
 
     # Create roles
     for role_data in DEFAULT_ROLES:
-        result = await db.execute(
-            select(Role).where(Role.name == role_data["name"])
-        )
+        stmt = select(Role).where(Role.name == role_data["name"])
+        result = await db.execute(stmt)
         role = result.scalar_one_or_none()
 
         if not role:
@@ -114,11 +128,10 @@ async def init_roles_and_permissions(db: AsyncSession):
 
             # Assign permissions
             for perm_name, perm_action in role_data["permissions"]:
-                result = await db.execute(
-                    select(Permission).where(
-                        Permission.name == f"{perm_name}.{perm_action}"
-                    )
+                stmt = select(Permission).where(
+                    Permission.name == f"{perm_name}.{perm_action}"
                 )
+                result = await db.execute(stmt)
                 perm = result.scalar_one_or_none()
                 if perm:
                     role.permissions.append(perm)
@@ -155,8 +168,8 @@ async def create_admin_user(
     db.add(admin)
     await db.flush()
 
-    # Assign admin role
-    result = await db.execute(select(Role).where(Role.name == "admin"))
+    # Assign Admin role
+    result = await db.execute(select(Role).where(Role.name == "Admin"))
     admin_role = result.scalar_one_or_none()
     if admin_role:
         admin.roles.append(admin_role)

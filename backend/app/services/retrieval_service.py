@@ -16,34 +16,23 @@ from app.utils.exceptions import NotFoundException, ValidationException
 logger = logging.getLogger("app.services.retrieval")
 
 
-async def _resolve_embedding_params() -> dict:
-    """Resolve embedding parameters from model_configs or fallback."""
-    from app.core.database import async_session_factory
-    from app.services.model_config_service import resolve_embedding_config
+async def _resolve_embedding_params(db: AsyncSession) -> dict | None:
+    """Resolve embedding parameters from model_configs.
 
-    try:
-        async with async_session_factory() as session:
-            model = await resolve_embedding_config(session)
-            if model:
-                return {
-                    "provider": model.adapter_type,
-                    "model_name": model.model_id,
-                    "api_url": model.api_url or "",
-                    "api_key": model.api_key or "",
-                    "dim": model.embedding_dim or 1024,
-                }
-    except Exception as e:
-        logger.warning("Failed to resolve embedding from model_configs: %s", e)
+    Args:
+        db: Database session
 
-    from app.core.rag_config import get_model_config
-    config = get_model_config()
-    return {
-        "provider": config.get("embedding_provider", "local"),
-        "model_name": config.get("embedding_model", "BAAI/bge-m3"),
-        "api_url": config.get("embedding_api_url", ""),
-        "api_key": config.get("embedding_api_key", ""),
-        "dim": config.get("embedding_dim", 1024),
-    }
+    Returns:
+        Dict with provider, model_name, api_url, api_key, dim; or None if not configured
+    """
+    from app.services.model_config_service import resolve_embedding_config, model_config_to_embedding_params
+
+    model = await resolve_embedding_config(db)
+    if model:
+        return model_config_to_embedding_params(model)
+
+    logger.warning("No embedding model configured in model_configs")
+    return None
 
 
 async def _rerank_results(
@@ -124,12 +113,14 @@ async def search_chunks(db: AsyncSession, redis: aioredis.Redis, milvus, data: S
     start = time.monotonic()
 
     # Resolve embedding model from model_configs
-    embed_params = await _resolve_embedding_params()
+    embed_params = await _resolve_embedding_params(db)
+    if embed_params is None:
+        raise ValidationException("No embedding model configured. Please configure a default embedding model in Model Management.")
+
     embed_service = get_embedding_service(
-        provider=embed_params["provider"],
-        model_name=embed_params["model_name"],
         api_url=embed_params["api_url"],
         api_key=embed_params["api_key"],
+        model=embed_params["model_name"],
         dim=embed_params["dim"],
     )
     query_embedding = await embed_service.embed_query(data.query)
@@ -144,7 +135,15 @@ async def search_chunks(db: AsyncSession, redis: aioredis.Redis, milvus, data: S
 
     # When reranking, use a wider initial recall (min_score=0) since rerank will re-score
     initial_min_score = 0.0 if enable_rerank else min_score
-    hits = search_vectors(milvus, kb.collection_name, query_embedding, top_k=top_k, min_score=initial_min_score)
+
+    if data.enable_multimodal:
+        from app.services.multi_modal_retrieval import get_multi_modal_retrieval_service
+        mm_svc = get_multi_modal_retrieval_service(milvus, embed_service)
+        hits = await mm_svc.multi_modal_search(
+            kb.collection_name, data.query, top_k=top_k * 2,
+        )
+    else:
+        hits = search_vectors(milvus, kb.collection_name, query_embedding, top_k=top_k, min_score=initial_min_score)
 
     # Rerank if configured and enabled
     if enable_rerank and len(hits) > 1:
@@ -192,7 +191,8 @@ async def search_chunks(db: AsyncSession, redis: aioredis.Redis, milvus, data: S
         logger.debug("Redis metrics recording failed: %s", e)
 
     items = [
-        SearchResultItem(chunk_id=h["chunk_id"], content=h["content"], score=h["score"], metadata=h["metadata"])
+        SearchResultItem(chunk_id=h["chunk_id"], content=h["content"], score=h["score"], metadata=h["metadata"],
+                         content_type=h.get("content_type", "text"))
         for h in hits
     ]
     logger.info("Search done | results=%d time=%.1fms", len(items), elapsed)

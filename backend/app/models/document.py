@@ -24,6 +24,7 @@ class Document(Base, TimestampMixin):
     # Category & Tags
     category: Mapped[str] = mapped_column(String(200), default="", index=True)  # e.g., "/产品/手册/部署"
     tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array, e.g., '["v1.0","部署","安全"]'
+    content_types: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON array of content types found, e.g., '["text","table","image"]'
 
     # Version tracking
     version: Mapped[int] = mapped_column(Integer, default=1)

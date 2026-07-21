@@ -9,6 +9,7 @@ class SearchRequest(BaseModel):
     min_score: float | None = Field(default=None, ge=0.0, le=1.0)
     enable_hybrid: bool = False
     enable_rerank: bool = False
+    enable_multimodal: bool = False
 
 
 class SearchResultItem(BaseModel):
@@ -16,6 +17,7 @@ class SearchResultItem(BaseModel):
     content: str
     score: float
     metadata: dict
+    content_type: str = "text"
 
 
 class SearchResponse(BaseModel):

@@ -122,7 +122,7 @@ export function RetrievalTestView() {
               <Label className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">{t('retrieval.topK')}</Label>
               <span className="font-mono text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-md text-xs">{topK[0]}</span>
             </div>
-            <Slider max={20} min={1} step={1} value={topK} onValueChange={(v) => setTopK(v)} className="py-2" />
+            <Slider max={20} min={1} step={1} value={topK} onValueChange={(v: number[]) => setTopK(v)} className="py-2" />
           </div>
 
           <div className="space-y-5">
@@ -130,7 +130,7 @@ export function RetrievalTestView() {
               <Label className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">{t('retrieval.minScore')}</Label>
               <span className="font-mono text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded-md text-xs">{minScore[0]}</span>
             </div>
-            <Slider max={1} min={0} step={0.05} value={minScore} onValueChange={(v) => setMinScore(v)} className="py-2" />
+            <Slider max={1} min={0} step={0.05} value={minScore} onValueChange={(v: number[]) => setMinScore(v)} className="py-2" />
           </div>
 
           <div className="space-y-5 pt-8 border-t border-slate-100">
@@ -209,7 +209,7 @@ export function RetrievalTestView() {
             <div className="space-y-8 max-w-4xl mx-auto pb-20">
               {/* User Query Echo */}
               <div className="flex justify-end">
-                <div className="bg-gradient-to-r from-[#1677ff] to-indigo-600 text-white px-6 py-4 rounded-3xl rounded-tr-sm max-w-2xl font-medium text-[15px] shadow-sm leading-relaxed">
+                <div className="bg-gradient-to-r from-[#534ab7] to-indigo-600 text-white px-6 py-4 rounded-3xl rounded-tr-sm max-w-2xl font-medium text-[15px] shadow-sm leading-relaxed">
                   "{query}"
                 </div>
               </div>
@@ -297,7 +297,7 @@ export function RetrievalTestView() {
               onClick={handleSearch}
               disabled={!query || !selectedKb || isSearching}
               size="icon"
-              className="absolute right-3 bg-[#1677ff] hover:bg-[#0958d9] text-white rounded-xl h-11 w-11 transition-all shadow-sm"
+              className="absolute right-3 bg-[#534ab7] hover:bg-[#4438a0] text-white rounded-xl h-11 w-11 transition-all shadow-sm"
             >
               <Send className="w-4.5 h-4.5 ml-0.5" />
             </Button>

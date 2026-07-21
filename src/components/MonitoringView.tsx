@@ -15,14 +15,14 @@ export function MonitoringView() {
   ];
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#F8FAFC]">
-      <header className="h-20 px-8 bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex items-center shrink-0">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">{t('monitoring.title')}</h1>
-          <p className="text-[13px] text-slate-500">{t('monitoring.desc')}</p>
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <header className="h-[52px] px-5 bg-white flex items-center shrink-0" style={{ borderBottom: '0.5px solid #e2e1dd' }}>
+        <div className="flex items-baseline gap-3">
+          <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('monitoring.title')}</h1>
+          <span className="text-[11px] text-[#9b9b9b] hidden sm:inline">{t('monitoring.desc')}</span>
         </div>
       </header>
-      <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 overflow-y-auto p-5 bg-[#f7f7f5]">
         <div className="max-w-4xl mx-auto space-y-8">
           <div className="grid grid-cols-3 gap-6">
             {services.map(svc => {

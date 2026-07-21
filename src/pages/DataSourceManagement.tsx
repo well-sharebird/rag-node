@@ -80,7 +80,7 @@ export function DataSourceManagement() {
   const [knowledgeBases, setKnowledgeBases] = useState<{ id: string; name: string }[]>([]);
 
   // Form state - using snake_case for API compatibility
-  const [formData, setFormData] = useState<Partial<DataSourceSnake>>({
+  const [formData, setFormData] = useState<Partial<DataSource>>({
     name: '',
     source_type: 'web_page',
     description: '',
@@ -94,23 +94,7 @@ export function DataSourceManagement() {
   const loadDataSources = async () => {
     try {
       const data = await fetchDataSources();
-      // Map camelCase API response to snake_case for component
-      const snakeItems = data.items.map((item: any) => ({
-        ...item,
-        source_type: item.sourceType,
-        kb_id: item.kbId,
-        sync_mode: item.syncMode,
-        auto_process: item.autoProcess,
-        config_json: item.configJson,
-        last_sync_at: item.lastSyncAt,
-        last_sync_status: item.lastSyncStatus,
-        sync_message: item.syncMessage,
-        items_synced: item.itemsSynced,
-        items_failed: item.itemsFailed,
-        created_at: item.createdAt,
-        updated_at: item.updatedAt,
-      }));
-      setDataSources(snakeItems);
+      setDataSources(data.items || []);
     } catch (e: any) {
       console.error('Failed to load data sources:', e);
     } finally {
@@ -121,14 +105,7 @@ export function DataSourceManagement() {
   const loadPresets = async () => {
     try {
       const data = await fetchDataSourcesPresets();
-      // Map camelCase API response to snake_case for component
-      const snakePresets = data.map((item: any) => ({
-        ...item,
-        source_type: item.sourceType,
-        config_template: item.configTemplate,
-        use_cases: item.useCases,
-      }));
-      setPresets(snakePresets);
+      setPresets(data || []);
     } catch (e: any) {
       console.error('Failed to load presets:', e);
     }
@@ -140,7 +117,7 @@ export function DataSourceManagement() {
       setKnowledgeBases(data.items || []);
       // Set default KB if available
       if (data.items && data.items.length > 0 && !formData.kb_id) {
-        setFormData((prev: Partial<DataSourceSnake>) => ({ ...prev, kb_id: data.items[0].id as unknown as number }));
+        setFormData((prev: Partial<DataSource>) => ({ ...prev, kb_id: data.items[0].id as unknown as number }));
       }
     } catch (e: any) {
       console.error('Failed to load knowledge bases:', e);
@@ -201,7 +178,6 @@ export function DataSourceManagement() {
     try {
       await createDataSource({
         ...formData,
-        configJson: formData.config_json || {},
       });
       setIsCreateOpen(false);
       loadDataSources();
@@ -512,13 +488,10 @@ export function DataSourceManagement() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#F8FAFC]">
-      {/* Header */}
-      <header className="h-20 px-8 bg-white/80 backdrop-blur-md border-b border-slate-200/60 flex items-center justify-between shrink-0 z-10">
-        <div className="space-y-1">
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">多源知识接入</h1>
-          <p className="text-[13px] text-slate-500">支持网页、公众号、数据库、API 等多种数据源，打破企业数据孤岛</p>
-        </div>
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      {/* Header removed — now managed by DataIngestionView */}
+      <header className="h-[52px] px-5 bg-white flex items-center justify-between shrink-0" style={{ borderBottom: '0.5px solid #e2e1dd' }}>
+        <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('dataSource.title')}</h1>
 
         <div className="flex items-center gap-3">
           <Button
@@ -533,7 +506,7 @@ export function DataSourceManagement() {
           <Button
             size="sm"
             onClick={() => setIsCreateOpen(true)}
-            className="bg-[#1677ff] hover:bg-[#0958d9] rounded-xl shadow-sm font-medium transition-colors"
+            className="bg-[#534ab7] hover:bg-[#4438a0] rounded-xl shadow-sm font-medium transition-colors"
           >
             <Plus className="w-4 h-4 mr-2" />
             新建数据源
@@ -542,7 +515,7 @@ export function DataSourceManagement() {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 overflow-y-auto p-5 bg-[#f7f7f5]">
         {/* Filters */}
         <div className="mb-6 flex items-center gap-2">
           <Select value={filterType} onValueChange={setFilterType}>
@@ -562,7 +535,7 @@ export function DataSourceManagement() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {loading ? (
             <div className="col-span-full flex items-center justify-center py-20">
-              <Loader2 className="w-8 h-8 animate-spin text-[#1677ff]" />
+              <Loader2 className="w-8 h-8 animate-spin text-[#534ab7]" />
             </div>
           ) : filteredDataSources.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center py-20 text-center">
@@ -685,12 +658,12 @@ export function DataSourceManagement() {
               return (
                 <Card
                   key={preset.id}
-                  className="cursor-pointer hover:border-[#1677ff] hover:shadow-md transition-all rounded-xl"
+                  className="cursor-pointer hover:border-[#534ab7] hover:shadow-md transition-all rounded-xl"
                   onClick={() => handleCreateFromPreset(preset)}
                 >
                   <CardHeader className="pb-2">
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-8 h-8 rounded-lg bg-[#1677ff]/10 text-[#1677ff] flex items-center justify-center">
+                      <div className="w-8 h-8 rounded-lg bg-[#534ab7]/10 text-[#534ab7] flex items-center justify-center">
                         <PresetIcon className="w-4 h-4" />
                       </div>
                       <CardTitle className="text-base">{preset.name}</CardTitle>
@@ -815,7 +788,7 @@ export function DataSourceManagement() {
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setIsCreateOpen(false)} className="rounded-xl">取消</Button>
-            <Button className="bg-[#1677ff] hover:bg-[#0958d9] rounded-xl" onClick={handleCreate}>
+            <Button className="bg-[#534ab7] hover:bg-[#4438a0] rounded-xl" onClick={handleCreate}>
               创建
             </Button>
           </DialogFooter>

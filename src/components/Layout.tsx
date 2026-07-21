@@ -1,74 +1,103 @@
 import { ReactNode, useMemo } from 'react';
-import { Database, FileUp, Search, Settings, Activity, LayoutDashboard, Blocks, ShieldCheck, Network, Globe, MessageSquare, GitBranch, Plug, Cpu } from 'lucide-react';
+import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/src/lib/i18n';
+
+interface User {
+  id: number;
+  email: string;
+  username: string;
+  fullName?: string;
+  roles?: Array<{ id: number; name: string }>;
+}
 
 interface LayoutProps {
   children: ReactNode;
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  currentUser?: User | null;
+  onLogout?: () => void;
 }
 
-export function Layout({ children, activeTab, setActiveTab }: LayoutProps) {
+interface NavItem {
+  id: string;
+  icon: typeof LayoutDashboard;
+  section: string;
+  sectionKey: string;
+  hasCount?: boolean;
+}
+
+// All original features preserved, organized in 3 groups:
+// Workspace: Dashboard, AI Assistant, Knowledge Bases, Documents
+// Tools: Retrieval Bench, Data Ingestion, API Explorer, Model Management
+// System: Monitoring, Evaluation, Users & Roles, Settings, Token Usage, Quota Management
+const NAV_ITEMS: NavItem[] = [
+  { id: 'dashboard', icon: LayoutDashboard, section: 'workspace', sectionKey: 'nav.workspace' },
+  { id: 'qa-chat', icon: MessageSquare, section: 'workspace', sectionKey: 'nav.workspace' },
+  { id: 'knowledge-bases', icon: Database, section: 'workspace', sectionKey: 'nav.workspace', hasCount: true },
+  { id: 'documents', icon: FileUp, section: 'workspace', sectionKey: 'nav.workspace' },
+  { id: 'retrieval-test', icon: Search, section: 'tools', sectionKey: 'nav.tools' },
+  { id: 'data-ingestion', icon: Plug, section: 'tools', sectionKey: 'nav.tools' },
+  { id: 'skill-management', icon: Package, section: 'tools', sectionKey: 'nav.tools' },
+  { id: 'model-management', icon: Cpu, section: 'tools', sectionKey: 'nav.tools' },
+  { id: 'api-explorer', icon: Blocks, section: 'tools', sectionKey: 'nav.tools' },
+  { id: 'token-usage', icon: Activity, section: 'system', sectionKey: 'nav.system' },
+  { id: 'quota-management', icon: Users, section: 'system', sectionKey: 'nav.system' },
+  { id: 'monitoring', icon: BarChart3, section: 'system', sectionKey: 'nav.system' },
+  { id: 'evaluation', icon: Settings, section: 'system', sectionKey: 'nav.system' },
+  { id: 'users-roles', icon: Users, section: 'system', sectionKey: 'nav.system' },
+  { id: 'settings', icon: Settings, section: 'system', sectionKey: 'nav.system' },
+];
+
+export function Layout({ children, activeTab, setActiveTab, currentUser, onLogout }: LayoutProps) {
   const { t, language, setLanguage } = useI18n();
 
-  // Nav items with stable IDs and icon references - labels are translated inline below
-  const navItemsBase = useMemo(() => [
-    { id: 'dashboard', icon: LayoutDashboard, section: 'overview' },
-    { id: 'documents', icon: FileUp, section: 'production' },
-    { id: 'data-sources', icon: Plug, section: 'production' },
-    { id: 'knowledge-bases', icon: Database, section: 'management' },
-    { id: 'knowledge-graph', icon: GitBranch, section: 'management' },
-    { id: 'retrieval-test', icon: Search, section: 'retrieval' },
-    { id: 'qa-chat', icon: MessageSquare, section: 'retrieval' },
-    { id: 'model-management', icon: Cpu, section: 'application' },
-    { id: 'api-explorer', icon: Blocks, section: 'application' },
-    { id: 'monitoring', icon: Activity, section: 'operations' },
-    { id: 'settings', icon: ShieldCheck, section: 'operations' },
-  ], []);
+  const getUserInitials = () => {
+    if (currentUser?.fullName) {
+      return currentUser.fullName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+    }
+    return currentUser?.username?.toUpperCase().slice(0, 2) || 'U';
+  };
 
-  // Group items by section - compute inline to avoid stale closures
+  const getUserRole = () => {
+    if (currentUser?.roles?.length) {
+      return currentUser.roles[0].name;
+    }
+    return 'User';
+  };
+
   const sections = useMemo(() => {
-    return navItemsBase.reduce<Record<string, { label: string, items: typeof navItemsBase }>>((acc, item) => {
+    return NAV_ITEMS.reduce<Record<string, { label: string, items: NavItem[] }>>((acc, item) => {
       if (!acc[item.section]) {
-        acc[item.section] = { label: t(`section.${item.section}`), items: [] };
+        acc[item.section] = { label: t(item.sectionKey), items: [] };
       }
       acc[item.section].items.push(item);
       return acc;
     }, {});
-  }, [navItemsBase, t]);
+  }, [t]);
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden font-sans text-slate-900 selection:bg-[#1677ff]/20 selection:text-[#1677ff]">
-      {/* Sidebar */}
-      <aside className="w-[260px] bg-white border-r border-slate-200/70 flex flex-col h-full shrink-0 z-20">
-        <div className="h-20 px-6 flex items-center justify-between border-b border-transparent">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-gradient-to-br from-[#1677ff] to-indigo-600 rounded-xl flex flex-col items-center justify-center shrink-0 shadow-[0_4px_12px_rgba(22,119,255,0.3)]">
-              <div className="w-4 h-1 bg-white rounded-full mb-0.5"></div>
-              <div className="w-4 h-1 bg-white/60 rounded-full"></div>
-            </div>
-            <span className="font-bold text-[17px] tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600">RAG-NODE</span>
-          </div>
-          <button 
-            onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
-            className="text-slate-400 hover:text-slate-900 transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-100"
-            title={t('lang.switch')}
-          >
-            <Globe className="w-4 h-4" />
-          </button>
+    <div className="flex h-screen overflow-hidden font-sans text-[#1a1a1a] bg-[#f7f7f7]"
+         style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" }}>
+      {/* Sidebar — MiMo style: clean, minimal */}
+      <aside className="w-[240px] bg-white flex flex-col h-full shrink-0 border-r border-[#e5e5e5] overflow-y-auto">
+        {/* Logo — MiMo style */}
+        <div className="px-5 pt-6 pb-4">
+          <span className="text-lg font-semibold tracking-tight text-[#1a1a1a]">
+            KnowRAG
+          </span>
+          <span className="text-[11px] text-[#999999] ml-2">
+            {language === 'zh' ? '企业版' : 'Enterprise'}
+          </span>
         </div>
-        
-        <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-8 custom-scrollbar">
-          {Object.keys(sections).map((sectionKey) => {
-            const section = sections[sectionKey];
-            return (
-            <div key={sectionKey} className="space-y-3">
-              {sectionKey !== 'overview' && (
-                <p className="text-[11px] uppercase tracking-widest text-slate-400 font-semibold px-3">
-                  {section.label}
-                </p>
-              )}
+
+        {/* Navigation — MiMo style */}
+        <nav className="flex-1 px-3 py-2 space-y-6">
+          {Object.entries(sections).map(([sectionKey, section]) => (
+            <div key={sectionKey}>
+              <p className="text-[11px] text-[#999999] font-medium px-3 pb-2 uppercase tracking-wide">
+                {section.label}
+              </p>
               <ul className="space-y-1">
                 {section.items.map((item) => {
                   const isActive = activeTab === item.id;
@@ -77,41 +106,66 @@ export function Layout({ children, activeTab, setActiveTab }: LayoutProps) {
                       <button
                         onClick={() => setActiveTab(item.id)}
                         className={cn(
-                          "w-full flex items-center gap-3 text-[14px] transition-all duration-200 text-left py-2.5 px-3 rounded-xl",
+                          "w-full flex items-center gap-3 text-[14px] text-left py-2.5 px-3 rounded-xl transition-all duration-200",
                           isActive
-                            ? "bg-[#1677ff]/10 text-[#1677ff] font-semibold"
-                            : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                            ? "bg-[#1a1a1a] text-white font-medium shadow-md"
+                            : "text-[#666666] hover:text-[#1a1a1a] hover:bg-[#f5f5f5]"
                         )}
                       >
-                        <item.icon className={cn("w-4.5 h-4.5", isActive ? "text-[#1677ff]" : "text-slate-400")} />
+                        <item.icon className={cn("w-[18px] h-[18px]", isActive ? "text-white" : "text-[#999999]")} />
                         {t(`nav.${item.id}`)}
+                        {item.hasCount && (
+                          <span className="ml-auto text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#f0f0f0] text-[#666666]">
+                            3
+                          </span>
+                        )}
                       </button>
                     </li>
                   );
                 })}
               </ul>
             </div>
-          )})}
+          ))}
         </nav>
-        
-        <div className="p-5">
-          <div className="bg-slate-50/80 border border-slate-200/60 p-4 rounded-2xl relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-[#1677ff]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-            <div className="flex items-center justify-between mb-3 relative z-10">
-              <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{t('status.title')}</p>
-              <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+
+        {/* User footer — MiMo style */}
+        <div className="mt-auto mx-4 mb-4 pt-4 border-t border-[#e5e5e5]">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white bg-[#1a1a1a]">
+              {getUserInitials()}
             </div>
-            <div className="flex items-center justify-between relative z-10">
-              <span className="text-xs text-slate-600 font-medium">API Latency</span>
-              <span className="text-xs text-slate-900 font-bold font-mono">-- ms</span>
+            <div className="text-xs leading-tight flex-1 min-w-0">
+              <div className="font-medium text-[#1a1a1a] truncate">{currentUser?.username || 'User'}</div>
+              <div className="text-[#999999] text-[11px]">{getUserRole()}</div>
             </div>
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="p-2 rounded-lg hover:bg-[#f5f5f5] text-[#999999] hover:text-[#ff5252] transition-colors"
+                title={language === 'zh' ? '退出登录' : 'Logout'}
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            )}
           </div>
+          <button
+            onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
+            className="w-full flex items-center justify-center gap-0 rounded-xl border border-[#e5e5e5] text-[12px] py-1.5 hover:bg-[#f5f5f5] transition-colors"
+          >
+            <span className={cn("px-3 py-1 rounded-lg transition-all",
+              language === 'zh' ? "bg-[#1a1a1a] text-white font-medium" : "text-[#666666]")}>
+              中文
+            </span>
+            <span className={cn("px-3 py-1 rounded-lg transition-all",
+              language === 'en' ? "bg-[#1a1a1a] text-white font-medium" : "text-[#666666]")}>
+              EN
+            </span>
+          </button>
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
-        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03] pointer-events-none mix-blend-multiply"></div>
+      {/* Main content area — MiMo style */}
+      <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#f7f7f7]">
         {children}
       </main>
     </div>

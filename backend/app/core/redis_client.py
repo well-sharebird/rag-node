@@ -38,6 +38,11 @@ async def get_redis() -> aioredis.Redis:
     return _redis
 
 
+async def get_redis_pool() -> aioredis.Redis:
+    """Get Redis connection (alias for get_redis)."""
+    return await get_redis()
+
+
 async def close_redis():
     """Close the Redis connection pool on shutdown."""
     global _redis, _pool

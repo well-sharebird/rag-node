@@ -16,7 +16,10 @@ from app.utils.exceptions import NotFoundException, ValidationException
 
 logger = logging.getLogger("app.services.document")
 
-ALLOWED_EXTENSIONS = {"pdf", "docx", "xlsx", "pptx", "txt", "md", "html", "htm"}
+ALLOWED_EXTENSIONS = {
+    "pdf", "docx", "xlsx", "pptx", "txt", "md", "html", "htm",
+    "jpg", "jpeg", "png", "tiff", "tif", "bmp",  # Images (OCR)
+}
 MAX_FILE_SIZE = 50 * 1024 * 1024
 
 
@@ -243,6 +246,7 @@ async def delete_document(
 async def update_document_status(
     db: AsyncSession, doc_id: str, status: str, error_message: str | None = None
 ):
+    """Update document processing status"""
     values = {"status": status}
     if status == "completed":
         values["processed_at"] = datetime.utcnow()
@@ -256,3 +260,30 @@ async def update_document_status(
         logger.error("Document processing failed | id=%s error=%s", doc_id, error_message)
     else:
         logger.info("Document status | id=%s status=%s", doc_id, status)
+
+
+async def reset_document_for_retry(db: AsyncSession, doc_id: str):
+    """
+    Reset document status to pending for retry.
+    Clears error_message and processed_at.
+    """
+    await db.execute(
+        update(Document)
+        .where(Document.id == doc_id)
+        .values(
+            status="pending",
+            error_message=None,
+            processed_at=None,
+        )
+    )
+    await db.flush()
+    logger.info("Document reset for retry | id=%s", doc_id)
+
+
+async def list_failed_documents(db: AsyncSession, kb_id: str | None = None) -> list[Document]:
+    """List all failed documents"""
+    stmt = select(Document).where(Document.status == "failed").order_by(Document.uploaded_at.desc())
+    if kb_id:
+        stmt = stmt.where(Document.kb_id == kb_id)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())

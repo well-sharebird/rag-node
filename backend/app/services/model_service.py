@@ -170,8 +170,6 @@ async def test_model_connection(
             result = await _test_ollama_connection(model, test_input)
         elif model.adapter_type == "vllm":
             result = await _test_vllm_connection(model, test_input)
-        elif model.adapter_type == "local":
-            result = await _test_local_connection(model, test_input)
         else:
             result = {"success": True, "message": f"Adapter {model.adapter_type} configured", "latency_ms": None}
 
@@ -405,18 +403,6 @@ async def _test_vllm_connection(model: ModelConfig, test_input: str | None = Non
     return await _test_api_connection(model, test_input)
 
 
-async def _test_local_connection(model: ModelConfig, test_input: str | None = None) -> dict:
-    """Test local model connection"""
-    # For local models, we just verify the configuration
-    # Actual model loading would happen at runtime
-    if not model.model_id:
-        return {"success": False, "message": "Model ID not configured"}
-
-    return {
-        "success": True,
-        "message": f"Local model '{model.model_id}' configured. Will load on first use.",
-        "latency_ms": None,
-    }
 
 
 def get_available_presets(model_type: str | None = None) -> list:

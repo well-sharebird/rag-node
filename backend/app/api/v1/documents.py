@@ -90,6 +90,37 @@ async def batch_upload_documents(
     return results
 
 
+@router.get("/failed", response_model=DocumentListResponse)
+async def list_failed_documents(
+    db: DBSession,
+    kb_id: str | None = Query(default=None),
+):
+    """List all failed documents for a knowledge base."""
+    from sqlalchemy import select
+    from app.models.document import Document
+
+    stmt = select(Document).where(Document.status == "failed").order_by(Document.uploaded_at.desc())
+    if kb_id:
+        stmt = stmt.where(Document.kb_id == kb_id)
+
+    result = await db.execute(stmt)
+    docs = result.scalars().all()
+
+    items = [
+        DocumentResponse(
+            id=doc.id, kb_id=doc.kb_id, name=doc.original_name,
+            format=doc.format, file_size=doc.file_size,
+            status=doc.status, error_message=doc.error_message,
+            uploaded_at=doc.uploaded_at, processed_at=doc.processed_at,
+            chunk_count=doc.chunk_count, category=doc.category or "",
+            tags=doc.tags_list,
+        )
+        for doc in docs
+    ]
+
+    return DocumentListResponse(items=items, total=len(items), categories=[])
+
+
 @router.get("/{doc_id}", response_model=DocumentDetailResponse)
 async def get_document(db: DBSession, doc_id: str):
     doc = await document_service.get_document(db, doc_id)
@@ -171,13 +202,115 @@ async def update_document_metadata(db: DBSession, doc_id: str, data: DocumentUpd
 
 
 @router.post("/{doc_id}/reprocess", response_model=dict)
-async def reprocess_document(db: DBSession, doc_id: str):
+async def reprocess_document(
+    db: DBSession,
+    doc_id: str,
+    force: bool = Query(default=False, description="Force reprocess even if status is completed"),
+):
+    """
+    Reprocess a document (useful for failed documents).
+
+    - Only documents with status='failed' or status='pending' can be reprocessed by default
+    - Use `force=true` to reprocess completed documents (e.g., after changing chunking strategy)
+    """
     doc = await document_service.get_document(db, doc_id)
+
+    # Check if document can be reprocessed
+    if doc.status not in ("failed", "pending") and not force:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Document status is '{doc.status}'. Use force=true to reprocess completed documents."
+        )
+
+    # Reset status to pending
     await document_service.update_document_status(db, doc_id, "pending")
     await db.commit()
+
+    # Reprocess
     from app.workers.document_pipeline import process_document
     result = await process_document({}, doc_id)
-    return result
+
+    return {
+        "doc_id": doc_id,
+        "previous_status": doc.status,
+        "result": result,
+        "message": "Reprocessed successfully" if result and result.get("status") == "completed" else "Reprocess failed",
+    }
+
+
+@router.post("/batch-reprocess", response_model=dict)
+async def batch_reprocess_documents(
+    db: DBSession,
+    kb_id: str = Query(..., description="Knowledge base ID"),
+    failed_only: bool = Query(default=True, description="Only reprocess failed documents"),
+    doc_ids: list[str] = Query(default=None, description="Specific document IDs to reprocess"),
+):
+    """
+    Batch reprocess multiple documents.
+
+    - `failed_only=true`: Only reprocess documents with status='failed'
+    - `doc_ids`: If provided, reprocess only these specific documents
+    """
+    from sqlalchemy import select
+    from app.models.document import Document
+
+    # Build query
+    stmt = select(Document).where(Document.kb_id == kb_id)
+
+    if doc_ids:
+        stmt = stmt.where(Document.id.in_(doc_ids))
+    elif failed_only:
+        stmt = stmt.where(Document.status == "failed")
+
+    result = await db.execute(stmt)
+    docs = result.scalars().all()
+
+    if not docs:
+        return {
+            "total": 0,
+            "success": 0,
+            "failed": 0,
+            "message": "No documents to reprocess",
+        }
+
+    # Reprocess each document
+    success_count = 0
+    failed_count = 0
+    results = []
+
+    for doc in docs:
+        try:
+            # Reset status
+            await document_service.update_document_status(db, doc.id, "pending")
+            await db.commit()
+
+            # Process
+            from app.workers.document_pipeline import process_document
+            result = await process_document({}, doc.id)
+
+            if result and result.get("status") == "completed":
+                success_count += 1
+                results.append({"doc_id": doc.id, "status": "success", "chunks": result.get("chunks")})
+            else:
+                failed_count += 1
+                results.append({"doc_id": doc.id, "status": "failed", "error": result})
+
+        except Exception as e:
+            failed_count += 1
+            results.append({"doc_id": doc.id, "status": "failed", "error": str(e)})
+            logger.exception("Batch reprocess failed | doc_id=%s", doc.id)
+            await db.rollback()
+            continue
+
+        await db.begin()
+
+    return {
+        "total": len(docs),
+        "success": success_count,
+        "failed": failed_count,
+        "results": results,
+        "message": f"Reprocessed {success_count}/{len(docs)} documents successfully",
+    }
 
 
 @router.delete("/{doc_id}", status_code=204)

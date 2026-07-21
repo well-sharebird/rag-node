@@ -10,6 +10,21 @@ Retrieval-Augmented Generation (RAG) system with:
 - **Cache**: Redis 7.4.x
 - **Task Queue**: arq (Redis-based)
 
+## 1.3 角色定义 (RBAC)
+
+平台采用基于角色的访问控制 (RBAC) 模型，定义四种核心角色：
+
+| 角色 | 职责 | 典型用户 |
+|------|------|----------|
+| **Admin（管理员）** | 平台全量控制：用户管理、角色分配、系统配置、审计日志查看、告警管理 | IT 管理员、平台 Owner |
+| **Editor（编辑者）** | 知识库内容运营：上传文档、管理连接器、审查分块质量、运行评估测试 | 知识管理专员、技术文档工程师 |
+| **Viewer（查看者）** | 纯查询权限：在授权知识库范围内提问、查看引用来源、反馈答案质量 | 普通员工、团队成员 |
+| **Developer（开发者）** | 程序化集成：通过 API 构建自定义应用、集成聊天机器人、管理 API Keys | 工程师、集成开发人员 |
+
+**默认管理员账号**: `admin` / `admin123`（首次启动自动创建）
+
+详细设计文档见：`docs/README.md`
+
 ## Quick Start
 
 ### Start Infrastructure

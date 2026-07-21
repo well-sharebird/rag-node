@@ -1,5 +1,26 @@
 const API_BASE = '/api/v1';
 
+// Get token from localStorage
+function getAuthToken(): string | null {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('auth_token');
+  }
+  return null;
+}
+
+// Build headers with auth token if available
+function buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...customHeaders,
+  };
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 function toCamelCase(str: string): string {
   return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
@@ -31,7 +52,7 @@ function mapKeysToSnake(obj: any): any {
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers: buildHeaders(options?.headers as Record<string, string>),
     ...options,
   });
   if (res.status === 204) return undefined as T;
@@ -41,6 +62,20 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   }
   const data = await res.json();
   return mapKeysToCamel(data) as T;
+}
+
+// Raw request without camelCase conversion (for components that use snake_case)
+async function requestRaw<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${url}`, {
+    headers: buildHeaders(options?.headers as Record<string, string>),
+    ...options,
+  });
+  if (res.status === 204) return undefined as T;
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || err.detail || `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<T>;
 }
 
 // --- Knowledge Bases ---
@@ -317,7 +352,7 @@ export interface DataSourceSnake {
   name: string;
   source_type: string;
   description?: string;
-  kb_id: number;
+  kb_id: number | string;
   sync_mode: string;
   cron_expression?: string;
   auto_process: boolean;
@@ -373,43 +408,43 @@ export interface SyncJobSnake {
 }
 
 export function fetchDataSources() {
-  return request<{ items: DataSource[]; total: number }>('/data-sources');
+  return requestRaw<{ items: DataSourceSnake[]; total: number }>('/data-sources');
 }
 
 export function fetchDataSourcesPresets() {
-  return request<DataSourcePreset[]>('/data-sources/presets');
+  return requestRaw<DataSourcePresetSnake[]>('/data-sources/presets');
 }
 
 export function syncDataSource(id: number, fullSync?: boolean) {
-  return request<any>(`/data-sources/${id}/sync${fullSync ? '?full_sync=true' : ''}`, {
+  return requestRaw<any>(`/data-sources/${id}/sync${fullSync ? '?full_sync=true' : ''}`, {
     method: 'POST',
   });
 }
 
 export function getSyncJobStatus(jobId: number) {
-  return request<SyncJob>(`/data-sources/sync/${jobId}`);
+  return requestRaw<SyncJobSnake>(`/data-sources/sync/${jobId}`);
 }
 
 export function deleteDataSource(id: number) {
-  return request<void>(`/data-sources/${id}`, { method: 'DELETE' });
+  return requestRaw<void>(`/data-sources/${id}`, { method: 'DELETE' });
 }
 
-export function updateDataSource(id: number, data: Partial<DataSource>) {
-  return request<DataSource>(`/data-sources/${id}`, {
+export function updateDataSource(id: number, data: Partial<DataSourceSnake>) {
+  return requestRaw<DataSourceSnake>(`/data-sources/${id}`, {
     method: 'PUT',
-    body: JSON.stringify(mapKeysToSnake(data)),
+    body: JSON.stringify(data),
   });
 }
 
-export function createDataSource(data: Partial<DataSource>) {
-  return request<DataSource>('/data-sources', {
+export function createDataSource(data: Partial<DataSourceSnake>) {
+  return requestRaw<DataSourceSnake>('/data-sources', {
     method: 'POST',
-    body: JSON.stringify(mapKeysToSnake(data)),
+    body: JSON.stringify(data),
   });
 }
 
 export function getSyncHistory(id: number) {
-  return request<SyncJob[]>(`/data-sources/${id}/sync-history`);
+  return requestRaw<SyncJobSnake[]>(`/data-sources/${id}/sync-history`);
 }
 
 // --- Model Management ---
@@ -452,10 +487,14 @@ export interface ModelConfigSnake {
   provider: string;
   description?: string;
   api_url?: string;
+  api_key?: string;
   status: 'active' | 'inactive' | 'error' | 'testing';
   is_default: boolean;
   is_enabled: boolean;
   embedding_dim?: number;
+  temperature?: number;
+  max_tokens?: number;
+  top_p?: number;
   created_at: string;
   updated_at: string;
 }
@@ -473,32 +512,260 @@ export interface ModelPresetSnake {
 }
 
 export function fetchModels() {
-  return request<{ items: ModelConfig[]; total: number }>('/models');
+  return requestRaw<{ items: ModelConfigSnake[]; total: number }>('/models');
 }
 
 export function fetchModelPresets(modelType?: string) {
   const qs = modelType ? `/presets?model_type=${modelType}` : '/presets';
-  return request<ModelPreset[]>(`/models${qs}`);
+  return requestRaw<ModelPresetSnake[]>(`/models${qs}`);
 }
 
 export function testModelConnection(id: number) {
-  return request<any>(`/models/${id}/test`, { method: 'POST' });
+  return requestRaw<any>(`/models/${id}/test`, { method: 'POST' });
 }
 
 export function deleteModel(id: number) {
-  return request<void>(`/models/${id}`, { method: 'DELETE' });
+  return requestRaw<void>(`/models/${id}`, { method: 'DELETE' });
 }
 
-export function updateModel(id: number, data: Partial<ModelConfig>) {
-  return request<ModelConfig>(`/models/${id}`, {
+export function updateModel(id: number, data: Partial<ModelConfigSnake>) {
+  return requestRaw<ModelConfigSnake>(`/models/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+export function createModel(data: Partial<ModelConfigSnake>) {
+  return requestRaw<ModelConfigSnake>('/models', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+// --- User Management ---
+export interface UserData {
+  id: number;
+  email: string;
+  username: string;
+  fullName?: string;
+  isActive: boolean;
+  tenantId?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+  roles: RoleData[];
+}
+
+export interface RoleData {
+  id: number;
+  name: string;
+  description?: string;
+  isSystem: boolean;
+}
+
+export interface UserListResponse {
+  items: UserData[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+export interface UserCreate {
+  email: string;
+  username: string;
+  password: string;
+  fullName?: string;
+  tenantId?: string;
+  isActive?: boolean;
+  roleIds?: number[];
+}
+
+export interface UserUpdate {
+  email?: string;
+  username?: string;
+  password?: string;
+  fullName?: string;
+  isActive?: boolean;
+  tenantId?: string;
+}
+
+export function fetchUsers(search?: string, role?: string) {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (role) params.set('role', role);
+  const qs = params.toString();
+  return requestRaw<UserListResponse>(`/users${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchUser(id: number) {
+  return requestRaw<UserData>(`/users/${id}`);
+}
+
+export function createUser(data: UserCreate) {
+  return requestRaw<UserData>('/users', {
+    method: 'POST',
+    body: JSON.stringify(mapKeysToSnake(data)),
+  });
+}
+
+export function updateUser(id: number, data: UserUpdate) {
+  return requestRaw<UserData>(`/users/${id}`, {
     method: 'PUT',
     body: JSON.stringify(mapKeysToSnake(data)),
   });
 }
 
-export function createModel(data: Partial<ModelConfig>) {
-  return request<ModelConfig>('/models', {
+export function deleteUser(id: number) {
+  return requestRaw<void>(`/users/${id}`, { method: 'DELETE' });
+}
+
+export function assignUserRoles(id: number, roleIds: number[]) {
+  return requestRaw<UserData>(`/users/${id}/roles`, {
+    method: 'POST',
+    body: JSON.stringify({ role_ids: roleIds }),
+  });
+}
+
+export function fetchUserRoles(id: number) {
+  return requestRaw<RoleData[]>(`/users/${id}/roles`);
+}
+
+export function fetchRoles() {
+  return requestRaw<{ items: RoleData[] }>('/users/roles');
+}
+
+export function createRole(name: string, description?: string) {
+  return requestRaw<RoleData>(`/users/roles?role_name=${encodeURIComponent(name)}${description ? `&description=${encodeURIComponent(description)}` : ''}`, {
+    method: 'POST',
+  });
+}
+
+// --- Token Usage & Model Management ---
+
+export interface TokenUsageStats {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalCost: number;
+  requestCount: number;
+  periodDays: number;
+}
+
+export interface TokenUsageTrendItem {
+  date: string;
+  totalTokens: number;
+  cost: number;
+  requests: number;
+}
+
+export interface UserQuota {
+  id: number;
+  userId: number;
+  dailyTokenLimit?: number;
+  dailyCostLimit?: number;
+  monthlyTokenLimit?: number;
+  monthlyCostLimit?: number;
+  usedDailyTokens: number;
+  usedDailyCost: number;
+  usedMonthlyTokens: number;
+  usedMonthlyCost: number;
+  dailyResetAt?: string;
+  monthlyResetAt?: string;
+  isActive: boolean;
+  exceededAction: string;
+}
+
+export interface UserQuotaUpdate {
+  dailyTokenLimit?: number;
+  dailyCostLimit?: number;
+  monthlyTokenLimit?: number;
+  monthlyCostLimit?: number;
+  isActive?: boolean;
+  exceededAction?: string;
+}
+
+export interface ModelProvider {
+  id: number;
+  name: string;
+  displayName: string;
+  providerType: 'api' | 'local';
+  category: string;
+  apiBase?: string;
+  authType?: string;
+  pricing?: Record<string, any>;
+  capabilities?: string[];
+  supportedModels?: string[];
+  icon?: string;
+  description?: string;
+  isEnabled: boolean;
+  isDefault: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DashboardStats {
+  totalUsers: number;
+  totalTokensToday: number;
+  totalTokensMonth: number;
+  totalCostToday: number;
+  totalCostMonth: number;
+  activeModels: number;
+  requestsToday: number;
+}
+
+export function fetchMyTokenUsage(days?: number, modelType?: string) {
+  const params = new URLSearchParams();
+  if (days) params.set('days', String(days));
+  if (modelType) params.set('model_type', modelType);
+  const qs = params.toString();
+  return requestRaw<TokenUsageStats>(`/token-usage/my-stats${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchMyTokenTrend(days?: number, modelType?: string) {
+  const params = new URLSearchParams();
+  if (days) params.set('days', String(days));
+  if (modelType) params.set('model_type', modelType);
+  const qs = params.toString();
+  return requestRaw<{ items: TokenUsageTrendItem[] }>(`/token-usage/my-trend${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchMyQuota() {
+  return requestRaw<UserQuota>('/token-usage/my-quota');
+}
+
+export function fetchDashboardStats() {
+  return requestRaw<DashboardStats>('/token-usage/admin/stats');
+}
+
+export function fetchTopUsers(days?: number, limit?: number) {
+  const params = new URLSearchParams();
+  if (days) params.set('days', String(days));
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return requestRaw<{ items: any[] }>(`/token-usage/admin/users${qs ? `?${qs}` : ''}`);
+}
+
+export function fetchAllQuotas() {
+  return requestRaw<{ items: UserQuota[] }>('/token-usage/admin/quotas');
+}
+
+export function setUserQuota(userId: number, data: UserQuotaUpdate) {
+  return requestRaw<UserQuota>(`/token-usage/admin/quota/${userId}`, {
     method: 'POST',
     body: JSON.stringify(mapKeysToSnake(data)),
   });
+}
+
+export function fetchModelProviders() {
+  return requestRaw<ModelProvider[]>('/token-usage/admin/providers');
+}
+
+export function createModelProvider(data: Partial<ModelProvider>) {
+  return requestRaw<ModelProvider>('/token-usage/admin/providers', {
+    method: 'POST',
+    body: JSON.stringify(mapKeysToSnake(data)),
+  });
+}
+
+export function deleteRole(id: number) {
+  return requestRaw<void>(`/users/roles/${id}`, { method: 'DELETE' });
 }
