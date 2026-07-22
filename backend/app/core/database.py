@@ -1,5 +1,6 @@
 import logging
-from sqlalchemy import exc as sqlalchemy_exc
+from typing import AsyncGenerator
+from sqlalchemy import exc as sqlalchemy_exc, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from app.config import settings
 
@@ -21,12 +22,11 @@ async_session_factory = async_sessionmaker(
 )
 
 
-async def get_db():
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency: yields a database session with auto-commit/rollback."""
     async with async_session_factory() as session:
         try:
             yield session
-            await session.commit()
         except sqlalchemy_exc.SQLAlchemyError:
             logger.exception("Database error, rolling back")
             await session.rollback()
@@ -45,9 +45,8 @@ async def close_db():
 async def check_db_health() -> bool:
     """Check PostgreSQL connectivity."""
     try:
-        from sqlalchemy import text as sql_text
         async with async_session_factory() as session:
-            await session.execute(sql_text("SELECT 1"))
+            await session.execute(text("SELECT 1"))
             return True
     except Exception:
         return False

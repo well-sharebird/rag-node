@@ -72,6 +72,7 @@ def upgrade() -> None:
         sa.Column('version_id', sa.Integer(), nullable=False),
         sa.Column('meta_config', postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default='{}'),
         sa.Column('updated_by', sa.String(length=255), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('NOW()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('NOW()'), nullable=False),
         sa.ForeignKeyConstraint(['template_id'], ['prompt_templates.id'], ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['version_id'], ['prompt_versions.id'], ondelete='CASCADE'),

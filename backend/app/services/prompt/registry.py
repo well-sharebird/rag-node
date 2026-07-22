@@ -50,13 +50,40 @@ class PromptRegistryService:
         """获取模板详情"""
         result = await self.db.execute(
             select(PromptTemplate)
-            .options(
-                selectinload(PromptTemplate.versions),
-                selectinload(PromptTemplate.tags).selectinload(PromptTag.version),
-            )
             .where(PromptTemplate.name == name)
         )
         return result.scalar_one_or_none()
+
+    async def get_template_with_tags(self, name: str) -> Optional[dict]:
+        """获取模板详情（包含标签）"""
+        result = await self.db.execute(
+            select(PromptTemplate)
+            .where(PromptTemplate.name == name)
+        )
+        template = result.scalar_one_or_none()
+        if not template:
+            return None
+
+        # 同时加载标签
+        tags_result = await self.db.execute(
+            select(PromptTag, PromptVersion)
+            .join(PromptVersion, PromptTag.version_id == PromptVersion.id)
+            .where(PromptTag.template_id == template.id)
+        )
+        tags_data = tags_result.all()
+        current_tags = {tag.tag_name: ver.version for tag, ver in tags_data}
+
+        return {
+            'id': template.id,
+            'name': template.name,
+            'description': template.description,
+            'category': template.category,
+            'owner': template.owner,
+            'status': template.status,
+            'created_at': template.created_at,
+            'updated_at': template.updated_at,
+            'current_tags': current_tags,
+        }
 
     async def list_templates(
         self,
@@ -64,10 +91,10 @@ class PromptRegistryService:
         category: Optional[str] = None,
         offset: int = 0,
         limit: int = 20,
-    ) -> tuple[List[PromptTemplate], int]:
+    ) -> tuple[List[dict], int]:
         """获取模板列表"""
+        # 获取模板列表
         query = select(PromptTemplate)
-
         if status:
             query = query.where(PromptTemplate.status == status)
         if category:
@@ -81,10 +108,40 @@ class PromptRegistryService:
         # 获取数据
         query = query.order_by(desc(PromptTemplate.created_at))
         query = query.offset(offset).limit(limit)
-
         result = await self.db.execute(query)
         templates = result.scalars().all()
-        return list(templates), total
+        template_ids = [t.id for t in templates]
+
+        # 一次性获取所有标签
+        tags_query = select(PromptTag, PromptVersion).join(
+            PromptVersion, PromptTag.version_id == PromptVersion.id
+        ).where(PromptTag.template_id.in_(template_ids))
+        tags_result = await self.db.execute(tags_query)
+        tags_data = tags_result.all()
+
+        # 构建模板 ID 到标签的映射
+        tags_map = {}
+        for tag, ver in tags_data:
+            if tag.template_id not in tags_map:
+                tags_map[tag.template_id] = {}
+            tags_map[tag.template_id][tag.tag_name] = ver.version
+
+        # 构建返回结果
+        items = []
+        for t in templates:
+            items.append({
+                'id': t.id,
+                'name': t.name,
+                'description': t.description,
+                'category': t.category,
+                'owner': t.owner,
+                'status': t.status,
+                'created_at': t.created_at,
+                'updated_at': t.updated_at,
+                'current_tags': tags_map.get(t.id, {}),
+            })
+
+        return items, total
 
     async def update_template(
         self, name: str, data: PromptTemplateUpdate, actor: str

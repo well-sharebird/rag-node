@@ -74,7 +74,6 @@ function MainAppContent() {
       case 'qa-chat':
         return <QAChatView />;
       case 'knowledge-bases':
-      case 'documents':
         return <KnowledgeBaseManager />;
       case 'retrieval-test':
         return <RetrievalTestView />;

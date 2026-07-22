@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.core.database import get_db_session
+from app.core.database import async_session_factory
 from app.models.prompt_template import PromptTemplate, PromptVersion, PromptTag
 from app.schemas.prompt import (
     PromptTemplateCreate,
@@ -38,13 +38,7 @@ from app.services.prompt import (
 
 def get_db() -> AsyncSession:
     """获取数据库会话"""
-    from app.config import settings
-
-    engine = create_async_engine(
-        settings.database_url,
-        echo=False,
-    )
-    return sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)()
+    return async_session_factory()
 
 
 # ==================== Commit Command ====================
@@ -331,10 +325,15 @@ async def cmd_list(name: Optional[str] = None):
             print(f"提示词模板列表 (共 {total} 个)")
             print("-" * 60)
             for t in templates:
-                tags = await registry.list_tags(t.name)
+                # t is now a dict
+                template_name = t.get('name') if isinstance(t, dict) else t.name
+                tags = await registry.list_tags(template_name)
                 tag_str = ", ".join([f"{tag.tag_name}={tag.version.version}" for tag in tags if tag.version])
-                print(f"  {t.name}")
-                print(f"    分类：{t.category}, 状态：{t.status}")
+                print(f"  {template_name}")
+                if isinstance(t, dict):
+                    print(f"    分类：{t.get('category')}, 状态：{t.get('status')}")
+                else:
+                    print(f"    分类：{t.category}, 状态：{t.status}")
                 print(f"    标签：{tag_str or '-'}")
 
     finally:

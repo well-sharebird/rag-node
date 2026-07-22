@@ -16,7 +16,7 @@ export interface PromptTemplate {
   status: 'active' | 'archived';
   created_at: string;
   updated_at: string;
-  current_tags?: Record<string, string>; // { stable: '1.0.0', beta: '1.1.0' }
+  current_tags?: Record<string, string>;
 }
 
 export interface PromptVersion {
@@ -131,9 +131,6 @@ export interface RenderRequest {
 
 // ==================== API Functions ====================
 
-/**
- * Template Management
- */
 export const promptsApi = {
   // Templates
   listTemplates: async (params?: { status?: string; category?: string; skip?: number; limit?: number }) => {
@@ -142,29 +139,23 @@ export const promptsApi = {
     if (params?.category) queryParams.append('category', params.category);
     if (params?.skip) queryParams.append('skip', String(params.skip));
     if (params?.limit) queryParams.append('limit', String(params.limit));
-
-    const response = await api.get(`/api/v1/prompts?${queryParams}`);
-    return response.json();
+    return api.get(`/api/v1/prompts?${queryParams}`);
   },
 
   getTemplate: async (name: string) => {
-    const response = await api.get(`/api/v1/prompts/${name}`);
-    return response.json();
+    return api.get(`/api/v1/prompts/${name}`);
   },
 
   createTemplate: async (data: CreateTemplateRequest) => {
-    const response = await api.post(`/api/v1/prompts`, JSON.stringify(data));
-    return response.json();
+    return api.post(`/api/v1/prompts`, JSON.stringify(data));
   },
 
   updateTemplate: async (name: string, data: Partial<CreateTemplateRequest>) => {
-    const response = await api.put(`/api/v1/prompts/${name}`, JSON.stringify(data));
-    return response.json();
+    return api.put(`/api/v1/prompts/${name}`, JSON.stringify(data));
   },
 
   archiveTemplate: async (name: string) => {
-    const response = await api.delete(`/api/v1/prompts/${name}`);
-    return response.ok;
+    return api.delete(`/api/v1/prompts/${name}`);
   },
 
   // Versions
@@ -173,48 +164,39 @@ export const promptsApi = {
     if (params?.status) queryParams.append('status_filter', params.status);
     if (params?.skip) queryParams.append('skip', String(params.skip));
     if (params?.limit) queryParams.append('limit', String(params.limit));
-
-    const response = await api.get(`/api/v1/prompts/${name}/versions?${queryParams}`);
-    return response.json();
+    return api.get(`/api/v1/prompts/${name}/versions?${queryParams}`);
   },
 
   getVersion: async (name: string, version: string) => {
-    const response = await api.get(`/api/v1/prompts/${name}/versions/${version}`);
-    return response.json();
+    return api.get(`/api/v1/prompts/${name}/versions/${version}`);
   },
 
   createVersion: async (name: string, data: CreateVersionRequest) => {
-    const response = await api.post(`/api/v1/prompts/${name}/versions`, JSON.stringify(data));
-    return response.json();
+    return api.post(`/api/v1/prompts/${name}/versions`, JSON.stringify(data));
   },
 
   releaseVersion: async (name: string, versionId: number) => {
-    const response = await api.post(`/api/v1/prompts/${name}/versions/${versionId}/release`, JSON.stringify({}));
-    return response.json();
+    return api.post(`/api/v1/prompts/${name}/versions/${versionId}/release`, JSON.stringify({}));
   },
 
   // Tags
   listTags: async (name: string) => {
-    const response = await api.get(`/api/v1/prompts/${name}/tags`);
-    return response.json();
+    return api.get(`/api/v1/prompts/${name}/tags`);
   },
 
   setTag: async (name: string, data: SetTagRequest) => {
-    const response = await api.post(`/api/v1/prompts/${name}/tags`, JSON.stringify(data));
-    return response.json();
+    return api.post(`/api/v1/prompts/${name}/tags`, JSON.stringify(data));
   },
 
   deleteTag: async (name: string, tagName: string) => {
-    const response = await api.delete(`/api/v1/prompts/${name}/tags/${tagName}`);
-    return response.ok;
+    return api.delete(`/api/v1/prompts/${name}/tags/${tagName}`);
   },
 
   rollback: async (name: string, targetVersionId: number, tagName: string = 'stable') => {
-    const response = await api.post(`/api/v1/prompts/${name}/rollback`, JSON.stringify({
+    return api.post(`/api/v1/prompts/${name}/rollback`, JSON.stringify({
       target_version_id: targetVersionId,
       tag_name: tagName,
     }));
-    return response.json();
   },
 
   // Test Cases
@@ -222,9 +204,7 @@ export const promptsApi = {
     const queryParams = new URLSearchParams();
     if (params?.is_active !== undefined) queryParams.append('is_active', String(params.is_active));
     if (params?.priority !== undefined) queryParams.append('priority', String(params.priority));
-
-    const response = await api.get(`/api/v1/prompts/${name}/test-cases?${queryParams}`);
-    return response.json();
+    return api.get(`/api/v1/prompts/${name}/test-cases?${queryParams}`);
   },
 
   createTestCase: async (name: string, data: {
@@ -234,25 +214,21 @@ export const promptsApi = {
     tags?: string[];
     priority?: number;
   }) => {
-    const response = await api.post(`/api/v1/prompts/${name}/test-cases`, JSON.stringify(data));
-    return response.json();
+    return api.post(`/api/v1/prompts/${name}/test-cases`, JSON.stringify(data));
   },
 
   deleteTestCase: async (caseId: number) => {
-    const response = await api.delete(`/api/v1/prompts/test-cases/${caseId}`);
-    return response.ok;
+    return api.delete(`/api/v1/prompts/test-cases/${caseId}`);
   },
 
   // Evaluation
   runEvaluation: async (name: string, data: RunEvalRequest) => {
-    const response = await api.post(`/api/v1/prompts/${name}/eval`, JSON.stringify(data));
-    return response.json();
+    return api.post(`/api/v1/prompts/${name}/eval`, JSON.stringify(data));
   },
 
   // Rendering
   render: async (name: string, data: RenderRequest) => {
-    const response = await api.post(`/api/v1/prompts/${name}/render`, JSON.stringify(data));
-    return response.json();
+    return api.post(`/api/v1/prompts/${name}/render`, JSON.stringify(data));
   },
 
   // Audit Logs
@@ -261,8 +237,6 @@ export const promptsApi = {
     if (params?.skip) queryParams.append('skip', String(params.skip));
     if (params?.limit) queryParams.append('limit', String(params.limit));
     if (params?.action) queryParams.append('action', params.action);
-
-    const response = await api.get(`/api/v1/prompts/${name}/audit-logs?${queryParams}`);
-    return response.json();
+    return api.get(`/api/v1/prompts/${name}/audit-logs?${queryParams}`);
   },
 };

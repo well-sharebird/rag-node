@@ -35,7 +35,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', icon: LayoutDashboard, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'qa-chat', icon: MessageSquare, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'knowledge-bases', icon: Database, section: 'workspace', sectionKey: 'nav.workspace', hasCount: true },
-  { id: 'documents', icon: FileUp, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'retrieval-test', icon: Search, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'data-ingestion', icon: Plug, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'skill-management', icon: Package, section: 'tools', sectionKey: 'nav.tools' },

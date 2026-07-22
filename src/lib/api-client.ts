@@ -42,6 +42,14 @@ async function fetchApi<T>(
     return undefined as T;
   }
 
+  // Check if response is JSON before parsing
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    const text = await response.text();
+    console.error('Expected JSON but received:', text.substring(0, 200));
+    throw new Error(`服务器返回了非 JSON 响应 (HTTP ${response.status})`);
+  }
+
   return response.json();
 }
 

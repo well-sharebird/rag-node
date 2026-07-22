@@ -3,7 +3,7 @@
 import re
 from typing import Dict, Any, List, Tuple
 from jinja2.sandbox import SandboxedEnvironment, SecurityError
-from jinja2 import UndefinedError, TemplateError
+from jinja2 import UndefinedError, TemplateError, DebugUndefined
 
 
 class PromptRenderer:
@@ -14,10 +14,16 @@ class PromptRenderer:
     """
 
     # 沙箱环境配置
-    _env = SandboxedEnvironment(
-        autoescape=False,  # 输出为纯文本，非 HTML
-        undefined=lambda: "",  # 缺失变量返回空串
-    )
+    _env: SandboxedEnvironment = None  # lazy init
+
+    @classmethod
+    def _get_env(cls) -> SandboxedEnvironment:
+        if cls._env is None:
+            cls._env = SandboxedEnvironment(
+                autoescape=False,  # 输出为纯文本，非 HTML
+                undefined=DebugUndefined,  # 缺失变量返回空串
+            )
+        return cls._env
 
     @staticmethod
     def render(
@@ -45,7 +51,7 @@ class PromptRenderer:
 
         # 2. 沙箱渲染
         try:
-            template = PromptRenderer._env.from_string(content)
+            template = PromptRenderer._get_env().from_string(content)
             rendered = template.render(**validated_vars)
         except SecurityError as e:
             raise SecurityError(f"模板注入检测：{str(e)}")

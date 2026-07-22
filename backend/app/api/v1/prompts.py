@@ -9,6 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.auth import get_current_user, require_role
+from typing import Annotated, List
+
+# Helper for multiple role checking
+def require_any_role(*role_names: str):
+    """Require any of the specified roles"""
+    async def role_checker(
+        current_user: Annotated[User, Depends(get_current_user)],
+    ) -> User:
+        user_roles = {r.name for r in current_user.roles}
+        if not any(role in user_roles for role in role_names):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing required role. Need one of: {', '.join(role_names)}",
+            )
+        return current_user
+    return role_checker
 from app.models.user import User
 from app.schemas.prompt import (
     # Request
@@ -36,6 +52,7 @@ from app.schemas.prompt import (
     TestCaseListResponse,
     AuditLogListResponse,
 )
+from app.models.prompt_template import PromptTag, PromptVersion
 from app.services.prompt import (
     PromptRegistryService,
     PromptRenderer,
@@ -54,7 +71,7 @@ router = APIRouter(prefix="/prompts", tags=["Prompt Engineering"])
 async def create_template(
     data: PromptTemplateCreate,
     request: Request,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """创建提示词模板"""
@@ -76,7 +93,7 @@ async def create_template(
         actor=current_user.username,
         action=AuditService.ACTION_CREATE,
         resource_type=AuditService.RESOURCE_TEMPLATE,
-        resource_id=template.id,
+        resource_id=template['id'],
         new_value=data.model_dump(),
         ip_address=request.client.host if request.client else None,
     )
@@ -90,35 +107,17 @@ async def list_templates(
     limit: int = 20,
     status_filter: Optional[str] = None,
     category: Optional[str] = None,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """获取模板列表"""
     registry = PromptRegistryService(db)
-    templates, total = await registry.list_templates(
+    items, total = await registry.list_templates(
         status=status_filter,
         category=category,
         offset=skip,
         limit=limit,
     )
-
-    # 构建响应（包含当前标签）
-    items = []
-    for t in templates:
-        current_tags = {tag.tag_name: tag.version.version for tag in t.tags if tag.version}
-        items.append(
-            PromptTemplateResponse(
-                id=t.id,
-                name=t.name,
-                description=t.description,
-                category=t.category,
-                owner=t.owner,
-                status=t.status,
-                created_at=t.created_at,
-                updated_at=t.updated_at,
-                current_tags=current_tags,
-            )
-        )
 
     return TemplateListResponse(items=items, total=total)
 
@@ -126,12 +125,12 @@ async def list_templates(
 @router.get("/{name}", response_model=PromptTemplateResponse)
 async def get_template(
     name: str,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """获取模板详情"""
     registry = PromptRegistryService(db)
-    template = await registry.get_template(name)
+    template = await registry.get_template_with_tags(name)
 
     if not template:
         raise HTTPException(
@@ -139,17 +138,16 @@ async def get_template(
             detail=f"模板 '{name}' 不存在",
         )
 
-    current_tags = {tag.tag_name: tag.version.version for tag in template.tags if tag.version}
     return PromptTemplateResponse(
-        id=template.id,
-        name=template.name,
-        description=template.description,
-        category=template.category,
-        owner=template.owner,
-        status=template.status,
-        created_at=template.created_at,
-        updated_at=template.updated_at,
-        current_tags=current_tags,
+        id=template['id'],
+        name=template['name'],
+        description=template['description'],
+        category=template['category'],
+        owner=template['owner'],
+        status=template['status'],
+        created_at=template['created_at'],
+        updated_at=template['updated_at'],
+        current_tags=template['current_tags'],
     )
 
 
@@ -158,7 +156,7 @@ async def update_template(
     name: str,
     data: PromptTemplateUpdate,
     request: Request,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """更新模板元数据"""
@@ -233,7 +231,7 @@ async def create_version(
     name: str,
     data: PromptVersionCreate,
     request: Request,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """创建新版本"""
@@ -276,7 +274,7 @@ async def list_versions(
     skip: int = 0,
     limit: int = 20,
     status_filter: Optional[str] = None,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """获取版本列表"""
@@ -312,7 +310,7 @@ async def list_versions(
 async def get_version(
     name: str,
     version: str,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """获取指定版本详情"""
@@ -349,7 +347,7 @@ async def release_version(
     version_id: int,
     request: Request,
     data: Optional[PromptVersionRelease] = None,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """发布版本（draft -> released）"""
@@ -383,7 +381,7 @@ async def release_version(
 @router.get("/{name}/tags", response_model=TagListResponse)
 async def list_tags(
     name: str,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """获取所有标签"""
@@ -412,7 +410,7 @@ async def set_tag(
     name: str,
     data: TagCreate,
     request: Request,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """设置标签（创建或更新）"""
@@ -544,7 +542,7 @@ async def run_evaluation(
     name: str,
     data: EvalRequest,
     request: Request,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """运行离线评估（LLM-as-Judge）"""
@@ -614,7 +612,7 @@ async def list_test_cases(
     name: str,
     is_active: Optional[bool] = None,
     priority: Optional[int] = None,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """获取测试用例列表"""
@@ -645,7 +643,7 @@ async def create_test_case(
     name: str,
     data: TestCaseCreate,
     request: Request,
-    current_user: User = Depends(require_role("Admin", "Editor")),
+    current_user: User = Depends(require_any_role("Admin", "Editor")),
     db: AsyncSession = Depends(get_db),
 ):
     """创建测试用例"""
@@ -691,7 +689,7 @@ async def create_test_case(
 async def render_prompt(
     name: str,
     data: RenderRequest,
-    current_user: User = Depends(require_role("Admin", "Editor", "Viewer")),
+    current_user: User = Depends(require_any_role("Admin", "Editor", "Viewer")),
     db: AsyncSession = Depends(get_db),
 ):
     """渲染提示词模板

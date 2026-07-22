@@ -3,9 +3,9 @@ import { useAppContext } from '@/lib/app-context';
 import { useAuth } from '@/src/lib/auth-context';
 import { useI18n } from '@/src/lib/i18n';
 import { toast } from 'sonner';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Send, Bot, User, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, ChevronDown, ChevronRight } from 'lucide-react';
+import { Send, Bot, User, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, ChevronDown, ChevronRight, AtSign, Check } from 'lucide-react';
 import { SourcePanel } from './SourcePanel';
+import { cn } from '@/lib/utils';
 
 interface Citation {
   index: number;
@@ -75,8 +75,8 @@ interface FeedbackData {
 export function QAChatView() {
   const { knowledgeBases } = useAppContext();
   const { token } = useAuth();
-  const { t } = useI18n();
-  const [selectedKb, setSelectedKb] = useState('');
+  const { t, language } = useI18n();
+  const [selectedKbs, setSelectedKbs] = useState<string[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -84,6 +84,12 @@ export function QAChatView() {
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [allCitations, setAllCitations] = useState<Citation[]>([]);
+
+  // @ mention selector state
+  const [showKbSelector, setShowKbSelector] = useState(false);
+  const [kbSelectorIndex, setKbSelectorIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -92,8 +98,20 @@ export function QAChatView() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Close KB selector on Escape
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowKbSelector(false);
+    };
+    window.addEventListener('keydown', handleEsc);
+    return () => window.removeEventListener('keydown', handleEsc);
+  }, []);
+
   const handleSend = async () => {
-    if (!input.trim() || !selectedKb) return;
+    if (!input.trim() || selectedKbs.length === 0) {
+      toast.error(language === 'zh' ? '请选择知识库' : 'Please select a knowledge base');
+      return;
+    }
     const query = input.trim();
     setInput('');
 
@@ -127,11 +145,11 @@ export function QAChatView() {
         },
         body: JSON.stringify({
           query,
-          kb_ids: [selectedKb],
+          kb_ids: selectedKbs,
           top_k: 5,
           enable_rerank: true,
           enable_expansion: true,
-          stream: true,  // Enable streaming
+          stream: true,
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -318,7 +336,6 @@ export function QAChatView() {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    // Mark last message as complete
     setMessages(prev => {
       const lastAssistantMsg = [...prev].reverse().find(m => m.role === 'assistant' && m.isStreaming);
       if (lastAssistantMsg) {
@@ -331,6 +348,53 @@ export function QAChatView() {
       return prev;
     });
     setLoading(false);
+  };
+
+  // Handle @ key to show KB selector
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (showKbSelector) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setKbSelectorIndex(prev => (prev + 1) % knowledgeBases.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setKbSelectorIndex(prev => (prev - 1 + knowledgeBases.length) % knowledgeBases.length);
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const selected = knowledgeBases[kbSelectorIndex];
+        if (selected && !selectedKbs.includes(selected.id)) {
+          setSelectedKbs(prev => [...prev, selected.id]);
+        }
+        setShowKbSelector(false);
+        setInput(prev => prev.replace(/@$/, ''));
+      } else if (e.key === 'Escape') {
+        setShowKbSelector(false);
+      }
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setInput(value);
+    // Show KB selector when @ is typed
+    if (value.endsWith('@')) {
+      setShowKbSelector(true);
+      setKbSelectorIndex(0);
+    } else {
+      setShowKbSelector(false);
+    }
+  };
+
+  const toggleKbSelection = (kbId: string) => {
+    setSelectedKbs(prev =>
+      prev.includes(kbId)
+        ? prev.filter(id => id !== kbId)
+        : [...prev, kbId]
+    );
+  };
+
+  const removeKb = (kbId: string) => {
+    setSelectedKbs(prev => prev.filter(id => id !== kbId));
   };
 
   return (
@@ -352,16 +416,6 @@ export function QAChatView() {
               来源 ({allCitations.length})
             </button>
           )}
-          <Select value={selectedKb} onValueChange={(v) => setSelectedKb(v)}>
-            <SelectTrigger className="w-[220px] rounded-md h-9 text-[13px]" style={{ borderColor: '#e2e1dd' }}>
-              <SelectValue placeholder={t('qa.selectKb')} />
-            </SelectTrigger>
-            <SelectContent className="rounded-md">
-              {knowledgeBases.map(kb => (
-                <SelectItem key={kb.id} value={kb.id} className="text-[13px] rounded">{kb.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </header>
 
@@ -510,34 +564,138 @@ export function QAChatView() {
 
       {/* Input */}
       <div className="p-4 bg-white shrink-0" style={{ borderTop: '0.5px solid #e2e1dd' }}>
-        <div className="max-w-3xl mx-auto flex gap-2">
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSend()}
-            placeholder={t('qa.placeholder')}
-            disabled={loading}
-            className="flex-1 px-4 py-2.5 text-[13px] rounded-lg border outline-none disabled:opacity-50"
-            style={{ borderColor: '#e2e1dd' }}
-          />
-          {loading ? (
-            <button
-              onClick={handleStop}
-              className="px-4 py-2.5 rounded-lg text-white font-medium transition-colors text-[13px]"
-              style={{ background: '#dc2626' }}
+        <div className="max-w-3xl mx-auto">
+          {/* Selected KBs display */}
+          {selectedKbs.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {selectedKbs.map(kbId => {
+                const kb = knowledgeBases.find(k => k.id === kbId);
+                return (
+                  <span
+                    key={kbId}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium"
+                    style={{ background: '#eeedfe', color: '#534ab7' }}
+                  >
+                    <BookOpen className="w-3 h-3" />
+                    {kb?.name || kbId}
+                    <button
+                      onClick={() => removeKb(kbId)}
+                      className="hover:opacity-70"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex gap-2 relative">
+            <div className="flex-1 relative">
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                  handleInputKeyDown(e);
+                }}
+                placeholder={selectedKbs.length === 0 ? `${t('qa.placeholder')} · @ 选择知识库` : t('qa.placeholder')}
+                disabled={loading}
+                className="w-full px-4 py-2.5 text-[13px] rounded-lg border outline-none disabled:opacity-50 pr-10"
+                style={{ borderColor: '#e2e1dd' }}
+              />
+              <AtSign
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999]"
+              />
+            </div>
+            {loading ? (
+              <button
+                onClick={handleStop}
+                className="px-4 py-2.5 rounded-lg text-white font-medium transition-colors text-[13px]"
+                style={{ background: '#dc2626' }}
+              >
+                {t('qa.stop')}
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={selectedKbs.length === 0}
+                className="px-4 py-2.5 rounded-lg text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 text-[13px]"
+                style={{ background: '#534ab7' }}
+              >
+                <Send className="w-3.5 h-3.5" />
+                {t('qa.send')}
+              </button>
+            )}
+          </div>
+
+          {/* KB Selector Popup - shows when @ is typed */}
+          {showKbSelector && (
+            <div
+              className="absolute bottom-28 left-1/2 -translate-x-1/2 w-full max-w-lg z-50"
+              style={{ pointerEvents: 'auto' }}
             >
-              {t('qa.stop')}
-            </button>
-          ) : (
-            <button
-              onClick={handleSend}
-              disabled={!selectedKb}
-              className="px-4 py-2.5 rounded-lg text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 text-[13px]"
-              style={{ background: '#534ab7' }}
-            >
-              <Send className="w-3.5 h-3.5" />
-              {t('qa.send')}
-            </button>
+              <div className="bg-white rounded-xl shadow-2xl border border-[#e5e5e5] overflow-hidden">
+                <div className="px-3 py-2 border-b border-[#e5e5e5] bg-[#f9f9f9] flex items-center justify-between">
+                  <span className="text-xs font-medium text-[#666]">
+                    {language === 'zh' ? '选择知识库' : 'Select Knowledge Base'}
+                  </span>
+                  <button
+                    onClick={() => setShowKbSelector(false)}
+                    className="text-[#999] hover:text-[#666]"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="max-h-64 overflow-y-auto p-1.5">
+                  {knowledgeBases.length === 0 ? (
+                    <div className="py-8 text-center text-sm text-[#999]">
+                      {language === 'zh' ? '暂无知识库' : 'No knowledge bases'}
+                    </div>
+                  ) : (
+                    knowledgeBases.map((kb, idx) => {
+                      const isSelected = selectedKbs.includes(kb.id);
+                      return (
+                        <button
+                          key={kb.id}
+                          onClick={() => toggleKbSelection(kb.id)}
+                          className={cn(
+                            "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
+                            idx === kbSelectorIndex ? "bg-[#f5f5f5]" : "",
+                            isSelected ? "bg-[#eeedfe]" : "hover:bg-[#f9f9f9]"
+                          )}
+                        >
+                          <BookOpen className={cn(
+                            "w-4 h-4",
+                            isSelected ? "text-[#534ab7]" : "text-[#999]"
+                          )} />
+                          <span className={cn(
+                            "flex-1 text-left truncate",
+                            isSelected ? "text-[#534ab7] font-medium" : "text-[#1a1a1a]"
+                          )}>
+                            {kb.name}
+                          </span>
+                          {isSelected && (
+                            <Check className="w-4 h-4 text-[#534ab7]" />
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="px-3 py-2 border-t border-[#e5e5e5] bg-[#f9f9f9]">
+                  <p className="text-[10px] text-[#999]">
+                    {language === 'zh'
+                      ? '↑↓ 导航，Enter 选择，Esc 关闭'
+                      : '↑↓ Navigate, Enter to select, Esc to close'}
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>

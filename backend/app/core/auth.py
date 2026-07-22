@@ -32,6 +32,8 @@ async def get_current_user(
     Get current authenticated user from JWT token.
     Raises HTTPException if authentication fails.
     """
+    from sqlalchemy.orm import selectinload
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -64,12 +66,14 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get user from database
+    # Get user from database with roles preloaded
     user_id = payload.get("sub")
     if user_id is None:
         raise credentials_exception
 
-    result = await db.execute(select(User).where(User.id == int(user_id)))
+    result = await db.execute(
+        select(User).options(selectinload(User.roles)).where(User.id == int(user_id))
+    )
     user = result.scalar_one_or_none()
 
     if user is None or not user.is_active:
