@@ -1,17 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAppContext } from '@/lib/app-context';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Search, Database, FileText, Clock, MoreVertical, Trash2, Settings, ChevronLeft, Upload, Eye, Download, RefreshCw, Loader2 } from 'lucide-react';
+import { Plus, Search, Database, FileText, Clock, MoreVertical, Trash2, Settings, ChevronLeft, Upload, Eye, Download, RefreshCw, Loader2, UploadCloud, X } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { useI18n } from '@/src/lib/i18n';
-import { fetchDocs, deleteDoc, DocData as DocType } from '@/lib/api-client';
+import { fetchDocs, deleteDoc, uploadDoc, batchUploadDocs, DocData as DocType } from '@/lib/api-client';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -38,6 +38,13 @@ export function KnowledgeBasesView() {
   const [docSearchTerm, setDocSearchTerm] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<DocType | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  // Upload state
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [newKbName, setNewKbName] = useState('');
   const [newKbDesc, setNewKbDesc] = useState('');
@@ -94,6 +101,57 @@ export function KnowledgeBasesView() {
   const filteredDocs = kbDocuments.filter(doc =>
     doc.name.toLowerCase().includes(docSearchTerm.toLowerCase())
   );
+
+  // Upload handlers
+  const handleFileSelect = (files: FileList | null) => {
+    if (files) {
+      setUploadFiles(prev => [...prev, ...Array.from(files)]);
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setUploadFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleClearFiles = () => {
+    setUploadFiles([]);
+  };
+
+  const handleUpload = async () => {
+    if (!viewingKb || uploadFiles.length === 0) return;
+
+    setUploading(true);
+    try {
+      for (const file of uploadFiles) {
+        await uploadDoc(viewingKb.id, file);
+      }
+      toast.success(`已上传 ${uploadFiles.length} 个文件`);
+      handleClearFiles();
+      setIsUploadOpen(false);
+      loadDocuments(viewingKb.id);
+    } catch (e: any) {
+      toast.error(`上传失败：${e.message}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files) {
+      setUploadFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+    }
+  };
 
   const handleCreate = () => {
     if (!newKbName) return;
@@ -175,6 +233,13 @@ export function KnowledgeBasesView() {
           </Dialog>
         ) : (
           <div className="flex items-center gap-2">
+            <Button
+              className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-800 shadow-sm gap-2 transition-all"
+              onClick={() => setIsUploadOpen(true)}
+            >
+              <UploadCloud className="w-4 h-4" />
+              上传文档
+            </Button>
             <Button variant="outline" size="sm" className="rounded-xl" onClick={() => loadDocuments(viewingKb.id)}>
               <RefreshCw className={`w-4 h-4 mr-1 ${loadingDocs ? 'animate-spin' : ''}`} /> 刷新
             </Button>
@@ -465,6 +530,124 @@ export function KnowledgeBasesView() {
             )}
             <DialogFooter>
               <Button variant="outline" className="rounded-xl" onClick={() => setIsPreviewOpen(false)}>关闭</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Upload Dialog */}
+        <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+          <DialogContent className="max-w-2xl rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                <UploadCloud className="w-5 h-5" />
+                上传文档到 "{viewingKb?.name}"
+              </DialogTitle>
+              <DialogDescription>
+                支持的文件格式：PDF, DOCX, XLSX, PPTX, TXT, MD, HTML, 图片 (JPG, PNG, TIFF, BMP)
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-4">
+              {/* Dropzone */}
+              <div
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                  isDragging ? 'border-blue-500 bg-blue-50' : 'border-slate-200 hover:border-slate-300'
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <UploadCloud className="w-10 h-10 text-slate-400 mx-auto mb-3" />
+                <p className="text-sm font-medium text-slate-700 mb-1">拖拽文件到此处，或点击选择文件</p>
+                <p className="text-xs text-slate-500 mb-4">单个文件最大 50MB</p>
+                <Button
+                  variant="outline"
+                  className="rounded-xl"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                >
+                  选择文件
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  accept=".pdf,.docx,.xlsx,.pptx,.txt,.md,.html,.htm,.jpg,.jpeg,.png,.tiff,.tif,.bmp"
+                  onChange={(e) => handleFileSelect(e.target.files)}
+                  disabled={uploading}
+                />
+              </div>
+
+              {/* File List */}
+              {uploadFiles.length > 0 && (
+                <div className="mt-4 space-y-2 max-h-60 overflow-y-auto">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-xs text-slate-500">已选择 {uploadFiles.length} 个文件</Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-red-600 hover:bg-red-50"
+                      onClick={handleClearFiles}
+                      disabled={uploading}
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      清空
+                    </Button>
+                  </div>
+                  {uploadFiles.map((file, index) => (
+                    <div
+                      key={`${file.name}-${index}`}
+                      className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-700 truncate">{file.name}</p>
+                          <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-slate-400 hover:text-red-600"
+                        onClick={() => handleRemoveFile(index)}
+                        disabled={uploading}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                className="rounded-xl"
+                onClick={() => { handleClearFiles(); setIsUploadOpen(false); }}
+                disabled={uploading}
+              >
+                取消
+              </Button>
+              <Button
+                className="bg-slate-900 text-white hover:bg-slate-800 rounded-xl"
+                onClick={handleUpload}
+                disabled={uploadFiles.length === 0 || uploading}
+              >
+                {uploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    上传中...
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-4 h-4 mr-2" />
+                    上传 {uploadFiles.length > 0 && `(${uploadFiles.length})`}
+                  </>
+                )}
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

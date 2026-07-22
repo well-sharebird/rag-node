@@ -5,8 +5,7 @@ import { AuthProvider, useAuth } from '@/src/lib/auth-context';
 import { Toaster } from 'sonner';
 import { Layout } from './components/Layout';
 import { DashboardView } from './components/DashboardView';
-import { KnowledgeBasesView } from './components/KnowledgeBasesView';
-import { DocumentsView } from './components/DocumentsView';
+import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
 import { RetrievalTestView } from './components/RetrievalTestView';
 import { SystemSettingsView } from './components/SystemSettingsView';
 import { QAChatView } from './components/QAChatView';
@@ -21,6 +20,8 @@ import { TokenUsageAnalysis } from './pages/TokenUsageAnalysis';
 import { QuotaManagement } from './pages/QuotaManagement';
 import { Login } from './pages/Login';
 import { Loader2 } from 'lucide-react';
+import { PromptTemplatesView } from './components/PromptTemplatesView';
+import { PromptTemplateDetail } from './components/PromptTemplateDetail';
 
 function PlaceholderView({ title, description }: { title: string, description: string }) {
   return (
@@ -43,19 +44,38 @@ function PlaceholderView({ title, description }: { title: string, description: s
 
 function MainAppContent() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedPromptTemplate, setSelectedPromptTemplate] = useState<string | null>(null);
   const { t } = useI18n();
   const { isAuthenticated, isLoading, logout, user } = useAuth();
 
   const renderContent = () => {
+    // Prompt Engineering views
+    if (activeTab === 'prompt-templates') {
+      if (selectedPromptTemplate) {
+        return (
+          <PromptTemplateDetail
+            templateName={selectedPromptTemplate}
+            onBack={() => setSelectedPromptTemplate(null)}
+          />
+        );
+      }
+      return (
+        <PromptTemplatesView
+          onNavigateToDetail={(name) => {
+            setSelectedPromptTemplate(name);
+          }}
+        />
+      );
+    }
+
     switch (activeTab) {
       case 'dashboard':
         return <DashboardView onNavigate={setActiveTab} />;
       case 'qa-chat':
         return <QAChatView />;
       case 'knowledge-bases':
-        return <KnowledgeBasesView />;
       case 'documents':
-        return <DocumentsView />;
+        return <KnowledgeBaseManager />;
       case 'retrieval-test':
         return <RetrievalTestView />;
       case 'api-explorer':

@@ -14,6 +14,7 @@ from app.api.v1.users import router as users_router
 from app.api.v1.prometheus import router as prometheus_router
 from app.api.v1.token_usage import router as token_usage_router
 from app.api.v1.skills import router as skills_router
+from app.api.v1.prompts import router as prompts_router
 
 router = APIRouter()
 router.include_router(dashboard_router)
@@ -29,3 +30,4 @@ router.include_router(users_router)
 router.include_router(prometheus_router)
 router.include_router(token_usage_router)
 router.include_router(skills_router)
+router.include_router(prompts_router)

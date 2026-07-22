@@ -337,6 +337,7 @@ const translations = {
     // Model Management
     // Skill Registry
     'nav.skill-management': 'Skill Registry',
+    'nav.prompt-templates': 'Prompt Engineering',
     'skill.title': 'Skill Registry',
     'skill.create': 'New Skill',
     'skill.refresh': 'Refresh',
@@ -824,6 +825,7 @@ const translations = {
     // Model Management
     // Skill Registry
     'nav.skill-management': '技能仓库',
+    'nav.prompt-templates': '提示词工程',
     'skill.title': '技能仓库',
     'skill.create': '新建技能',
     'skill.refresh': '刷新',

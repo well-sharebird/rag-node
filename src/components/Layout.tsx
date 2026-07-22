@@ -1,5 +1,5 @@
 import { ReactNode, useMemo } from 'react';
-import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package } from 'lucide-react';
+import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/src/lib/i18n';
 
@@ -29,7 +29,7 @@ interface NavItem {
 
 // All original features preserved, organized in 3 groups:
 // Workspace: Dashboard, AI Assistant, Knowledge Bases, Documents
-// Tools: Retrieval Bench, Data Ingestion, API Explorer, Model Management
+// Tools: Retrieval Bench, Data Ingestion, API Explorer, Model Management, Prompt Engineering
 // System: Monitoring, Evaluation, Users & Roles, Settings, Token Usage, Quota Management
 const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', icon: LayoutDashboard, section: 'workspace', sectionKey: 'nav.workspace' },
@@ -39,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'retrieval-test', icon: Search, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'data-ingestion', icon: Plug, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'skill-management', icon: Package, section: 'tools', sectionKey: 'nav.tools' },
+  { id: 'prompt-templates', icon: FileText, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'model-management', icon: Cpu, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'api-explorer', icon: Blocks, section: 'tools', sectionKey: 'nav.tools' },
   { id: 'token-usage', icon: Activity, section: 'system', sectionKey: 'nav.system' },

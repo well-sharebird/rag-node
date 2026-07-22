@@ -7,6 +7,14 @@ from app.models.model_config import ModelConfig
 from app.models.data_source import DataSource, SyncJob, SyncedItem
 from app.models.user import User, Role, Permission, APIKey, AuditLog
 from app.models.token_usage import TokenUsage, UserQuota, ModelProvider
+from app.models.prompt_template import (
+    PromptTemplate,
+    PromptVersion,
+    PromptTag,
+    PromptTestCase,
+    PromptEvalRun,
+    PromptAuditLog,
+)
 
 __all__ = [
     "Base",
@@ -25,4 +33,10 @@ __all__ = [
     "TokenUsage",
     "UserQuota",
     "ModelProvider",
+    "PromptTemplate",
+    "PromptVersion",
+    "PromptTag",
+    "PromptTestCase",
+    "PromptEvalRun",
+    "PromptAuditLog",
 ]

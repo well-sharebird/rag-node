@@ -44,6 +44,7 @@ dependencies = [
     "hanlp>=2.1.0,<3.0.0",
     "aiohttp>=3.14.1",
     "semver>=3.0.4",
+    "psycopg2-binary>=2.9.12",
 ]
 
 [tool.ruff]
