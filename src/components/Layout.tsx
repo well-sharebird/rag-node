@@ -1,5 +1,5 @@
 import { ReactNode, useMemo } from 'react';
-import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package, FileText } from 'lucide-react';
+import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package, FileText, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/src/lib/i18n';
 
@@ -27,26 +27,37 @@ interface NavItem {
   hasCount?: boolean;
 }
 
-// All original features preserved, organized in 3 groups:
-// Workspace: Dashboard, AI Assistant, Knowledge Bases, Documents
-// Tools: Retrieval Bench, Data Ingestion, API Explorer, Model Management, Prompt Engineering
-// System: Monitoring, Evaluation, Users & Roles, Settings, Token Usage, Quota Management
+// Enterprise-grade navigation structure organized by business value:
+// - Workspace: End-user features (Dashboard, Chat)
+// - Knowledge Ops: Knowledge base lifecycle management
+// - AI Governance: Model/Provider/Key/Skill/Prompt management
+// - Operations: Monitoring, Cost, Quota, Analytics
+// - Administration: Users, Roles, Audit, System settings
 const NAV_ITEMS: NavItem[] = [
+  // ============ Workspace ============
   { id: 'dashboard', icon: LayoutDashboard, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'qa-chat', icon: MessageSquare, section: 'workspace', sectionKey: 'nav.workspace' },
-  { id: 'knowledge-bases', icon: Database, section: 'workspace', sectionKey: 'nav.workspace', hasCount: true },
-  { id: 'retrieval-test', icon: Search, section: 'tools', sectionKey: 'nav.tools' },
-  { id: 'data-ingestion', icon: Plug, section: 'tools', sectionKey: 'nav.tools' },
-  { id: 'skill-management', icon: Package, section: 'tools', sectionKey: 'nav.tools' },
-  { id: 'prompt-templates', icon: FileText, section: 'tools', sectionKey: 'nav.tools' },
-  { id: 'model-management', icon: Cpu, section: 'tools', sectionKey: 'nav.tools' },
-  { id: 'api-explorer', icon: Blocks, section: 'tools', sectionKey: 'nav.tools' },
-  { id: 'token-usage', icon: Activity, section: 'system', sectionKey: 'nav.system' },
-  { id: 'quota-management', icon: Users, section: 'system', sectionKey: 'nav.system' },
-  { id: 'monitoring', icon: BarChart3, section: 'system', sectionKey: 'nav.system' },
-  { id: 'evaluation', icon: Settings, section: 'system', sectionKey: 'nav.system' },
-  { id: 'users-roles', icon: Users, section: 'system', sectionKey: 'nav.system' },
-  { id: 'settings', icon: Settings, section: 'system', sectionKey: 'nav.system' },
+
+  // ============ Knowledge Operations ============
+  { id: 'knowledge-bases', icon: Database, section: 'knowledge', sectionKey: 'nav.knowledge' },
+  { id: 'data-ingestion', icon: Plug, section: 'knowledge', sectionKey: 'nav.knowledge' },
+  { id: 'retrieval-test', icon: Search, section: 'knowledge', sectionKey: 'nav.knowledge' },
+
+  // ============ AI Governance ============
+  { id: 'model-management', icon: Cpu, section: 'governance', sectionKey: 'nav.governance' },
+  { id: 'skill-management', icon: Package, section: 'governance', sectionKey: 'nav.governance' },
+  { id: 'prompt-templates', icon: FileText, section: 'governance', sectionKey: 'nav.governance' },
+
+  // ============ Operations & Analytics ============
+  { id: 'monitoring', icon: Activity, section: 'operations', sectionKey: 'nav.operations' },
+  { id: 'token-usage', icon: BarChart3, section: 'operations', sectionKey: 'nav.operations' },
+  { id: 'quota-management', icon: Users, section: 'operations', sectionKey: 'nav.operations' },
+  { id: 'evaluation', icon: Settings, section: 'operations', sectionKey: 'nav.operations' },
+
+  // ============ Administration ============
+  { id: 'users-roles', icon: Users, section: 'admin', sectionKey: 'nav.admin' },
+  { id: 'api-explorer', icon: Blocks, section: 'admin', sectionKey: 'nav.admin' },
+  { id: 'settings', icon: Settings, section: 'admin', sectionKey: 'nav.admin' },
 ];
 
 export function Layout({ children, activeTab, setActiveTab, currentUser, onLogout }: LayoutProps) {

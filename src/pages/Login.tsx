@@ -1,9 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '@/src/lib/auth-context';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Label } from '../../components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
+import { Button, Card, CardHeader, CardBody, CardTitle, CardDescription, Input } from '@/src/components/bird';
 import { toast } from 'sonner';
 import { Shield, Loader2 } from 'lucide-react';
 
@@ -43,23 +40,23 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-      <Card className="w-full max-w-md shadow-2xl">
-        <CardHeader className="space-y-3 text-center">
-          <div className="flex justify-center mb-2">
-            <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-              <Shield className="w-8 h-8 text-primary" />
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#f5f3ff] to-[#ede9fe]">
+      <Card className="w-full max-w-md shadow-xl">
+        <CardHeader className="text-center">
+          <div className="flex justify-center mb-4">
+            <div className="w-16 h-16 rounded-full bg-[#7c3aed]/10 flex items-center justify-center">
+              <Shield className="w-8 h-8 text-[#7c3aed]" />
             </div>
           </div>
-          <CardTitle className="text-2xl">KnowRAG 企业版</CardTitle>
-          <CardDescription>
+          <CardTitle className="text-2xl text-center">KnowRAG 企业版</CardTitle>
+          <CardDescription className="text-center">
             登录用户与角色管理系统
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardBody>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="username">用户名 / 邮箱</Label>
+              <label htmlFor="username" className="text-sm font-medium text-[#4b5563]">用户名 / 邮箱</label>
               <Input
                 id="username"
                 type="text"
@@ -70,7 +67,7 @@ export function Login() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">密码</Label>
+              <label htmlFor="password" className="text-sm font-medium text-[#4b5563]">密码</label>
               <Input
                 id="password"
                 type="password"
@@ -84,6 +81,7 @@ export function Login() {
               type="submit"
               className="w-full"
               disabled={isLoading || !username || !password}
+              loading={isLoading}
             >
               {isLoading ? (
                 <>
@@ -96,20 +94,20 @@ export function Login() {
             </Button>
           </form>
 
-          <div className="mt-4 pt-4 border-t">
+          <div className="mt-6 pt-6 border-t border-[#e5e7eb]">
             <Button
-              variant="outline"
+              variant="secondary"
               className="w-full"
               onClick={handleQuickLogin}
               disabled={isLoading}
             >
               快速登录（管理员）
             </Button>
-            <p className="text-xs text-center text-muted-foreground mt-2">
+            <p className="text-xs text-center text-[#9ca3af] mt-3">
               默认账号：admin / admin123
             </p>
           </div>
-        </CardContent>
+        </CardBody>
       </Card>
     </div>
   );

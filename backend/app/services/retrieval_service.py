@@ -125,12 +125,26 @@ async def search_chunks(db: AsyncSession, redis: aioredis.Redis, milvus, data: S
     )
     query_embedding = await embed_service.embed_query(data.query)
 
-    # Apply system defaults if not specified in request
+    # Apply KB-level config if set, otherwise use system defaults
     from app.core.rag_config import get_retrieval_config
     defaults = get_retrieval_config()
-    top_k = data.top_k if data.top_k != 5 else defaults.get("default_top_k", 10)
-    min_score = data.min_score if data.min_score is not None else defaults.get("default_min_score", 0.6)
-    enable_rerank = defaults.get("enable_rerank", True)
+
+    # Priority: Request > KB config > System default
+    top_k = (
+        data.top_k
+        if data.top_k and data.top_k != 5
+        else (kb.top_k if kb.top_k else defaults.get("default_top_k", 10))
+    )
+    min_score = (
+        data.min_score
+        if data.min_score is not None
+        else (kb.min_score if kb.min_score is not None else defaults.get("default_min_score", 0.6))
+    )
+    enable_rerank = (
+        data.enable_rerank
+        if data.enable_rerank is not None
+        else (kb.enable_rerank if kb.enable_rerank is not None else defaults.get("enable_rerank", True))
+    )
     rerank_top_n = defaults.get("rerank_top_n", 3)
 
     # When reranking, use a wider initial recall (min_score=0) since rerank will re-score

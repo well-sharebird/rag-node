@@ -5,10 +5,13 @@ type Language = 'zh' | 'en';
 
 const translations = {
   en: {
-    // Layout — Apple-style, all features preserved
+    // Layout — Enterprise-grade navigation structure
     'nav.workspace': 'Workspace',
-    'nav.tools': 'Tools',
-    'nav.system': 'System',
+    'nav.knowledge': 'Knowledge Operations',
+    'nav.governance': 'AI Governance',
+    'nav.operations': 'Operations',
+    'nav.admin': 'Administration',
+    // Nav items
     'nav.dashboard': 'Dashboard',
     'nav.knowledge-bases': 'Knowledge Bases',
     'nav.documents': 'Documents',
@@ -16,14 +19,18 @@ const translations = {
     'nav.retrieval-test': 'Retrieval Bench',
     'nav.data-ingestion': 'Data Ingestion',
     'nav.api-explorer': 'API Explorer',
-    'nav.monitoring': 'Health & Metrics',
+    'nav.markdown-preview': 'Markdown Preview',
+    'nav.monitoring': 'Monitoring',
     'nav.evaluation': 'Evaluation',
     'nav.users-roles': 'Users & Roles',
     'nav.settings': 'Settings',
+    'nav.skill-management': 'Skill Registry',
+    'nav.prompt-templates': 'Prompt Engineering',
+    'nav.model-management': 'Model Management',
+    'nav.token-usage': 'Token Usage',
+    'nav.quota-management': 'Quota Management',
     // Legacy nav IDs for backward compatibility
     'nav.data-sources': 'Data Sources',
-    'nav.model-management': 'Models',
-    'nav.model-management-page': 'Models',
     
     // Dashboard
     'dashboard.title': 'Dashboard',
@@ -83,6 +90,8 @@ const translations = {
     'doc.browse': 'Browse Files',
     'doc.search': 'Search documents by name...',
     'doc.allKb': 'All Knowledge Bases',
+    'doc.allCategories': 'All Categories',
+    'doc.allStatus': 'All Status',
     'doc.uncategorized': 'Uncategorized',
     'doc.col.doc': 'Document',
     'doc.col.kb': 'Knowledge Base',
@@ -97,7 +106,30 @@ const translations = {
     'doc.status.failed': 'Failed',
     'doc.unknown': 'Unknown',
     'doc.alert.noKb': 'Please create a Knowledge Base first.',
-    
+    'doc.reprocess': 'Reprocess',
+    'doc.reprocessing': 'Reprocessing...',
+    'doc.batchReprocess': 'Batch Reprocess',
+    'doc.selectFailed': 'Select failed documents',
+
+    // Settings - Chunking Strategies
+    'settings.chunk.strategy': 'Chunking Strategy',
+    'settings.chunk.strategy.recursive': 'Recursive Character',
+    'settings.chunk.strategy.fixed': 'Fixed Size',
+    'settings.chunk.strategy.semantic': 'Semantic',
+    'settings.chunk.strategy.markdown': 'Markdown Structure',
+    'settings.chunk.strategy.code': 'Code Structure',
+    'settings.chunk.strategy.parent_child': 'Parent-Child',
+    'settings.chunk.strategy.agentic': 'Agentic',
+    'settings.chunk.strategy.small_to_big': 'Small-to-Big',
+    'settings.chunk.description.recursive': 'Try multiple separators by priority (paragraph→line→sentence→word) to maintain semantic integrity. Most common general-purpose strategy.',
+    'settings.chunk.description.fixed': 'Split by fixed character count. Simple and fast but may cut sentences. Suitable for high-speed scenarios.',
+    'settings.chunk.description.semantic': 'Detect boundaries based on text semantic similarity. Best coherence within chunks. Higher computational cost, suitable for high-quality QA.',
+    'settings.chunk.description.markdown': 'Split by Markdown heading hierarchy, preserving document structure. Suitable for technical docs and API documentation.',
+    'settings.chunk.description.code': 'Split by code function/class structure, preserving imports and context. Suitable for codebase retrieval.',
+    'settings.chunk.description.parent_child': 'Create small chunks for indexing while linking to larger parent chunks for full context. Balances retrieval precision and generation quality, ideal for advanced RAG systems.',
+    'settings.chunk.description.agentic': 'Use AI agent to intelligently analyze text structure for chunking. Best results but slowest.',
+    'settings.chunk.description.small_to_big': 'Split into small chunks first then merge into larger ones, supporting multi-granularity retrieval. Suitable for complex query scenarios.',
+
     // Retrieval
     'retrieval.params': 'Retrieval Parameters',
     'retrieval.targetKb': 'Target Knowledge Base',
@@ -334,10 +366,7 @@ const translations = {
     'dataSource.dataPath': 'Data Path',
     'dataSource.localFileDesc': 'Local files can be uploaded via Documents view',
 
-    // Model Management
     // Skill Registry
-    'nav.skill-management': 'Skill Registry',
-    'nav.prompt-templates': 'Prompt Engineering',
     'skill.title': 'Skill Registry',
     'skill.create': 'New Skill',
     'skill.refresh': 'Refresh',
@@ -449,10 +478,13 @@ const translations = {
     'model.type.textToSpeech': 'Text-to-Speech',
   },
   zh: {
-    // Layout — Apple-style, all features preserved
-    'nav.workspace': '工作区',
-    'nav.tools': '工具',
-    'nav.system': '系统',
+    // Layout — Enterprise-grade navigation structure
+    'nav.workspace': '工作台',
+    'nav.knowledge': '知识运营',
+    'nav.governance': 'AI 资源治理',
+    'nav.operations': '运营洞察',
+    'nav.admin': '系统管理',
+    // Nav items
     'nav.dashboard': '仪表盘',
     'nav.knowledge-bases': '知识库',
     'nav.documents': '文档',
@@ -460,35 +492,18 @@ const translations = {
     'nav.retrieval-test': '检索测试',
     'nav.data-ingestion': '数据摄取',
     'nav.api-explorer': 'API 接口',
+    'nav.markdown-preview': 'Markdown 预览',
     'nav.monitoring': '系统监控',
     'nav.evaluation': '质量评估',
     'nav.users-roles': '用户与角色',
     'nav.settings': '系统设置',
-
-    // Evaluation
-    'evaluation.comingSoon': 'RAG 质量评估，使用 RAGAS 指标和金样本测试。',
-    'evaluation.title': 'RAG 评估',
-    'evaluation.desc': '评估检索增强生成质量',
-    'evaluation.goldenSamples': '金样本',
-    'evaluation.runs': '评估运行',
-    'evaluation.newSample': '新建样本',
-    'evaluation.run': '运行评估',
-    'evaluation.question': '问题',
-    'evaluation.expectedAnswer': '期望答案',
-    'evaluation.difficulty': '难度',
-    'evaluation.easy': '简单',
-    'evaluation.medium': '中等',
-    'evaluation.hard': '困难',
-    'evaluation.noSamples': '暂无金样本',
-    'evaluation.noRuns': '暂无评估运行',
-    'evaluation.createSample': '创建测试样本来评估 RAG 质量',
-    'evaluation.runEval': '点击"运行评估"开始质量评估',
-    // Legacy nav IDs for backward compatibility
-    'nav.data-sources': '多源接入',
+    'nav.skill-management': '技能仓库',
+    'nav.prompt-templates': '提示词工程',
     'nav.model-management': '模型管理',
-    'nav.model-management-page': '模型管理',
     'nav.token-usage': 'Token 使用',
     'nav.quota-management': '配额管理',
+    // Legacy nav IDs for backward compatibility
+    'nav.data-sources': '多源接入',
     
     // Dashboard
     'dashboard.title': '仪表盘',
@@ -548,6 +563,8 @@ const translations = {
     'doc.browse': '浏览文件',
     'doc.search': '按名称搜索文档...',
     'doc.allKb': '所有知识库',
+    'doc.allCategories': '所有分类',
+    'doc.allStatus': '所有状态',
     'doc.uncategorized': '未分类',
     'doc.col.doc': '文档',
     'doc.col.kb': '知识库',
@@ -562,7 +579,30 @@ const translations = {
     'doc.status.failed': '失败',
     'doc.unknown': '未知',
     'doc.alert.noKb': '请先创建一个知识库。',
-    
+    'doc.reprocess': '重新解析',
+    'doc.reprocessing': '重新解析中...',
+    'doc.batchReprocess': '批量重新解析',
+    'doc.selectFailed': '选择失败文档',
+
+    // Settings - Chunking Strategies
+    'settings.chunk.strategy': '分块策略',
+    'settings.chunk.strategy.recursive': '递归字符拆分',
+    'settings.chunk.strategy.fixed': '固定长度拆分',
+    'settings.chunk.strategy.semantic': '语义拆分',
+    'settings.chunk.strategy.markdown': 'Markdown 结构拆分',
+    'settings.chunk.strategy.code': '代码结构拆分',
+    'settings.chunk.strategy.parent_child': '父子块分块',
+    'settings.chunk.strategy.agentic': '代理拆分',
+    'settings.chunk.strategy.small_to_big': '小到大拆分',
+    'settings.chunk.description.recursive': '按优先级尝试多种分隔符（段落→行→句子→词），尽量保持语义完整性。最常用的通用拆分策略。',
+    'settings.chunk.description.fixed': '按固定字符数切分，简单快速但可能切断句子。适合对速度要求高的场景。',
+    'settings.chunk.description.semantic': '基于文本语义相似度检测边界，块内语义最连贯。计算开销较大，适合高质量问答。',
+    'settings.chunk.description.markdown': '按 Markdown 标题层级拆分，保留文档结构。适合技术文档和 API 文档。',
+    'settings.chunk.description.code': '按代码函数/类结构拆分，保留导入语句和上下文。适合代码库检索。',
+    'settings.chunk.description.parent_child': '创建小块用于索引，同时关联大块提供完整上下文。兼顾检索精度和生成质量，是高级 RAG 系统的理想选择。',
+    'settings.chunk.description.agentic': '使用 AI 代理智能分析文本结构进行拆分。效果最好但速度最慢。',
+    'settings.chunk.description.small_to_big': '先拆分成小块再合并为大块，支持多粒度检索。适合复杂查询场景。',
+
     // Retrieval
     'retrieval.params': '检索参数',
     'retrieval.targetKb': '目标知识库',
@@ -822,10 +862,7 @@ const translations = {
     'dataSource.dataPath': '数据路径',
     'dataSource.localFileDesc': '本地文件可通过知识库的文档上传功能直接添加',
 
-    // Model Management
     // Skill Registry
-    'nav.skill-management': '技能仓库',
-    'nav.prompt-templates': '提示词工程',
     'skill.title': '技能仓库',
     'skill.create': '新建技能',
     'skill.refresh': '刷新',

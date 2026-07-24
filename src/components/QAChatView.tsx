@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import { Send, Bot, User, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, ChevronDown, ChevronRight, AtSign, Check } from 'lucide-react';
 import { SourcePanel } from './SourcePanel';
 import { cn } from '@/lib/utils';
+import { MarkdownRenderer } from './MarkdownRenderer';
+import { submitFeedback } from '@/lib/api-client';
 
 interface Citation {
   index: number;
@@ -108,8 +110,7 @@ export function QAChatView() {
   }, []);
 
   const handleSend = async () => {
-    if (!input.trim() || selectedKbs.length === 0) {
-      toast.error(language === 'zh' ? '请选择知识库' : 'Please select a knowledge base');
+    if (!input.trim()) {
       return;
     }
     const query = input.trim();
@@ -137,6 +138,9 @@ export function QAChatView() {
     abortControllerRef.current = new AbortController();
 
     try {
+      // If no KB selected, use direct LLM chat without RAG
+      const useRAG = selectedKbs.length > 0;
+
       const res = await fetch('/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -145,10 +149,10 @@ export function QAChatView() {
         },
         body: JSON.stringify({
           query,
-          kb_ids: selectedKbs,
+          kb_ids: useRAG ? selectedKbs : [],
           top_k: 5,
-          enable_rerank: true,
-          enable_expansion: true,
+          enable_rerank: useRAG,
+          enable_expansion: useRAG,
           stream: true,
         }),
         signal: abortControllerRef.current.signal,
@@ -223,9 +227,11 @@ export function QAChatView() {
                   ));
                 }
 
-                // Handle reasoning_content (thinking process)
-                if (delta?.reasoning_content) {
-                  accumulatedReasoning += delta.reasoning_content;
+                // Handle reasoning_content / reasoning (thinking process)
+                // For Qwen model: reasoning contains both thinking AND final answer
+                const reasoningChunk = delta?.reasoning_content || delta?.reasoning || '';
+                if (reasoningChunk) {
+                  accumulatedReasoning += reasoningChunk;
                   setMessages(prev => prev.map(msg =>
                     msg.messageId === messageId
                       ? { ...msg, reasoning: accumulatedReasoning, showReasoning: true }
@@ -233,7 +239,7 @@ export function QAChatView() {
                   ));
                 }
 
-                // Handle content
+                // Handle content (final answer)
                 if (delta?.content) {
                   accumulatedContent += delta.content;
                   setMessages(prev => prev.map(msg =>
@@ -241,6 +247,28 @@ export function QAChatView() {
                       ? { ...msg, content: accumulatedContent }
                       : msg
                   ));
+                }
+
+                // For Qwen: if we have reasoning but no content, parse the reasoning
+                // to extract the actual answer when streaming is complete
+                if (finishReason && accumulatedReasoning && !accumulatedContent) {
+                  const extractedAnswer = extractAnswerFromReasoning(accumulatedReasoning);
+                  if (extractedAnswer && extractedAnswer !== accumulatedReasoning) {
+                    accumulatedContent = extractedAnswer;
+                    setMessages(prev => prev.map(msg =>
+                      msg.messageId === messageId
+                        ? { ...msg, content: extractedAnswer }
+                        : msg
+                    ));
+                  } else {
+                    // Use full reasoning as content if no answer extracted
+                    accumulatedContent = accumulatedReasoning;
+                    setMessages(prev => prev.map(msg =>
+                      msg.messageId === messageId
+                        ? { ...msg, content: accumulatedReasoning }
+                        : msg
+                    ));
+                  }
                 }
 
                 // Handle finish_reason - mark streaming as complete
@@ -308,21 +336,12 @@ export function QAChatView() {
 
   const handleFeedback = async (messageId: string, feedbackType: 'thumbs_up' | 'thumbs_down', reason?: string) => {
     try {
-      const res = await fetch('/api/v1/feedback', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          session_id: `session_${Date.now()}`,
-          message_id: messageId,
-          feedback_type: feedbackType,
-          reason_category: reason,
-        }),
+      await submitFeedback({
+        session_id: `session_${Date.now()}`,
+        message_id: messageId,
+        feedback_type: feedbackType,
+        reason_category: reason,
       });
-
-      if (!res.ok) throw new Error('Feedback failed');
 
       toast.success(feedbackType === 'thumbs_up' ? t('feedback.up') : t('feedback.down'));
       setShowFeedback(null);
@@ -397,6 +416,35 @@ export function QAChatView() {
     setSelectedKbs(prev => prev.filter(id => id !== kbId));
   };
 
+  // Extract answer from Qwen-style reasoning
+  // Format: "Thinking Process:\n\n1. ...\n2. ...\n\n*Draft:*\n[actual answer]"
+  const extractAnswerFromReasoning = (reasoning: string): string => {
+    // Try to find common patterns that mark the start of the answer
+    const patterns = [
+      /\*Draft:\*\s*\n/i,
+      /\*\*Final Answer\*\*:\s*\n/i,
+      /\n\n(?:Based on|According to|In summary|综上 | 因此 | 所以 | 答案 | 回答)[:：]?/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = reasoning.match(pattern);
+      if (match) {
+        const answer = reasoning.slice(match.index! + match[0].length).trim();
+        if (answer && answer.length > 10) {
+          return answer;
+        }
+      }
+    }
+
+    // If no pattern found, return the last 1-2 paragraphs
+    const paragraphs = reasoning.split('\n\n');
+    if (paragraphs.length > 1) {
+      return paragraphs.slice(-2).join('\n\n').trim();
+    }
+
+    return reasoning;
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -404,6 +452,14 @@ export function QAChatView() {
         <div className="flex items-baseline gap-3">
           <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('qa.title')}</h1>
           <span className="text-[11px] text-[#9b9b9b] hidden sm:inline">{t('qa.desc')}</span>
+          {/* Mode indicator */}
+          <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium ${
+            selectedKbs.length > 0
+              ? 'bg-green-100 text-green-700'
+              : 'bg-blue-100 text-blue-700'
+          }`}>
+            {selectedKbs.length > 0 ? 'RAG 模式' : 'LLM 模式'}
+          </span>
         </div>
         <div className="flex items-center gap-3">
           {allCitations.length > 0 && (
@@ -427,7 +483,11 @@ export function QAChatView() {
               <Bot className="w-6 h-6" style={{ color: '#534ab7' }} />
             </div>
             <p className="font-medium text-[#6b6b6b] text-sm">{t('qa.empty.title')}</p>
-            <p className="text-[13px] text-[#9b9b9b]">{t('qa.empty.desc')}</p>
+            <p className="text-[13px] text-[#9b9b9b] text-center max-w-sm">
+              {selectedKbs.length > 0
+                ? `已选择 ${selectedKbs.length} 个知识库，开始提问吧。`
+                : '未选择知识库，将使用 LLM 直接回答。选择知识库可启用 RAG 检索增强模式。'}
+            </p>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto space-y-4">
@@ -485,7 +545,7 @@ export function QAChatView() {
                       </div>
                     )}
                     {/* Answer content */}
-                    {msg.content}
+                    <MarkdownRenderer content={msg.content} />
                     {msg.sources && msg.sources.length > 0 && (
                       <div className="mt-2 pt-2 flex flex-wrap gap-1.5" style={{ borderTop: '0.5px solid #e2e1dd' }}>
                         {msg.sources.map((s, j) => (

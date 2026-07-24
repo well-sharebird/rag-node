@@ -6,7 +6,8 @@ from app.models.system_setting import SystemSetting
 from app.models.model_config import ModelConfig
 from app.models.data_source import DataSource, SyncJob, SyncedItem
 from app.models.user import User, Role, Permission, APIKey, AuditLog
-from app.models.token_usage import TokenUsage, UserQuota, ModelProvider
+from app.models.token_usage import TokenUsage, UserQuota
+from app.models.model_gateway import ModelProvider, ModelRoutingRule, ModelCallLog, ModelCache
 from app.models.prompt_template import (
     PromptTemplate,
     PromptVersion,
@@ -33,6 +34,9 @@ __all__ = [
     "TokenUsage",
     "UserQuota",
     "ModelProvider",
+    "ModelRoutingRule",
+    "ModelCallLog",
+    "ModelCache",
     "PromptTemplate",
     "PromptVersion",
     "PromptTag",

@@ -4,24 +4,26 @@ import { I18nProvider, useI18n } from '@/src/lib/i18n';
 import { AuthProvider, useAuth } from '@/src/lib/auth-context';
 import { Toaster } from 'sonner';
 import { Layout } from './components/Layout';
-import { DashboardView } from './components/DashboardView';
-import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
-import { RetrievalTestView } from './components/RetrievalTestView';
-import { SystemSettingsView } from './components/SystemSettingsView';
+import { DashboardViewBird } from './components/DashboardView.bird';
+import { KnowledgeBaseManagerBird } from './components/KnowledgeBaseManager.bird';
+import { RetrievalTestViewBird } from './components/RetrievalTestView.bird';
+import { SystemSettingsViewBird } from './components/SystemSettingsView.bird';
 import { QAChatView } from './components/QAChatView';
 import { MonitoringView } from './components/MonitoringView';
 import { ApiExplorerView } from './components/ApiExplorerView';
 import { DataIngestionView } from './components/DataIngestionView';
-import { SkillManagement } from './pages/SkillManagement';
-import { ModelManagement } from './pages/ModelManagement';
-import { UserManagement } from './pages/UserManagement';
-import { EvaluationPage } from './pages/EvaluationPage';
-import { TokenUsageAnalysis } from './pages/TokenUsageAnalysis';
-import { QuotaManagement } from './pages/QuotaManagement';
+import { SkillManagementBird } from './pages/SkillManagement.bird';
+import { ModelManagementBird } from './pages/ModelManagement.bird';
+import { UserManagementBird } from './pages/UserManagement.bird';
+import { EvaluationPageBird } from './pages/EvaluationPage.bird';
+import { TokenUsageAnalysisBird } from './pages/TokenUsageAnalysis.bird';
+import { QuotaManagementBird } from './pages/QuotaManagement.bird';
+import { DataSourceManagementBird } from './pages/DataSourceManagement.bird';
 import { Login } from './pages/Login';
 import { Loader2 } from 'lucide-react';
-import { PromptTemplatesView } from './components/PromptTemplatesView';
-import { PromptTemplateDetail } from './components/PromptTemplateDetail';
+import { PromptTemplatesViewBird } from './components/PromptTemplatesView.bird';
+import { PromptTemplateDetailBird } from './components/PromptTemplateDetail.bird';
+import { MarkdownPreview } from './components/MarkdownPreview';
 
 function PlaceholderView({ title, description }: { title: string, description: string }) {
   return (
@@ -53,14 +55,14 @@ function MainAppContent() {
     if (activeTab === 'prompt-templates') {
       if (selectedPromptTemplate) {
         return (
-          <PromptTemplateDetail
+          <PromptTemplateDetailBird
             templateName={selectedPromptTemplate}
             onBack={() => setSelectedPromptTemplate(null)}
           />
         );
       }
       return (
-        <PromptTemplatesView
+        <PromptTemplatesViewBird
           onNavigateToDetail={(name) => {
             setSelectedPromptTemplate(name);
           }}
@@ -70,37 +72,41 @@ function MainAppContent() {
 
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView onNavigate={setActiveTab} />;
+        return <DashboardViewBird onNavigate={setActiveTab} />;
       case 'qa-chat':
-        return <QAChatView />;
+        return <QAChatView />; // QAChatView 已有 MarkdownRenderer 支持 Bird 风格
       case 'knowledge-bases':
-        return <KnowledgeBaseManager />;
+        return <KnowledgeBaseManagerBird />;
       case 'retrieval-test':
-        return <RetrievalTestView />;
+        return <RetrievalTestViewBird />;
       case 'api-explorer':
         return <ApiExplorerView />;
       case 'monitoring':
         return <MonitoringView />;
       case 'settings':
-        return <SystemSettingsView />;
+        return <SystemSettingsViewBird />;
       case 'data-ingestion':
       case 'data-sources':
         return <DataIngestionView />;
       case 'skill-management':
-        return <SkillManagement />;
+        return <SkillManagementBird />;
       case 'model-management':
       case 'model-management-page':
-        return <ModelManagement />;
+        return <ModelManagementBird />;
       case 'users-roles':
-        return <UserManagement />;
+        return <UserManagementBird />;
       case 'evaluation':
-        return <EvaluationPage />;
+        return <EvaluationPageBird />;
       case 'token-usage':
-        return <TokenUsageAnalysis />;
+        return <TokenUsageAnalysisBird />;
       case 'quota-management':
-        return <QuotaManagement />;
+        return <QuotaManagementBird />;
+      case 'data-sources':
+        return <DataSourceManagementBird />;
+      case 'markdown-preview':
+        return <MarkdownPreview />;
       default:
-        return <DashboardView onNavigate={setActiveTab} />;
+        return <DashboardViewBird onNavigate={setActiveTab} />;
     }
   };
 

@@ -14,13 +14,23 @@ function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props) {
   return <MenuPrimitive.Portal data-slot="dropdown-menu-portal" {...props} />
 }
 
-function DropdownMenuTrigger({ asChild, children, ...props }: MenuPrimitive.Trigger.Props & { asChild?: boolean }) {
-  if (asChild) {
-    // When asChild is true, clone the child element and merge props
-    return React.cloneElement(children as React.ReactElement, props)
+const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, MenuPrimitive.Trigger.Props & { asChild?: boolean }>(
+  function DropdownMenuTrigger({ asChild, children, ...props }, ref) {
+    if (asChild) {
+      // When asChild is true, clone the child element and merge props
+      const child = children as React.ReactElement;
+      return React.cloneElement(
+        child,
+        {
+          ...props,
+          ...child.props,
+          ref,
+        }
+      );
+    }
+    return <MenuPrimitive.Trigger ref={ref} data-slot="dropdown-menu-trigger" {...props} />;
   }
-  return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
-}
+);
 
 function DropdownMenuContent({
   align = "start",
@@ -81,6 +91,8 @@ function DropdownMenuItem({
   className,
   inset,
   variant = "default",
+  onClick,
+  onSelect,
   ...props
 }: MenuPrimitive.Item.Props & {
   inset?: boolean
@@ -95,6 +107,11 @@ function DropdownMenuItem({
         "group/dropdown-menu-item relative flex cursor-default items-center gap-1.5 rounded-md px-1.5 py-1 text-sm outline-hidden select-none focus:bg-accent focus:text-accent-foreground not-data-[variant=destructive]:focus:**:text-accent-foreground data-inset:pl-7 data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:focus:text-destructive dark:data-[variant=destructive]:focus:bg-destructive/20 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 data-[variant=destructive]:*:[svg]:text-destructive",
         className
       )}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick?.(e);
+      }}
+      onSelect={onSelect}
       {...props}
     />
   )

@@ -71,7 +71,7 @@ class ModelConfigBase(BaseModel):
     model_id: str = Field(..., min_length=1, max_length=200, description="Model identifier/path")
     model_type: ModelType
     adapter_type: AdapterType
-    provider: ModelProvider
+    provider: str = Field(..., description="Model provider code")
     description: Optional[str] = Field(None, max_length=500)
 
     # Connection settings
@@ -189,17 +189,38 @@ class ModelConfigResponse(BaseModel):
         return cls(**values)
 
 
-class ModelConfigCreate(ModelConfigBase):
+class ModelConfigCreate(BaseModel):
     """Schema for creating a model"""
-    pass
+    name: str = Field(..., min_length=1, max_length=100, description="Model display name")
+    model_id: str = Field(..., min_length=1, max_length=200, description="Model identifier/path")
+    model_type: str = Field(..., description="Model type (llm, embedding, rerank, etc.)")
+    adapter_type: str = Field(..., description="Adapter type (api, ollama, vllm, etc.)")
+    provider: str = Field(..., description="Model provider code")
+    description: Optional[str] = Field(None, max_length=500)
+    api_url: Optional[str] = Field(None, max_length=500)
+    api_key: Optional[str] = Field(None, max_length=500)
+    max_tokens: Optional[int] = Field(None, ge=1)
+    temperature: Optional[float] = Field(None, ge=0, le=2)
+    top_p: Optional[float] = Field(None, ge=0, le=1)
+    frequency_penalty: Optional[float] = Field(None, ge=-2, le=2)
+    presence_penalty: Optional[float] = Field(None, ge=-2, le=2)
+    embedding_dim: Optional[int] = Field(None, ge=1)
+    normalization: bool = True
+    batch_size: Optional[int] = Field(None, ge=1)
+    timeout_ms: int = 30000
+    is_default: bool = False
+    is_enabled: bool = True
+    tags: Optional[list[str]] = None
+    metadata: Optional[dict] = None
 
 
 class ModelConfigUpdate(BaseModel):
     """Schema for updating a model (all fields optional)"""
     name: Optional[str] = None
     model_id: Optional[str] = None
-    adapter_type: Optional[AdapterType] = None
-    provider: Optional[ModelProvider] = None
+    model_type: Optional[str] = None  # Accept string instead of Enum for easier updates
+    adapter_type: Optional[str] = None  # Accept string instead of Enum for easier updates
+    provider: Optional[str] = None
     description: Optional[str] = None
     api_url: Optional[str] = None
     api_key: Optional[str] = None  # Empty string means "don't change"
@@ -252,7 +273,7 @@ class ModelPreset(BaseModel):
     description: str
     model_type: ModelType
     adapter_type: AdapterType
-    provider: ModelProvider
+    provider: str
     model_id: str
     default_config: dict
     recommended_for: list[str]  # Use cases

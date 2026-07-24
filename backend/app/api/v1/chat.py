@@ -48,9 +48,11 @@ async def chat_completions(
     """
     RAG-grounded chat completion with citations.
 
+    If kb_ids is empty, falls back to direct LLM chat without RAG.
+
     Request body:
         - query: User's question
-        - kb_ids: List of knowledge base IDs to search
+        - kb_ids: List of knowledge base IDs to search (optional, if empty uses direct LLM)
         - session_id: Optional conversation session ID for multi-turn
         - stream: Whether to stream the response (SSE)
         - top_k: Number of chunks to retrieve
@@ -61,9 +63,50 @@ async def chat_completions(
     session_id = request.session_id or "default"
     memory = ConversationMemory(redis, session_id)
 
-    # Get knowledge bases
+    # Step 1: Build conversation context
+    conversation_context = ""
+    if not await memory.is_first_turn():
+        conversation_context = await memory.get_context_window(max_messages=6)
+
+    query = request.query
+
+    # If no kb_ids, use direct LLM chat without RAG
     if not kb_ids:
-        raise HTTPException(status_code=400, detail="At least one kb_id is required")
+        logger.info("No KB selected, using direct LLM chat")
+        result = await generate_rag_response(
+            query=query,
+            chunks=[],
+            conversation_context=conversation_context,
+            stream=request.stream,
+            user_id=current_user.id,
+            use_rag=False,
+        )
+
+        # Handle streaming response
+        if result.get("type") == "streaming":
+            return StreamingResponse(
+                _stream_rag_response(result, memory, current_user.id),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+
+        # Store conversation (non-streaming only)
+        await memory.add_user_message(query)
+        await memory.add_assistant_message(
+            result.get("answer", ""),
+            sources=result.get("citations", []),
+        )
+
+        return ChatResponse(
+            answer=result.get("answer", ""),
+            reasoning=result.get("reasoning", ""),
+            citations=result.get("citations", []),
+            chunks_used=0,
+        )
 
     # Verify KBs exist
     from sqlalchemy import select
@@ -76,15 +119,8 @@ async def chat_completions(
 
     milvus = get_milvus_client()
 
-    # Step 1: Build conversation context
-    conversation_context = ""
-    if not await memory.is_first_turn():
-        conversation_context = await memory.get_context_window(max_messages=6)
-
     # Step 2: Query expansion (optional)
-    query = request.query
     hyde_text = ""
-
     if request.enable_expansion and request.enable_expansion:
         try:
             expansion = await expand_query(query)
@@ -279,6 +315,7 @@ async def _stream_rag_response(result: dict, memory: ConversationMemory, user_id
     accumulated_reasoning = ""
     accumulated_content = ""
     has_sent_role = False
+    has_sent_finish = False  # Track if we've sent finish_reason
 
     # Buffer for incomplete UTF-8 sequences and lines
     byte_buffer = bytearray()
@@ -343,10 +380,9 @@ async def _stream_rag_response(result: dict, memory: ConversationMemory, user_id
                                 }
                                 yield f"data: {json.dumps(openai_chunk)}\n\n"
 
-                            # Handle reasoning_content (thinking process)
-                            # This model only emits reasoning_content, never content.
-                            # Forward as BOTH reasoning_content (for thinking panel)
-                            # AND content (for answer panel), so both stream in real-time.
+                            # Handle reasoning_content / reasoning (thinking process)
+                            # For Qwen: reasoning contains both thinking AND final answer
+                            # We forward reasoning as-is, frontend should parse it
                             if delta.get("reasoning") or delta.get("reasoning_content"):
                                 reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content", "")
                                 accumulated_reasoning += reasoning_chunk
@@ -363,24 +399,9 @@ async def _stream_rag_response(result: dict, memory: ConversationMemory, user_id
                                     }]
                                 }
                                 yield f"data: {json.dumps(openai_chunk)}\n\n"
-                                # Also stream as content so answer panel shows in real-time
-                                accumulated_content += reasoning_chunk
-                                content_chunk_evt = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"content": reasoning_chunk},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(content_chunk_evt)}\n\n"
 
                             # Handle content (from models that DO emit content natively)
-                            elif delta.get("content"):
+                            if delta.get("content"):
                                 content_chunk = delta["content"]
                                 accumulated_content += content_chunk
                                 openai_chunk = {
@@ -397,8 +418,9 @@ async def _stream_rag_response(result: dict, memory: ConversationMemory, user_id
                                 }
                                 yield f"data: {json.dumps(openai_chunk)}\n\n"
 
-                            # Handle finish_reason - send final chunk
-                            if finish_reason:
+                            # Handle finish_reason - send final chunk (only once!)
+                            if finish_reason and not has_sent_finish:
+                                has_sent_finish = True
                                 openai_chunk = {
                                     "id": response_id,
                                     "object": "chat.completion.chunk",
@@ -488,8 +510,9 @@ async def _stream_rag_response(result: dict, memory: ConversationMemory, user_id
                     except:
                         pass
 
-            # Stream ended - send final chunk
-            if has_sent_role:
+            # Stream ended - send final chunk ONLY if we haven't sent finish_reason yet
+            if has_sent_role and not has_sent_finish:
+                has_sent_finish = True
                 openai_chunk = {
                     "id": response_id,
                     "object": "chat.completion.chunk",

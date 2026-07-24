@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DataSourceType(str, Enum):
@@ -186,10 +186,24 @@ class DataSourceResponse(DataSourceBase):
     items_synced: int = 0
     items_failed: int = 0
     config_json: dict = Field(default_factory=dict)
+    tags: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @field_validator('tags', mode='before')
+    @classmethod
+    def validate_tags(cls, v):
+        if v is None:
+            return []
+        if isinstance(v, str):
+            import json
+            try:
+                return json.loads(v)
+            except:
+                return []
+        return v
 
 
 class DataSourceList(BaseModel):

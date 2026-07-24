@@ -5,6 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useEffect, useState } from 'react';
+import { fetchApi } from '@/lib/api-client';
 
 const MODEL_TYPE_LABELS: Record<string, string> = {
   llm: 'LLM / 对话',
@@ -24,6 +26,7 @@ const ADAPTER_TYPE_LABELS: Record<string, string> = {
   custom: '自定义',
 };
 
+// 预设供应商配置（后备选项）
 const PROVIDER_LABELS: Record<string, string> = {
   meta: 'Meta (Llama)',
   alibaba: 'Alibaba (Qwen)',
@@ -47,6 +50,33 @@ const PROVIDER_LABELS: Record<string, string> = {
   azure_speech: 'Azure Speech',
   elevenlabs: 'ElevenLabs',
 };
+
+// 供应商默认配置
+const PROVIDER_DEFAULTS: Record<string, { base_url?: string; api_key_name?: string }> = {
+  openai: { base_url: 'https://api.openai.com/v1', api_key_name: 'Authorization' },
+  anthropic: { base_url: 'https://api.anthropic.com', api_key_name: 'x-api-key' },
+  google: { base_url: 'https://generativelanguage.googleapis.com/v1beta', api_key_name: 'Authorization' },
+  azure: { base_url: 'https://{resource}.openai.azure.com', api_key_name: 'api-key' },
+  zhipu: { base_url: 'https://open.bigmodel.cn/api/paas/v4', api_key_name: 'Authorization' },
+  moonshot: { base_url: 'https://api.moonshot.cn/v1', api_key_name: 'Authorization' },
+  aliyun: { base_url: 'https://dashscope.aliyuncs.com/api/v1', api_key_name: 'Authorization' },
+  baichuan: { base_url: 'https://api.baichuan-ai.com/v1', api_key_name: 'Authorization' },
+  deepseek: { base_url: 'https://api.deepseek.com/v1', api_key_name: 'Authorization' },
+  ollama: { base_url: 'http://localhost:11434', api_key_name: '' },
+  vllm: { base_url: 'http://localhost:8000/v1', api_key_name: '' },
+};
+
+export interface ModelProvider {
+  id: number;
+  name: string;
+  code: string;
+  provider_type: string;
+  base_url: string;
+  api_key?: string;
+  api_key_name?: string;
+  is_enabled: boolean;
+  status: string;
+}
 
 export interface ModelConfigFormData {
   id?: number;
@@ -79,9 +109,48 @@ export function ModelConfigForm({
   errors = {},
   isEdit = false,
 }: ModelConfigFormProps) {
+  const [providers, setProviders] = useState<ModelProvider[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+
+  // Load providers from model gateway on mount
+  useEffect(() => {
+    const loadProviders = async () => {
+      setLoadingProviders(true);
+      try {
+        const response = await fetchApi('/api/v1/model-gateway/providers');
+        const data = response as { items?: ModelProvider[] };
+        setProviders(data.items || []);
+      } catch (e) {
+        console.error('Failed to load providers:', e);
+      } finally {
+        setLoadingProviders(false);
+      }
+    };
+    loadProviders();
+  }, []);
+
   const needsApiFields = ['api', 'ollama', 'vllm'].includes(formData.adapter_type);
   const isEmbedding = formData.model_type === 'embedding';
   const needsAdvancedParams = ['llm', 'vision', 'text_to_speech'].includes(formData.model_type);
+
+  // Handle provider change - auto-fill API settings
+  const handleProviderChange = (providerCode: string) => {
+    const defaults = PROVIDER_DEFAULTS[providerCode];
+    const updates: Partial<ModelConfigFormData> = { provider: providerCode };
+
+    // Try to find matching provider from gateway
+    const gatewayProvider = providers.find(p => p.code === providerCode);
+    if (gatewayProvider) {
+      updates.api_url = gatewayProvider.base_url;
+      if (gatewayProvider.api_key) {
+        updates.api_key = gatewayProvider.api_key;
+      }
+    } else if (defaults?.base_url) {
+      updates.api_url = defaults.base_url;
+    }
+
+    onChange(updates);
+  };
 
   const updateField = <K extends keyof ModelConfigFormData>(
     field: K,
@@ -160,17 +229,34 @@ export function ModelConfigForm({
             </Label>
             <Select
               value={formData.provider}
-              onValueChange={(v) => updateField('provider', v)}
+              onValueChange={handleProviderChange}
             >
               <SelectTrigger className="rounded-full h-11 border border-[#e0e0e0] bg-white px-4">
-                <SelectValue />
+                <SelectValue placeholder={loadingProviders ? "加载中..." : "选择提供商"} />
               </SelectTrigger>
               <SelectContent className="rounded-xl max-h-[200px] overflow-y-auto border-[#e0e0e0]">
-                {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
+                {/* 从模型网关动态加载的供应商 */}
+                {providers.length > 0 && providers.map((p) => (
+                  <SelectItem key={p.code} value={p.code}>
+                    <div className="flex items-center gap-2">
+                      <span>{p.name}</span>
+                      {p.is_enabled && p.status === 'active' && (
+                        <span className="text-[10px] text-green-600 ml-auto">●</span>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
+                {/* 预设供应商（当网关中没有数据时） */}
+                {providers.length === 0 && Object.entries(PROVIDER_LABELS).map(([key, label]) => (
                   <SelectItem key={key} value={key}>{label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            {providers.length > 0 && (
+              <p className="text-[11px] text-[#999999] ml-2">
+                已加载 {providers.length} 个供应商，选择后自动填充 API 配置
+              </p>
+            )}
           </div>
 
           {/* 模型 ID - 跨两列 */}

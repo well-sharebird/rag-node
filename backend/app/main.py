@@ -15,6 +15,7 @@ from app.api.v1.chat import router as chat_router
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.evaluation import router as evaluation_router
+from app.api.v1.model_gateway import router as model_gateway_router
 from app.utils.error_handlers import register_error_handlers
 
 setup_logging(debug=settings.debug)
@@ -38,8 +39,22 @@ async def lifespan(app: FastAPI):
     logger.info("Database tables ensured | url=%s", settings.database_url[:30])
 
     # --- Load RAG Config from System Settings ---
-    await reload_from_db()
+    rag_config = await reload_from_db()
     logger.info("RAG config loaded from system_settings")
+
+    # --- Initialize FileTypeRouter from settings ---
+    from app.services.file_type_router import init_router_from_settings
+    try:
+        file_type_routes = rag_config.get("chunking", {}).get("file_type_routes", {}) if rag_config else {}
+        if file_type_routes:
+            init_router_from_settings(file_type_routes)
+            logger.info("FileTypeRouter initialized with %d custom routes", len(file_type_routes))
+        else:
+            from app.services.file_type_router import get_router
+            get_router()  # Initialize with defaults
+            logger.info("FileTypeRouter initialized with default routes")
+    except Exception as e:
+        logger.warning("FileTypeRouter init failed: %s", e)
 
     # --- Default Settings & Auth Init ---
     from app.core.database import async_session_factory
@@ -114,6 +129,7 @@ app.include_router(v1_router, prefix=settings.api_prefix)
 app.include_router(feedback_router, prefix=settings.api_prefix)
 app.include_router(conversations_router, prefix=settings.api_prefix)
 app.include_router(evaluation_router, prefix=settings.api_prefix)
+app.include_router(model_gateway_router, prefix=settings.api_prefix)
 register_error_handlers(app)
 
 

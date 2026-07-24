@@ -73,9 +73,12 @@ async def create_knowledge_base(db: AsyncSession, milvus, data: KBCreateRequest)
     kb = KnowledgeBase(
         name=data.name, description=data.description,
         collection_name=collection_name, permissions=data.permissions,
+        top_k=data.top_k,
+        min_score=data.min_score,
+        enable_rerank=data.enable_rerank,
     )
     db.add(kb)
-    await db.flush()
+    await db.commit()
     await db.refresh(kb)
     logger.info("Knowledge base created | id=%s name=%s collection=%s dim=%d", kb.id, kb.name, collection_name, dim)
     return kb

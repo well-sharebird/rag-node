@@ -50,16 +50,16 @@ async def create_model(
     if data.is_default:
         await db.execute(
             update(ModelConfig)
-            .where(ModelConfig.model_type == data.model_type.value)
+            .where(ModelConfig.model_type == data.model_type)
             .values(is_default=False)
         )
 
     model = ModelConfig(
         name=data.name,
         model_id=data.model_id,
-        model_type=data.model_type.value,
-        adapter_type=data.adapter_type.value,
-        provider=data.provider.value,
+        model_type=data.model_type,
+        adapter_type=data.adapter_type,
+        provider=data.provider,
         description=data.description,
         api_url=data.api_url,
         api_key=data.api_key,
@@ -79,7 +79,7 @@ async def create_model(
     )
 
     db.add(model)
-    await db.flush()
+    await db.commit()
     await db.refresh(model)
 
     logger.info("Model config created | id=%d name=%s type=%s", model.id, model.name, model.model_type)

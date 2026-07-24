@@ -1,6 +1,6 @@
 """
 Stage 3 - Intelligent Chunking Strategies
-支持 5 种策略：Fixed, Semantic, Recursive, Agentic, Small-to-Big
+支持 6 种策略：Fixed, Semantic, Recursive, Agentic, Small-to-Big, Parent-Child
 """
 from __future__ import annotations
 import re
@@ -34,6 +34,7 @@ def chunk_text(
     separators: Optional[List[str]] = None,
     llm_service=None,  # For Agentic strategy
     small_chunk_size: Optional[int] = None,  # For Small-to-Big
+    parent_chunk_size: Optional[int] = None,  # For Parent-Child
     content_type: str = "text",  # Content type tag: "text", "table", "image"
 ) -> List[Chunk]:
     """
@@ -41,12 +42,13 @@ def chunk_text(
 
     Args:
         text: Input text to chunk
-        strategy: One of 'fixed', 'semantic', 'recursive', 'agentic', 'small_to_big'
+        strategy: One of 'fixed', 'semantic', 'recursive', 'agentic', 'small_to_big', 'parent_child'
         chunk_size: Target chunk size (characters or tokens depending on strategy)
         chunk_overlap: Overlap between consecutive chunks
         separators: Custom separators for semantic/recursive splitting
         llm_service: LLM service for agentic chunking
         small_chunk_size: Smaller chunk size for small-to-big strategy
+        parent_chunk_size: Larger parent chunk size for parent-child strategy
         content_type: Content type for metadata tracking ("text", "table", "image")
 
     Returns:
@@ -65,6 +67,9 @@ def chunk_text(
     elif strategy == "small_to_big":
         small_size = small_chunk_size or max(chunk_size // 4, 128)
         chunks = _small_to_big_chunk(text, chunk_size, small_size, chunk_overlap, separators)
+    elif strategy == "parent_child":
+        parent_size = parent_chunk_size or chunk_size * 2
+        chunks = _parent_child_chunk(text, chunk_size, parent_size, chunk_overlap, separators)
     else:
         chunks = _fixed_chunk(text, chunk_size, chunk_overlap)
 
@@ -389,6 +394,77 @@ Respond with ONLY the JSON array of character positions, no explanation.
         return _recursive_chunk(text, chunk_size, chunk_overlap)
 
 
+def _parent_child_chunk(
+    text: str,
+    child_chunk_size: int,
+    parent_chunk_size: int,
+    chunk_overlap: int,
+    separators: Optional[List[str]] = None,
+) -> List[Chunk]:
+    """
+    Parent-Child chunking strategy.
+
+    Creates small child chunks for precise vector indexing, while maintaining
+    links to larger parent chunks that provide full context for generation.
+
+    Strategy:
+    1. Split text into large parent chunks
+    2. Split each parent into smaller child chunks
+    3. Child chunks are used for vector indexing/retrieval
+    4. Parent chunks are returned as context for generation
+
+    Args:
+        text: Input text
+        child_chunk_size: Size of child chunks (for indexing)
+        parent_chunk_size: Size of parent chunks (for context)
+        chunk_overlap: Overlap for child chunks
+        separators: Separators for splitting
+
+    Returns:
+        List of child chunks with parent references
+    """
+    import uuid
+
+    # First, create parent chunks
+    parent_chunks = _recursive_chunk(text, parent_chunk_size, chunk_overlap, separators)
+
+    result = []
+    for parent in parent_chunks:
+        parent_id = f"parent_{uuid.uuid4().hex[:8]}"
+        parent.chunk_id = parent_id
+
+        # Split parent into child chunks
+        child_chunks = _recursive_chunk(
+            parent.text,
+            child_chunk_size,
+            min(chunk_overlap, child_chunk_size // 4),
+            separators,
+        )
+
+        child_ids = []
+        for child in child_chunks:
+            child_id = f"child_{uuid.uuid4().hex[:8]}"
+            child.chunk_id = child_id
+            child.parent_id = parent_id
+            child_ids.append(child_id)
+
+            # Copy parent metadata to child
+            child.metadata.update({
+                "parent_id": parent_id,
+                "parent_text": parent.text,
+                "parent_start_idx": parent.start_idx,
+                "is_child": True,
+            })
+
+            result.append(child)
+
+        # Set parent's child references
+        parent.child_ids = child_ids
+        parent.metadata["child_count"] = len(child_ids)
+
+    return result
+
+
 def _small_to_big_chunk(
     text: str,
     chunk_size: int,
@@ -446,4 +522,4 @@ def estimate_tokens(text: str) -> int:
 
 def get_chunking_strategies() -> List[str]:
     """Return list of available chunking strategies"""
-    return ["fixed", "semantic", "recursive", "agentic", "small_to_big"]
+    return ["fixed", "semantic", "recursive", "agentic", "small_to_big", "parent_child"]

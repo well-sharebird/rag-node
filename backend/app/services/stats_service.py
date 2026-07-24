@@ -40,12 +40,43 @@ async def get_dashboard_stats(db: AsyncSession, milvus, redis: aioredis.Redis) -
     except Exception as e:
         logger.debug("Redis latency read failed: %s", e)
 
+    # Check embedding model status
+    embedding_status = "unknown"
+    try:
+        from app.services.model_config_service import get_default_model, ModelType
+        embedding_model = await get_default_model(db, ModelType.EMBEDDING.value)
+        if embedding_model:
+            embedding_status = "healthy"
+        else:
+            embedding_status = "unhealthy"
+    except Exception as e:
+        logger.debug("Embedding model health check failed: %s", e)
+        embedding_status = "unhealthy"
+
+    # Check doc processor status (based on document pipeline health)
+    doc_processor_status = "unknown"
+    try:
+        # Check if there are any failed documents recently
+        failed_count = (await db.execute(
+            select(func.count(Document.id)).where(Document.status == "failed")
+        )).scalar() or 0
+        doc_processor_status = "healthy" if failed_count == 0 else "degraded"
+    except Exception as e:
+        logger.debug("Doc processor health check failed: %s", e)
+        doc_processor_status = "unknown"
+
     return DashboardStats(
         total_knowledge_bases=total_kb,
         total_documents=total_doc,
         total_vectors=int(total_vec or 0),
         avg_latency_ms=round(avg_latency, 1),
-        services=ServiceStatus(milvus=milvus_status, postgres=postgres_status, redis=redis_status),
+        services=ServiceStatus(
+            milvus=milvus_status,
+            postgres=postgres_status,
+            redis=redis_status,
+            embedding=embedding_status,
+            doc_processor=doc_processor_status,
+        ),
     )
 
 

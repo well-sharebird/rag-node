@@ -1,93 +1,95 @@
-const API_BASE = '/api/v1';
+/**
+ * API Client Utilities
+ * 基础 API 客户端工具
+ */
 
-// Get token from localStorage
-function getAuthToken(): string | null {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('auth_token');
+const API_BASE_URL = '';
+
+// 通用 fetch 封装
+export async function fetchApi<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const url = `${API_BASE_URL}${endpoint}`;
+
+  // 只有当 body 不是 FormData 时才设置 JSON Content-Type
+  const isFormData = options.body instanceof FormData;
+  const defaultHeaders: HeadersInit = {};
+
+  if (!isFormData) {
+    defaultHeaders['Content-Type'] = 'application/json';
   }
-  return null;
-}
 
-// Build headers with auth token if available
-function buildHeaders(customHeaders?: Record<string, string>): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...customHeaders,
-  };
-  const token = getAuthToken();
+  // 添加认证 token
+  const token = localStorage.getItem('auth_token');
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
-  return headers;
-}
 
-function toCamelCase(str: string): string {
-  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-}
-
-function mapKeysToCamel(obj: any): any {
-  if (Array.isArray(obj)) return obj.map(mapKeysToCamel);
-  if (obj !== null && typeof obj === 'object') {
-    const result: Record<string, any> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[toCamelCase(key)] = mapKeysToCamel(value);
-    }
-    return result;
-  }
-  return obj;
-}
-
-function mapKeysToSnake(obj: any): any {
-  const toSnake = (s: string) => s.replace(/([A-Z])/g, '_$1').toLowerCase();
-  if (Array.isArray(obj)) return obj.map(mapKeysToSnake);
-  if (obj !== null && typeof obj === 'object') {
-    const result: Record<string, any> = {};
-    for (const [key, value] of Object.entries(obj)) {
-      result[toSnake(key)] = mapKeysToSnake(value);
-    }
-    return result;
-  }
-  return obj;
-}
-
-async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, {
-    headers: buildHeaders(options?.headers as Record<string, string>),
+  const config: RequestInit = {
     ...options,
-  });
-  if (res.status === 204) return undefined as T;
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || err.detail || `HTTP ${res.status}`);
+    headers: {
+      ...defaultHeaders,
+      ...options.headers,
+    },
+  };
+
+  const response = await fetch(url, config);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: '请求失败' }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
   }
-  const data = await res.json();
-  return mapKeysToCamel(data) as T;
+
+  // 处理 204 No Content
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  // Check if response is JSON before parsing
+  const contentType = response.headers.get('content-type');
+  if (!contentType || !contentType.includes('application/json')) {
+    const text = await response.text();
+    console.error('Expected JSON but received:', text.substring(0, 200));
+    throw new Error(`服务器返回了非 JSON 响应 (HTTP ${response.status})`);
+  }
+
+  return response.json();
 }
 
-// Raw request without camelCase conversion (for components that use snake_case)
-async function requestRaw<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, {
-    headers: buildHeaders(options?.headers as Record<string, string>),
-    ...options,
-  });
-  if (res.status === 204) return undefined as T;
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || err.detail || `HTTP ${res.status}`);
-  }
-  return res.json() as Promise<T>;
-}
+// 便捷方法
+export const api = {
+  get: <T>(endpoint: string, options?: RequestInit) =>
+    fetchApi<T>(endpoint, { ...options, method: 'GET' }),
 
-// --- Knowledge Bases ---
+  post: <T>(endpoint: string, body?: BodyInit, options?: RequestInit) =>
+    fetchApi<T>(endpoint, { ...options, method: 'POST', body }),
+
+  put: <T>(endpoint: string, body?: BodyInit, options?: RequestInit) =>
+    fetchApi<T>(endpoint, { ...options, method: 'PUT', body }),
+
+  delete: <T>(endpoint: string, options?: RequestInit) =>
+    fetchApi<T>(endpoint, { ...options, method: 'DELETE' }),
+};
+
+// 文档管理相关 API
+// KB types
 export interface KBData {
   id: string;
   name: string;
   description: string;
   documentCount: number;
+  document_count: number;
   vectorCount: number;
+  vector_count: number;
   permissions: string;
   createdAt: string;
+  created_at: string;
   updatedAt: string;
+  updated_at: string;
+  top_k?: number;
+  min_score?: number;
+  enable_rerank?: boolean;
 }
 
 export interface KBListResponse {
@@ -95,186 +97,92 @@ export interface KBListResponse {
   total: number;
 }
 
-export function fetchKBs(search?: string) {
+export const fetchKBs = async (search?: string) => {
   const qs = search ? `?search=${encodeURIComponent(search)}` : '';
-  return request<KBListResponse>(`/knowledge-bases${qs}`);
-}
+  return fetchApi<KBListResponse>(`/api/v1/knowledge-bases${qs}`);
+};
 
-export function fetchKnowledgeBases() {
-  return request<KBListResponse>('/knowledge-bases');
-}
+export const fetchKnowledgeBases = async () => {
+  return fetchApi<KBListResponse>('/api/v1/knowledge-bases');
+};
 
-export function fetchKB(id: string) {
-  return request<KBData>(`/knowledge-bases/${id}`);
-}
+export const fetchKB = async (id: string) => {
+  return fetchApi<KBData>(`/api/v1/knowledge-bases/${id}`);
+};
 
-export function createKB(data: { name: string; description: string; permissions: string }) {
-  return request<KBData>('/knowledge-bases', {
+export const createKB = async (data: { name: string; description: string; permissions?: string }) => {
+  return fetchApi<KBData>('/api/v1/knowledge-bases', {
     method: 'POST',
-    body: JSON.stringify(mapKeysToSnake(data)),
+    body: JSON.stringify(data),
   });
-}
+};
 
-export function updateKB(id: string, data: Record<string, any>) {
-  return request<KBData>(`/knowledge-bases/${id}`, {
+export const deleteKB = async (id: string) => {
+  return fetchApi<void>(`/api/v1/knowledge-bases/${id}`, { method: 'DELETE' });
+};
+
+export const updateKB = async (id: string, data: { top_k?: number; min_score?: number; enable_rerank?: boolean }) => {
+  return fetchApi<KBData>(`/api/v1/knowledge-bases/${id}`, {
     method: 'PUT',
-    body: JSON.stringify(mapKeysToSnake(data)),
+    body: JSON.stringify(data),
   });
-}
+};
 
-export function deleteKB(id: string) {
-  return request<void>(`/knowledge-bases/${id}`, { method: 'DELETE' });
-}
+export const fetchDocs = async (kbId: string) => {
+  return fetchApi<{ items: DocData[]; categories?: string[] }>(`/api/v1/documents?kb_id=${kbId}`);
+};
 
-// --- Documents ---
-export interface DocData {
-  id: string;
-  kbId: string;
-  name: string;
-  format: string;
-  size: number;
-  status: string;
-  errorMessage?: string | null;
-  uploadedAt: string;
-  processedAt?: string | null;
-  kbName?: string | null;
-  category?: string;
-  tags?: string[];
-}
+export const deleteDoc = async (docId: string) => {
+  return fetchApi(`/api/v1/documents/${docId}`, { method: 'DELETE' });
+};
 
-export interface DocListResponse {
-  items: DocData[];
-  total: number;
-}
-
-export function fetchDocs(kbId?: string, search?: string) {
-  const params = new URLSearchParams();
-  if (kbId) params.set('kb_id', kbId);
-  if (search) params.set('search', search);
-  const qs = params.toString();
-  return request<DocListResponse & { categories?: string[] }>(`/documents${qs ? `?${qs}` : ''}`);
-}
-
-export function fetchDocumentCategories(kbId?: string) {
-  const qs = kbId ? `?kb_id=${kbId}` : '';
-  return request<{ categories: string[] }>(`/documents${qs}`);
-}
-
-export function fetchDoc(id: string) {
-  return request<DocData>(`/documents/${id}`);
-}
-
-export async function uploadDoc(kbId: string, file: File) {
+export const uploadDoc = async (kbId: string, file: File) => {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`${API_BASE}/documents/upload?kb_id=${encodeURIComponent(kbId)}`, {
+  return fetchApi(`/api/v1/documents/upload?kb_id=${encodeURIComponent(kbId)}`, {
     method: 'POST',
     body: formData,
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
-  const data = await res.json();
-  return mapKeysToCamel(data) as { id: string; status: string; message: string };
-}
+};
 
-export function deleteDoc(id: string) {
-  return request<void>(`/documents/${id}`, { method: 'DELETE' });
-}
+export const fetchDocumentCategories = async (kbId: string) => {
+  return fetchApi(`/api/v1/documents/categories?kb_id=${encodeURIComponent(kbId)}`);
+};
 
-export function updateDocument(id: string, data: { tags?: string[]; category?: string }) {
-  return request<DocData>(`/documents/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(mapKeysToSnake(data)),
-  });
-}
-
-export function reprocessDoc(id: string) {
-  return request<{ status: string; chunks?: number; error?: string }>(`/documents/${id}/reprocess`, { method: 'POST' });
-}
-
-export async function batchUploadDocs(kbId: string, files: File[]) {
-  const formData = new FormData();
-  files.forEach(f => formData.append('files', f));
-  const res = await fetch(`${API_BASE}/documents/batch-upload?kb_id=${encodeURIComponent(kbId)}`, {
-    method: 'POST',
-    body: formData,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
-  const data = await res.json();
-  return mapKeysToCamel(data) as { id: string; status: string; message: string }[];
-}
-
-// --- Retrieval ---
-export interface SearchResultData {
-  chunkId: string;
-  content: string;
-  score: number;
-  metadata: Record<string, any>;
-}
-
-export interface SearchResponseData {
-  results: SearchResultData[];
-  query: string;
-  searchTimeMs: number;
-  totalRecalled: number;
-}
-
-export function searchChunks(params: {
-  kbId: string;
-  query: string;
-  topK?: number;
-  minScore?: number;
-  enableHybrid?: boolean;
-  enableRerank?: boolean;
-}) {
-  return request<SearchResponseData>('/retrieval/search', {
-    method: 'POST',
-    body: JSON.stringify(mapKeysToSnake(params)),
-  });
-}
-
-export function fetchSearchHistory(limit?: number) {
-  const qs = limit ? `?limit=${limit}` : '';
-  return request<{ items: any[]; total: number }>(`/retrieval/history${qs}`);
-}
-
-// --- Dashboard ---
+// Dashboard
 export interface DashboardData {
+  total_knowledge_bases: number;
+  total_documents: number;
+  total_vectors: number;
+  avg_latency_ms: number;
+  services: Record<string, string>;
+  // camelCase aliases for frontend compatibility
   totalKnowledgeBases: number;
   totalDocuments: number;
   totalVectors: number;
   avgLatencyMs: number;
-  services: {
-    milvus: string;
-    postgres: string;
-    redis: string;
-    embedding?: string;
-    docProcessor?: string;
-  };
-}
-
-export function fetchDashboard() {
-  return request<DashboardData>('/dashboard/stats');
 }
 
 export interface QualityMetricsData {
+  avg_score_7d: number;
+  avg_latency_7d: number;
+  total_searches_7d: number;
+  zero_result_rate: number;
+  trend: { date: string; avg_score: number; search_count: number }[];
+  // camelCase aliases for frontend compatibility
   avgScore7d: number;
   avgLatency7d: number;
   totalSearches7d: number;
   zeroResultRate: number;
-  trend: { date: string; avgScore: number; searchCount: number }[];
-}
-
-export function fetchQualityMetrics() {
-  return request<QualityMetricsData>('/dashboard/quality');
 }
 
 export interface TopDocItem {
+  doc_id: string;
+  doc_name: string;
+  kb_name: string;
+  search_count: number;
+  avg_score: number;
+  // camelCase aliases for frontend compatibility
   docId: string;
   docName: string;
   kbName: string;
@@ -282,71 +190,272 @@ export interface TopDocItem {
   avgScore: number;
 }
 
-export function fetchTopDocs() {
-  return request<{ items: TopDocItem[] }>('/dashboard/top-docs');
-}
+export const fetchDashboard = async () => {
+  return fetchApi('/api/v1/dashboard/stats');
+};
 
-// --- Settings ---
-export interface SettingsData {
-  version: number;
-  isActive: boolean;
-  settings: Record<string, any>;
-  publishedAt?: string | null;
-}
+export const fetchQualityMetrics = async () => {
+  return fetchApi('/api/v1/dashboard/quality');
+};
 
-export function fetchSettings() {
-  return request<SettingsData>('/settings');
-}
+export const fetchTopDocs = async () => {
+  return fetchApi('/api/v1/dashboard/top-docs');
+};
 
-export function updateSettings(data: Record<string, any>) {
-  return request<SettingsData>('/settings', {
+// Retrieval
+export const searchChunks = async (params: {
+  kb_id: string;
+  query: string;
+  top_k?: number;
+  min_score?: number;
+  enable_hybrid?: boolean;
+  enable_rerank?: boolean;
+}) => {
+  return fetchApi('/api/v1/retrieval/search', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+};
+
+export const fetchSearchHistory = async (limit?: number) => {
+  const qs = limit ? `?limit=${limit}` : '';
+  return fetchApi(`/api/v1/retrieval/history${qs}`);
+};
+
+// Settings
+export const fetchSettings = async () => {
+  return fetchApi('/api/v1/settings');
+};
+
+export const updateSettings = async (data: Record<string, any>) => {
+  return fetchApi('/api/v1/settings', {
     method: 'PUT',
     body: JSON.stringify(data),
   });
+};
+
+// Batch upload
+export const batchUploadDocs = async (kbId: string, files: File[]) => {
+  const formData = new FormData();
+  files.forEach(f => formData.append('files', f));
+  return fetchApi(`/api/v1/documents/batch-upload?kb_id=${encodeURIComponent(kbId)}`, {
+    method: 'POST',
+    body: formData,
+  });
+};
+
+// Document types and operations
+export interface DocData {
+  id: string;
+  kbId: string;
+  kb_id: string;
+  name: string;
+  format: string;
+  size: number;
+  file_size: number;
+  status: string;
+  uploadedAt: string;
+  uploaded_at: string;
+  chunk_count?: number;
+  category?: string;
+  tags?: string[];
+  errorMessage?: string | null;
+  error_message?: string | null;
 }
 
-export function fetchSettingsHistory() {
-  return request<any[]>('/settings/history');
-}
+export const fetchDoc = async (id: string) => {
+  return fetchApi(`/api/v1/documents/${id}`);
+};
 
-// --- Health ---
-export function checkHealth() {
-  return request<any>('/health');
-}
+export const updateDocument = async (id: string, data: { tags?: string[]; category?: string }) => {
+  return fetchApi(`/api/v1/documents/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
 
-// --- Data Sources ---
-export interface DataSource {
+export const reprocessDocument = async (id: string, force: boolean = false) => {
+  return fetchApi(`/api/v1/documents/${id}/reprocess${force ? '?force=true' : ''}`, {
+    method: 'POST',
+  });
+};
+
+export const batchReprocessDocuments = async (kb_id: string, failed_only: boolean = true, doc_ids?: string[]) => {
+  const params = new URLSearchParams();
+  params.append('kb_id', kb_id);
+  params.append('failed_only', String(failed_only));
+  if (doc_ids && doc_ids.length > 0) {
+    for (const id of doc_ids) {
+      params.append('doc_ids', id);
+    }
+  }
+  return fetchApi(`/api/v1/documents/batch-reprocess?${params.toString()}`, {
+    method: 'POST',
+  });
+};
+
+// User Management types and functions
+export interface RoleData {
   id: number;
   name: string;
-  sourceType: string;
   description?: string;
-  kbId: number;
-  syncMode: string;
-  cronExpression?: string;
-  autoProcess: boolean;
-  enabled: boolean;
-  status: 'active' | 'inactive' | 'syncing' | 'error' | 'pending';
-  lastSyncAt?: string;
-  lastSyncStatus?: string;
-  syncMessage?: string;
-  itemsSynced: number;
-  itemsFailed: number;
-  configJson: Record<string, any>;
-  createdAt: string;
-  updatedAt: string;
+  isSystem?: boolean;
 }
 
-export interface DataSourcePreset {
+export interface UserData {
+  id: number;
+  email: string;
+  username: string;
+  full_name?: string;
+  is_active?: boolean;
+  created_at?: string;
+  roles?: RoleData[];
+}
+
+export interface UserCreate {
+  email: string;
+  username: string;
+  password: string;
+  full_name?: string;
+  role_ids?: number[];
+}
+
+export const fetchUsers = async (search?: string, role?: string) => {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (role) params.set('role', role);
+  const qs = params.toString();
+  return fetchApi(`/api/v1/users${qs ? `?${qs}` : ''}`);
+};
+
+export const fetchRoles = async () => {
+  return fetchApi('/api/v1/users/roles');
+};
+
+export const createUser = async (data: UserCreate) => {
+  return fetchApi('/api/v1/users', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateUser = async (id: number, data: Partial<UserData>) => {
+  return fetchApi(`/api/v1/users/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteUser = async (id: number) => {
+  return fetchApi(`/api/v1/users/${id}`, { method: 'DELETE' });
+};
+
+export const assignUserRoles = async (id: number, roleIds: number[]) => {
+  return fetchApi(`/api/v1/users/${id}/roles`, {
+    method: 'POST',
+    body: JSON.stringify({ role_ids: roleIds }),
+  });
+};
+
+export const createRole = async (name: string, description?: string) => {
+  const qs = description ? `?description=${encodeURIComponent(description)}` : '';
+  return fetchApi(`/api/v1/users/roles?role_name=${encodeURIComponent(name)}${qs}`, {
+    method: 'POST',
+  });
+};
+
+export const deleteRole = async (id: number) => {
+  return fetchApi(`/api/v1/users/roles/${id}`, { method: 'DELETE' });
+};
+
+// Model Management types and functions
+export interface ModelConfigSnake {
+  id: number;
+  name: string;
+  model_id: string;
+  model_type: string;
+  adapter_type: string;
+  provider: string;
+  description?: string;
+  api_url?: string;
+  status: string;
+  is_default: boolean;
+  is_enabled: boolean;
+  embedding_dim?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelPresetSnake {
   id: string;
   name: string;
   description: string;
-  sourceType: string;
-  icon: string;
-  configTemplate: Record<string, any>;
-  useCases: string[];
+  model_type: string;
+  adapter_type: string;
+  provider: string;
+  model_id: string;
+  default_config: Record<string, any>;
+  recommended_for: string[];
 }
 
-// Legacy snake_case interface for backward compatibility with existing components
+export const fetchModels = async () => {
+  return fetchApi('/api/v1/models');
+};
+
+export const fetchModelPresets = async (modelType?: string) => {
+  const qs = modelType ? `?model_type=${modelType}` : '';
+  return fetchApi(`/api/v1/models/presets${qs}`);
+};
+
+export const testModelConnection = async (id: number) => {
+  return fetchApi(`/api/v1/models/${id}/test`, { method: 'POST' });
+};
+
+export const deleteModel = async (id: number) => {
+  return fetchApi(`/api/v1/models/${id}`, { method: 'DELETE' });
+};
+
+export const updateModel = async (id: number, data: Partial<ModelConfigSnake>) => {
+  return fetchApi(`/api/v1/models/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
+
+export const createModel = async (data: Partial<ModelConfigSnake>) => {
+  return fetchApi('/api/v1/models', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+// Token Usage & Quota types and functions
+export interface UserQuota {
+  id: number;
+  user_id: number;
+  daily_token_limit?: number;
+  daily_cost_limit?: number;
+  monthly_token_limit?: number;
+  monthly_cost_limit?: number;
+  used_daily_tokens?: number;
+  used_daily_cost?: number;
+  used_monthly_tokens?: number;
+  used_monthly_cost?: number;
+  is_active?: boolean;
+}
+
+export const fetchAllQuotas = async () => {
+  return fetchApi('/api/v1/token-usage/admin/quotas');
+};
+
+export const setUserQuota = async (userId: number, data: Partial<UserQuota>) => {
+  return fetchApi(`/api/v1/token-usage/admin/quota/${userId}`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+// Data Source types and functions
 export interface DataSourceSnake {
   id: number;
   name: string;
@@ -357,7 +466,7 @@ export interface DataSourceSnake {
   cron_expression?: string;
   auto_process: boolean;
   enabled: boolean;
-  status: 'active' | 'inactive' | 'syncing' | 'error' | 'pending';
+  status: string;
   last_sync_at?: string;
   last_sync_status?: string;
   sync_message?: string;
@@ -378,25 +487,10 @@ export interface DataSourcePresetSnake {
   use_cases: string[];
 }
 
-export interface SyncJob {
-  id: number;
-  dataSourceId: number;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  triggerBy: string;
-  itemsSynced: number;
-  itemsFailed: number;
-  progressPercent: number;
-  startedAt?: string;
-  completedAt?: string;
-  errorMessage?: string;
-  createdAt: string;
-}
-
-// Legacy snake_case interface for backward compatibility
 export interface SyncJobSnake {
   id: number;
   data_source_id: number;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+  status: string;
   trigger_by: string;
   items_synced: number;
   items_failed: number;
@@ -407,365 +501,594 @@ export interface SyncJobSnake {
   created_at: string;
 }
 
-export function fetchDataSources() {
-  return requestRaw<{ items: DataSourceSnake[]; total: number }>('/data-sources');
-}
+export const fetchDataSources = async () => {
+  return fetchApi('/api/v1/data-sources');
+};
 
-export function fetchDataSourcesPresets() {
-  return requestRaw<DataSourcePresetSnake[]>('/data-sources/presets');
-}
+export const fetchDataSourcesPresets = async () => {
+  return fetchApi('/api/v1/data-sources/presets');
+};
 
-export function syncDataSource(id: number, fullSync?: boolean) {
-  return requestRaw<any>(`/data-sources/${id}/sync${fullSync ? '?full_sync=true' : ''}`, {
-    method: 'POST',
-  });
-}
+export const syncDataSource = async (id: number, fullSync?: boolean) => {
+  const qs = fullSync ? '?full_sync=true' : '';
+  return fetchApi(`/api/v1/data-sources/${id}/sync${qs}`, { method: 'POST' });
+};
 
-export function getSyncJobStatus(jobId: number) {
-  return requestRaw<SyncJobSnake>(`/data-sources/sync/${jobId}`);
-}
+export const getSyncJobStatus = async (jobId: number) => {
+  return fetchApi(`/api/v1/data-sources/sync/${jobId}`);
+};
 
-export function deleteDataSource(id: number) {
-  return requestRaw<void>(`/data-sources/${id}`, { method: 'DELETE' });
-}
+export const deleteDataSource = async (id: number) => {
+  return fetchApi(`/api/v1/data-sources/${id}`, { method: 'DELETE' });
+};
 
-export function updateDataSource(id: number, data: Partial<DataSourceSnake>) {
-  return requestRaw<DataSourceSnake>(`/data-sources/${id}`, {
+export const updateDataSource = async (id: number, data: Partial<DataSourceSnake>) => {
+  return fetchApi(`/api/v1/data-sources/${id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
-}
+};
 
-export function createDataSource(data: Partial<DataSourceSnake>) {
-  return requestRaw<DataSourceSnake>('/data-sources', {
+export const createDataSource = async (data: Partial<DataSourceSnake>) => {
+  return fetchApi('/api/v1/data-sources', {
     method: 'POST',
     body: JSON.stringify(data),
   });
+};
+
+export const getSyncHistory = async (id: number) => {
+  return fetchApi(`/api/v1/data-sources/${id}/sync-history`);
+};
+
+// ============================================================
+// Auth & Authentication
+// ============================================================
+
+export interface LoginRequest {
+  username: string;
+  password: string;
 }
 
-export function getSyncHistory(id: number) {
-  return requestRaw<SyncJobSnake[]>(`/data-sources/${id}/sync-history`);
+export interface TokenResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  user?: UserData;
 }
 
-// --- Model Management ---
-export interface ModelConfig {
+export interface UserResponse {
   id: number;
-  name: string;
-  modelId: string;
-  modelType: string;
-  adapterType: string;
-  provider: string;
-  description?: string;
-  apiUrl?: string;
-  status: 'active' | 'inactive' | 'error' | 'testing';
-  isDefault: boolean;
-  isEnabled: boolean;
-  embeddingDim?: number;
-  createdAt: string;
-  updatedAt: string;
+  email: string;
+  username: string;
+  full_name?: string;
+  is_active: boolean;
+  created_at: string;
+  last_login_at?: string;
+  roles?: RoleData[];
 }
 
-export interface ModelPreset {
-  id: string;
-  name: string;
-  description: string;
-  modelType: string;
-  adapterType: string;
-  provider: string;
-  modelId: string;
-  defaultConfig: Record<string, any>;
-  recommendedFor: string[];
-}
-
-// Legacy snake_case interface for backward compatibility
-export interface ModelConfigSnake {
+export interface APIKeyResponse {
   id: number;
+  key: string;
   name: string;
-  model_id: string;
-  model_type: string;
-  adapter_type: string;
-  provider: string;
-  description?: string;
-  api_url?: string;
-  api_key?: string;
-  status: 'active' | 'inactive' | 'error' | 'testing';
-  is_default: boolean;
-  is_enabled: boolean;
-  embedding_dim?: number;
-  temperature?: number;
-  max_tokens?: number;
-  top_p?: number;
+  created_at: string;
+  expires_at?: string;
+  is_active: boolean;
+}
+
+export interface APIKeyListResponse {
+  items: APIKeyResponse[];
+  total: number;
+}
+
+export const login = async (data: LoginRequest) => {
+  return fetchApi<TokenResponse>('/api/v1/auth/login', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const register = async (data: { email: string; username: string; password: string; full_name?: string }) => {
+  return fetchApi<UserResponse>('/api/v1/auth/register', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const refreshToken = async (refresh_token: string) => {
+  return fetchApi<TokenResponse>('/api/v1/auth/refresh', {
+    method: 'POST',
+    body: JSON.stringify({ refresh_token }),
+  });
+};
+
+export const getMe = async () => {
+  return fetchApi<UserResponse>('/api/v1/auth/me');
+};
+
+export const createApiKey = async (data: { name: string; expires_days?: number }) => {
+  return fetchApi<APIKeyResponse>('/api/v1/auth/api-keys', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const getApiKeys = async () => {
+  return fetchApi<APIKeyListResponse>('/api/v1/auth/api-keys');
+};
+
+export const deleteApiKey = async (key_id: number) => {
+  return fetchApi<void>(`/api/v1/auth/api-keys/${key_id}`, { method: 'DELETE' });
+};
+
+export const getAuditLogs = async (params?: { limit?: number; offset?: number; action?: string }) => {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return fetchApi(`/api/v1/auth/audit-logs${qs ? `?${qs}` : ''}`);
+};
+
+// ============================================================
+// Chat Completions
+// ============================================================
+
+export interface ChatCompletionRequest {
+  query: string;
+  kb_ids: string[];
+  session_id?: string;
+  stream?: boolean;
+  top_k?: number;
+  min_score?: number;
+  enable_rerank?: boolean;
+  enable_expansion?: boolean;
+  enable_hybrid?: boolean;
+}
+
+export interface ChatCompletionResponse {
+  answer: string;
+  reasoning?: string;
+  citations: Array<{ index: number; doc_name: string; chunk_id: string }>;
+  hallu_score?: number;
+  chunks_used?: number;
+}
+
+export const chatCompletions = async (data: ChatCompletionRequest) => {
+  return fetchApi<ChatCompletionResponse>('/api/v1/chat/completions', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+// ============================================================
+// Feedback
+// ============================================================
+
+export interface FeedbackCreate {
+  session_id: string;
+  message_id: string;
+  feedback_type: 'thumbs_up' | 'thumbs_down';
+  reason_category?: string;
+  reason_text?: string;
+  comment?: string;
+  query?: string;
+  response?: string;
+  referenced_docs?: string[];
+}
+
+export interface FeedbackResponse {
+  id: number;
+  session_id: string;
+  message_id: string;
+  feedback_type: string;
+  rating?: number;
+  reason_category?: string;
+  reason_text?: string;
+  comment?: string;
+  query?: string;
+  response?: string;
+  referenced_docs?: string[];
+  user_id?: number;
+  kb_id?: string;
+  created_at: string;
+  is_positive: boolean;
+}
+
+export interface FeedbackStats {
+  total: number;
+  positive: number;
+  negative: number;
+  positive_rate: number;
+}
+
+export interface FeedbackListResponse {
+  items: FeedbackResponse[];
+  total: number;
+}
+
+export const submitFeedback = async (data: FeedbackCreate) => {
+  return fetchApi<FeedbackResponse>('/api/v1/feedback', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const getFeedbackStats = async (params?: { kb_id?: string; start_date?: string; end_date?: string }) => {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return fetchApi<FeedbackStats>(`/api/v1/feedback/stats${qs ? `?${qs}` : ''}`);
+};
+
+export const getFeedbackList = async (params?: { limit?: number; offset?: number }) => {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return fetchApi<FeedbackListResponse>(`/api/v1/feedback${qs ? `?${qs}` : ''}`);
+};
+
+export const deleteFeedback = async (feedback_id: number) => {
+  return fetchApi<void>(`/api/v1/feedback/${feedback_id}`, { method: 'DELETE' });
+};
+
+export const processFeedback = async (feedback_id: number) => {
+  return fetchApi(`/api/v1/feedback/${feedback_id}/process`, { method: 'POST' });
+};
+
+// ============================================================
+// Conversations
+// ============================================================
+
+export interface ConversationResponse {
+  id: number;
+  user_id?: string;
+  title: string;
+  kb_ids?: string[];
+  is_active: boolean;
+  is_archived: boolean;
+  message_count: number;
+  last_message_at?: string;
   created_at: string;
   updated_at: string;
 }
 
-export interface ModelPresetSnake {
-  id: string;
-  name: string;
-  description: string;
-  model_type: string;
-  adapter_type: string;
-  provider: string;
-  model_id: string;
-  default_config: Record<string, any>;
-  recommended_for: string[];
+export interface ConversationListResponse {
+  items: ConversationResponse[];
+  total: number;
 }
 
-export function fetchModels() {
-  return requestRaw<{ items: ModelConfigSnake[]; total: number }>('/models');
+export interface ConversationCreate {
+  title?: string;
+  kb_ids?: string[];
 }
 
-export function fetchModelPresets(modelType?: string) {
-  const qs = modelType ? `/presets?model_type=${modelType}` : '/presets';
-  return requestRaw<ModelPresetSnake[]>(`/models${qs}`);
+export interface ConversationUpdate {
+  title?: string;
+  kb_ids?: string[];
+  is_active?: boolean;
+  is_archived?: boolean;
 }
 
-export function testModelConnection(id: number) {
-  return requestRaw<any>(`/models/${id}/test`, { method: 'POST' });
-}
-
-export function deleteModel(id: number) {
-  return requestRaw<void>(`/models/${id}`, { method: 'DELETE' });
-}
-
-export function updateModel(id: number, data: Partial<ModelConfigSnake>) {
-  return requestRaw<ModelConfigSnake>(`/models/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
-}
-
-export function createModel(data: Partial<ModelConfigSnake>) {
-  return requestRaw<ModelConfigSnake>('/models', {
+export const createConversation = async (data: ConversationCreate, user_id?: string) => {
+  const qs = user_id ? `?user_id=${user_id}` : '';
+  return fetchApi<ConversationResponse>('/api/v1/conversations' + qs, {
     method: 'POST',
     body: JSON.stringify(data),
   });
+};
+
+export const listConversations = async (params?: { user_id?: string; limit?: number; offset?: number; include_archived?: boolean }) => {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return fetchApi<ConversationListResponse>(`/api/v1/conversations${qs ? `?${qs}` : ''}`);
+};
+
+export const getConversation = async (conv_id: number) => {
+  return fetchApi<ConversationResponse>(`/api/v1/conversations/${conv_id}`);
+};
+
+export const updateConversation = async (conv_id: number, data: ConversationUpdate) => {
+  return fetchApi<ConversationResponse>(`/api/v1/conversations/${conv_id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteConversation = async (conv_id: number) => {
+  return fetchApi<void>(`/api/v1/conversations/${conv_id}`, { method: 'DELETE' });
+};
+
+export const searchConversations = async (query: string) => {
+  return fetchApi(`/api/v1/conversations/search/${encodeURIComponent(query)}`);
+};
+
+// ============================================================
+// Evaluation
+// ============================================================
+
+export interface GoldenSampleCreate {
+  kb_id: string;
+  question: string;
+  expected_answer: string;
+  expected_context_ids?: string[];
+  metadata?: Record<string, any>;
 }
 
-// --- User Management ---
-export interface UserData {
-  id: number;
-  email: string;
-  username: string;
-  fullName?: string;
-  isActive: boolean;
-  tenantId?: string;
-  createdAt: string;
-  lastLoginAt?: string;
-  roles: RoleData[];
+export interface GoldenSampleResponse {
+  id: string;
+  kb_id: string;
+  question: string;
+  expected_answer: string;
+  expected_context_ids?: string[];
+  metadata?: Record<string, any>;
 }
 
-export interface RoleData {
+export interface EvaluationRunCreate {
+  kb_id: string;
+  name?: string;
+  sample_ids?: string[];
+  metrics?: string[];
+}
+
+export interface EvaluationRunResponse {
+  id: string;
+  kb_id: string;
+  name?: string;
+  status: string;
+  results?: any[];
+  created_at: string;
+  completed_at?: string;
+}
+
+export const createGoldenSample = async (data: GoldenSampleCreate) => {
+  return fetchApi<GoldenSampleResponse>('/api/v1/evaluation/golden-samples', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const listGoldenSamples = async (kb_id?: string, limit?: number) => {
+  const params = new URLSearchParams();
+  if (kb_id) params.set('kb_id', kb_id);
+  if (limit) params.set('limit', String(limit));
+  const qs = params.toString();
+  return fetchApi<GoldenSampleResponse[]>(`/api/v1/evaluation/golden-samples${qs ? `?${qs}` : ''}`);
+};
+
+export const deleteGoldenSample = async (sample_id: string) => {
+  return fetchApi<void>(`/api/v1/evaluation/golden-samples/${sample_id}`, { method: 'DELETE' });
+};
+
+export const createEvaluationRun = async (data: EvaluationRunCreate) => {
+  return fetchApi<EvaluationRunResponse>('/api/v1/evaluation/runs', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const getEvaluationRun = async (run_id: string) => {
+  return fetchApi<EvaluationRunResponse>(`/api/v1/evaluation/runs/${run_id}`);
+};
+
+export const executeEvaluationRun = async (run_id: string) => {
+  return fetchApi(`/api/v1/evaluation/runs/${run_id}/execute`, { method: 'POST' });
+};
+
+export const getEvaluationSummary = async () => {
+  return fetchApi('/api/v1/evaluation/summary');
+};
+
+// ============================================================
+// Skills
+// ============================================================
+
+export interface SkillResponse {
   id: number;
   name: string;
   description?: string;
-  isSystem: boolean;
+  category?: string;
+  owner?: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
 }
 
-export interface UserListResponse {
-  items: UserData[];
+export interface SkillListResponse {
+  items: SkillResponse[];
   total: number;
-  skip: number;
-  limit: number;
 }
 
-export interface UserCreate {
-  email: string;
-  username: string;
-  password: string;
-  fullName?: string;
-  tenantId?: string;
-  isActive?: boolean;
-  roleIds?: number[];
+export interface VersionResponse {
+  id: number;
+  skill_name: string;
+  version: string;
+  content: string;
+  is_released: boolean;
+  released_at?: string;
+  created_at: string;
 }
 
-export interface UserUpdate {
-  email?: string;
-  username?: string;
-  password?: string;
-  fullName?: string;
-  isActive?: boolean;
-  tenantId?: string;
+export interface VersionListResponse {
+  skill_name: string;
+  items: VersionResponse[];
+  total: number;
 }
 
-export function fetchUsers(search?: string, role?: string) {
-  const params = new URLSearchParams();
-  if (search) params.set('search', search);
-  if (role) params.set('role', role);
-  const qs = params.toString();
-  return requestRaw<UserListResponse>(`/users${qs ? `?${qs}` : ''}`);
-}
+export const listSkills = async (params?: { search?: string; category?: string; limit?: number; offset?: number }) => {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return fetchApi<SkillListResponse>(`/api/v1/skills${qs ? `?${qs}` : ''}`);
+};
 
-export function fetchUser(id: number) {
-  return requestRaw<UserData>(`/users/${id}`);
-}
+export const getSkill = async (skill_name: string) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}`);
+};
 
-export function createUser(data: UserCreate) {
-  return requestRaw<UserData>('/users', {
+export const createSkill = async (data: { name: string; description?: string; category?: string; owner?: string }) => {
+  return fetchApi<SkillResponse>('/api/v1/skills', {
     method: 'POST',
-    body: JSON.stringify(mapKeysToSnake(data)),
+    body: JSON.stringify(data),
   });
-}
+};
 
-export function updateUser(id: number, data: UserUpdate) {
-  return requestRaw<UserData>(`/users/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(mapKeysToSnake(data)),
-  });
-}
+export const listSkillVersions = async (skill_name: string) => {
+  return fetchApi<VersionListResponse>(`/api/v1/skills/${encodeURIComponent(skill_name)}/versions`);
+};
 
-export function deleteUser(id: number) {
-  return requestRaw<void>(`/users/${id}`, { method: 'DELETE' });
-}
+export const getSkillVersion = async (skill_name: string, version: string) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/versions/${version}`);
+};
 
-export function assignUserRoles(id: number, roleIds: number[]) {
-  return requestRaw<UserData>(`/users/${id}/roles`, {
+export const getSkillTags = async (skill_name: string) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/tags`);
+};
+
+export const addSkillTag = async (skill_name: string, tag: string) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/tags`, {
     method: 'POST',
-    body: JSON.stringify({ role_ids: roleIds }),
+    body: JSON.stringify({ tag }),
   });
-}
+};
 
-export function fetchUserRoles(id: number) {
-  return requestRaw<RoleData[]>(`/users/${id}/roles`);
-}
-
-export function fetchRoles() {
-  return requestRaw<{ items: RoleData[] }>('/users/roles');
-}
-
-export function createRole(name: string, description?: string) {
-  return requestRaw<RoleData>(`/users/roles?role_name=${encodeURIComponent(name)}${description ? `&description=${encodeURIComponent(description)}` : ''}`, {
+export const publishSkill = async (data: { skill_name: string; version?: string }) => {
+  return fetchApi('/api/v1/skills/publish', {
     method: 'POST',
+    body: JSON.stringify(data),
   });
-}
+};
 
-// --- Token Usage & Model Management ---
+export const acquireSkillLock = async (skill_name: string, user_id: number) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/locks`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id }),
+  });
+};
+
+export const releaseSkillLock = async (skill_name: string, user_id: number) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/locks/${user_id}`, { method: 'DELETE' });
+};
+
+export const getSkillDependencies = async (skill_name: string) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/deps`);
+};
+
+export const downloadSkill = async (skill_name: string) => {
+  return fetchApi(`/api/v1/skills/${encodeURIComponent(skill_name)}/download`);
+};
+
+// ============================================================
+// Token Usage - Personal
+// ============================================================
 
 export interface TokenUsageStats {
-  totalTokens: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalCost: number;
-  requestCount: number;
-  periodDays: number;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_cost: number;
+  request_count: number;
+  period_days: number;
 }
 
 export interface TokenUsageTrendItem {
   date: string;
-  totalTokens: number;
+  total_tokens: number;
   cost: number;
   requests: number;
 }
 
-export interface UserQuota {
-  id: number;
-  userId: number;
-  dailyTokenLimit?: number;
-  dailyCostLimit?: number;
-  monthlyTokenLimit?: number;
-  monthlyCostLimit?: number;
-  usedDailyTokens: number;
-  usedDailyCost: number;
-  usedMonthlyTokens: number;
-  usedMonthlyCost: number;
-  dailyResetAt?: string;
-  monthlyResetAt?: string;
-  isActive: boolean;
-  exceededAction: string;
-}
-
-export interface UserQuotaUpdate {
-  dailyTokenLimit?: number;
-  dailyCostLimit?: number;
-  monthlyTokenLimit?: number;
-  monthlyCostLimit?: number;
-  isActive?: boolean;
-  exceededAction?: string;
-}
-
-export interface ModelProvider {
-  id: number;
-  name: string;
-  displayName: string;
-  providerType: 'api' | 'local';
-  category: string;
-  apiBase?: string;
-  authType?: string;
-  pricing?: Record<string, any>;
-  capabilities?: string[];
-  supportedModels?: string[];
-  icon?: string;
-  description?: string;
-  isEnabled: boolean;
-  isDefault: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DashboardStats {
-  totalUsers: number;
-  totalTokensToday: number;
-  totalTokensMonth: number;
-  totalCostToday: number;
-  totalCostMonth: number;
-  activeModels: number;
-  requestsToday: number;
-}
-
-export function fetchMyTokenUsage(days?: number, modelType?: string) {
+export const getMyTokenUsage = async (days?: number, model_type?: string) => {
   const params = new URLSearchParams();
   if (days) params.set('days', String(days));
-  if (modelType) params.set('model_type', modelType);
+  if (model_type) params.set('model_type', model_type);
   const qs = params.toString();
-  return requestRaw<TokenUsageStats>(`/token-usage/my-stats${qs ? `?${qs}` : ''}`);
-}
+  return fetchApi<TokenUsageStats>(`/api/v1/token-usage/my-stats${qs ? `?${qs}` : ''}`);
+};
 
-export function fetchMyTokenTrend(days?: number, modelType?: string) {
+export const getMyTokenTrend = async (days?: number, model_type?: string) => {
   const params = new URLSearchParams();
   if (days) params.set('days', String(days));
-  if (modelType) params.set('model_type', modelType);
+  if (model_type) params.set('model_type', model_type);
   const qs = params.toString();
-  return requestRaw<{ items: TokenUsageTrendItem[] }>(`/token-usage/my-trend${qs ? `?${qs}` : ''}`);
+  return fetchApi<{ items: TokenUsageTrendItem[] }>(`/api/v1/token-usage/my-trend${qs ? `?${qs}` : ''}`);
+};
+
+export const fetchMyQuota = async () => {
+  return fetchApi<UserQuota>('/api/v1/token-usage/my-quota');
+};
+
+// Alias for backward compatibility
+export const getMyQuota = fetchMyQuota;
+
+// ============================================================
+// Documents - Advanced Operations
+// ============================================================
+
+export interface ChunkPreviewRequest {
+  file_content: string;
+  chunk_size?: number;
+  chunk_overlap?: number;
 }
 
-export function fetchMyQuota() {
-  return requestRaw<UserQuota>('/token-usage/my-quota');
+export interface ChunkPreviewResponse {
+  chunks: string[];
+  total_chunks: number;
 }
 
-export function fetchDashboardStats() {
-  return requestRaw<DashboardStats>('/token-usage/admin/stats');
-}
-
-export function fetchTopUsers(days?: number, limit?: number) {
-  const params = new URLSearchParams();
-  if (days) params.set('days', String(days));
-  if (limit) params.set('limit', String(limit));
-  const qs = params.toString();
-  return requestRaw<{ items: any[] }>(`/token-usage/admin/users${qs ? `?${qs}` : ''}`);
-}
-
-export function fetchAllQuotas() {
-  return requestRaw<{ items: UserQuota[] }>('/token-usage/admin/quotas');
-}
-
-export function setUserQuota(userId: number, data: UserQuotaUpdate) {
-  return requestRaw<UserQuota>(`/token-usage/admin/quota/${userId}`, {
+export const previewChunks = async (data: ChunkPreviewRequest) => {
+  return fetchApi<ChunkPreviewResponse>('/api/v1/documents/preview-chunks', {
     method: 'POST',
-    body: JSON.stringify(mapKeysToSnake(data)),
+    body: JSON.stringify(data),
   });
+};
+
+export const listFailedDocuments = async (kb_id?: string) => {
+  const qs = kb_id ? `?kb_id=${kb_id}` : '';
+  return fetchApi<{ items: DocData[]; total: number }>(`/api/v1/documents/failed${qs}`);
+};
+
+export const getDocumentVersions = async (doc_id: string) => {
+  return fetchApi(`/api/v1/documents/${doc_id}/versions`);
+};
+
+// ============================================================
+// Models - Additional Operations
+// ============================================================
+
+export const getDefaultModel = async (model_type: string) => {
+  return fetchApi(`/api/v1/models/default/${model_type}`);
+};
+
+// ============================================================
+// Metrics & Health
+// ============================================================
+
+export interface HealthResponse {
+  status: string;
+  version: string;
+  services: Record<string, string>;
 }
 
-export function fetchModelProviders() {
-  return requestRaw<ModelProvider[]>('/token-usage/admin/providers');
+export interface MetricsHealthResponse {
+  milvus: { status: string; latency_ms?: number };
+  postgres: { status: string; latency_ms?: number };
+  redis: { status: string; latency_ms?: number };
+  minio: { status: string; latency_ms?: number };
 }
 
-export function createModelProvider(data: Partial<ModelProvider>) {
-  return requestRaw<ModelProvider>('/token-usage/admin/providers', {
-    method: 'POST',
-    body: JSON.stringify(mapKeysToSnake(data)),
-  });
+export interface MetricsSummaryResponse {
+  total_requests: number;
+  avg_latency_ms: number;
+  error_rate: number;
+  period: string;
 }
 
-export function deleteRole(id: number) {
-  return requestRaw<void>(`/users/roles/${id}`, { method: 'DELETE' });
-}
+export const getHealth = async () => {
+  return fetchApi<HealthResponse>('/api/v1/health');
+};
+
+export const getMetricsHealth = async () => {
+  return fetchApi<MetricsHealthResponse>('/api/v1/metrics/health');
+};
+
+export const getMetricsSummary = async () => {
+  return fetchApi<MetricsSummaryResponse>('/api/v1/metrics/summary');
+};
+
+export const getMetricsJson = async () => {
+  return fetchApi('/api/v1/metrics/json');
+};
+
+export const getMetricsErrors = async () => {
+  return fetchApi('/api/v1/metrics/errors');
+};

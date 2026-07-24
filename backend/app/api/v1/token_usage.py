@@ -10,17 +10,17 @@ from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.auth import get_current_user, get_current_admin_user
 from app.models.user import User
-from app.models.token_usage import TokenUsage, UserQuota, ModelProvider
+from app.models.token_usage import TokenUsage, UserQuota
+from app.models.model_gateway import ModelProvider
 from app.schemas.token_usage import (
     TokenUsageCreate,
     TokenUsageResponse,
     TokenUsageStats,
     UserQuotaSchema,
     UserQuotaUpdate,
-    ModelProviderResponse,
-    ModelProviderCreate,
     DashboardStats,
 )
+from app.schemas.model_gateway import ModelProviderResponse, ModelProviderCreate
 from app.services.token_usage_service import TokenUsageService, QuotaService
 
 router = APIRouter(prefix="/token-usage", tags=["token-usage"])

@@ -8,7 +8,8 @@ from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.token_usage import TokenUsage, UserQuota, ModelProvider
+from app.models.token_usage import TokenUsage, UserQuota
+from app.models.model_gateway import ModelProvider
 from app.models.model_config import ModelConfig
 from app.models.user import User, APIKey
 from app.schemas.token_usage import TokenUsageCreate, TokenUsageStats, UserQuotaSchema

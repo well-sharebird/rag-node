@@ -19,7 +19,7 @@ router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 @router.get("", response_model=DataSourceList)
 async def list_data_sources(
     db: DBSession,
-    kb_id: Optional[int] = Query(None, description="Filter by knowledge base ID"),
+    kb_id: Optional[str] = Query(None, description="Filter by knowledge base ID"),
     source_type: Optional[str] = Query(None, description="Filter by source type"),
     enabled_only: bool = Query(False, description="Only return enabled sources"),
     page: int = Query(1, ge=1),

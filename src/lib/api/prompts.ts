@@ -3,7 +3,7 @@
  * 提示词工程管理 API 客户端
  */
 
-import { api } from '../api-client';
+import { api } from '../../../lib/api-client';
 
 // ==================== Types ====================
 

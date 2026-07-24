@@ -50,10 +50,10 @@ function apiKBToLocal(kb: api.KBData): KnowledgeBase {
     id: kb.id,
     name: kb.name,
     description: kb.description,
-    documentCount: kb.documentCount,
-    vectorCount: kb.vectorCount,
-    createdAt: kb.createdAt,
-    updatedAt: kb.updatedAt,
+    documentCount: kb.documentCount || kb.document_count || 0,
+    vectorCount: kb.vectorCount || kb.vector_count || 0,
+    createdAt: kb.createdAt || kb.created_at,
+    updatedAt: kb.updatedAt || kb.updated_at,
     permissions: kb.permissions as KnowledgeBase['permissions'],
   };
 }
@@ -85,12 +85,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loadAll = useCallback(async () => {
     try {
       setError(null);
-      const [kbRes, docRes] = await Promise.all([
-        api.fetchKBs(),
-        api.fetchDocs(),
-      ]);
+      const kbRes = await api.fetchKBs();
       setKnowledgeBases(kbRes.items.map(apiKBToLocal));
-      setDocuments(docRes.items.map(apiDocToLocal));
+      // Load docs for first KB if available
+      if (kbRes.items.length > 0) {
+        const docRes = await api.fetchDocs(kbRes.items[0].id);
+        setDocuments(docRes.items.map(apiDocToLocal));
+      }
     } catch (e: any) {
       setError(e.message || 'Failed to load data');
     } finally {

@@ -20,10 +20,16 @@ class ModelSettings(BaseModel):
 
 
 class ChunkingSettings(BaseModel):
-    strategy: str = "semantic"
+    strategy: str = "recursive"  # recursive, fixed, semantic, agentic, small_to_big, parent_child, markdown, code
     chunk_size: int = 512
     chunk_overlap: int = 50
     separators: list[str] = ["\n\n", "\n", ".", " ", ""]
+    # For parent_child strategy
+    parent_chunk_size: int | None = None  # Defaults to chunk_size * 2
+
+    # 文件类型路由配置（系统级默认策略）
+    # 格式：{"pdf": {"strategy": "semantic", "chunk_size": 512, "chunk_overlap": 0.2}, ...}
+    file_type_routes: dict[str, dict] = Field(default_factory=dict)
 
 
 class RetrievalDefaults(BaseModel):

@@ -20,6 +20,7 @@ from app.services.embedding_service import get_embedding_service
 from app.services.vector_store_service import insert_chunks
 from app.preprocessing.text_cleaner import get_text_cleaner
 from app.services.ingestion_validator import get_ingestion_validator
+from app.services.file_type_router import get_router
 
 logger = logging.getLogger("app.workers.pipeline")
 
@@ -165,15 +166,19 @@ async def process_document(ctx: dict, doc_id: str):
                                 metadata={"page": elem.page, "content_type": "image", **elem.metadata},
                             ))
                     else:
-                        # Text: normal chunking
+                        # Text: automatic strategy selection based on file type
                         ct_text = "\n\n".join(e.text for e in ct_elements)
                         cleaned_ct = cleaner.clean(ct_text).cleaned_text
+
+                        # Use FileTypeRouter to automatically select strategy
+                        router = get_router()
+                        route_config = router.route(doc.filename)
+
                         ct_chunks = chunk_text(
                             cleaned_ct,
-                            strategy=chunk_cfg.get("strategy", "semantic"),
-                            chunk_size=chunk_cfg.get("chunk_size", 384),
-                            chunk_overlap=chunk_cfg.get("chunk_overlap", 50),
-                            separators=chunk_cfg.get("separators"),
+                            strategy=route_config.strategy.value,
+                            chunk_size=route_config.chunk_size,
+                            chunk_overlap=route_config.chunk_overlap,
                             content_type=ct,
                         )
 
@@ -181,15 +186,15 @@ async def process_document(ctx: dict, doc_id: str):
 
             except Exception as e:
                 logger.warning("Structured parsing failed: %s, falling back to flat text", e)
-                # Fallback: flat text chunking
-                from app.core.rag_config import get_chunking_config
-                chunk_cfg = get_chunking_config()
+                # Fallback: flat text chunking with automatic strategy selection
+                router = get_router()
+                route_config = router.route(doc.filename)
+
                 all_chunks = chunk_text(
                     text,
-                    strategy=chunk_cfg.get("strategy", "semantic"),
-                    chunk_size=chunk_cfg.get("chunk_size", 384),
-                    chunk_overlap=chunk_cfg.get("chunk_overlap", 50),
-                    separators=chunk_cfg.get("separators"),
+                    strategy=route_config.strategy.value,
+                    chunk_size=route_config.chunk_size,
+                    chunk_overlap=route_config.chunk_overlap,
                     content_type="text",
                 )
 

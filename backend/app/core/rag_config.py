@@ -23,6 +23,7 @@ _config: dict = {
         "chunk_size": 384,
         "chunk_overlap": 50,
         "separators": ["\n\n", "\n", ".", " ", ""],
+        "file_type_routes": {},  # 文件类型路由配置
     },
     "retrieval": {
         "default_top_k": 10,

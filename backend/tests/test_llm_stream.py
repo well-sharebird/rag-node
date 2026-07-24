@@ -110,10 +110,19 @@ async def test_non_streaming(llm_config: dict):
             if data.get("choices"):
                 choice = data["choices"][0]
                 message = choice.get("message", {})
+                content = message.get("content")
+                reasoning = message.get("reasoning")
+
+                # 注意：某些模型 (如 Qwen) 将思考内容放在 reasoning 字段，content 可能为 null
                 print(f"   - message.role: {message.get('role')}")
-                print(f"   - message.content 长度：{len(message.get('content', ''))}")
-                print(f"   - message.reasoning: {message.get('reasoning', 'N/A')}")
+                print(f"   - message.content: {content[:100] if content else 'null'}")
+                print(f"   - message.reasoning 长度：{len(reasoning) if reasoning else 0}")
                 print(f"   - finish_reason: {choice.get('finish_reason')}")
+
+                # 如果 content 为 null 但 reasoning 有值，说明模型只输出思考内容
+                if content is None and reasoning:
+                    print(f"\n⚠️  注意：此模型将输出放在 reasoning 字段，content 为 null")
+                    print(f"   这可能是因为模型配置为只输出思考过程")
 
             if data.get("usage"):
                 usage = data["usage"]
@@ -159,86 +168,87 @@ async def test_streaming(llm_config: dict):
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            request = client.build_request(
-                "POST",
-                api_url,
-                json={
-                    "model": llm_config["model_id"],
-                    "messages": messages,
-                    "temperature": 0.3,
-                    "max_tokens": 512,
-                    "stream": True,
-                },
-                headers=headers,
+            response = await client.send(
+                client.build_request(
+                    "POST",
+                    api_url,
+                    json={
+                        "model": llm_config["model_id"],
+                        "messages": messages,
+                        "temperature": 0.3,
+                        "max_tokens": 512,
+                        "stream": True,
+                    },
+                    headers=headers,
+                ),
+                stream=True,
             )
+            if response.status_code != 200:
+                error_text = await response.aread()
+                print(f"\n❌ 请求失败 {response.status_code}: {error_text[:300]}")
+                return
 
-            async with client.stream(request) as response:
-                if response.status_code != 200:
-                    error_text = await response.aread()
-                    print(f"\n❌ 请求失败 {response.status_code}: {error_text[:300]}")
-                    return
+            async for line in response.aiter_lines():
+                line = line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
 
-                async for line in response.aiter_lines():
-                    line = line.strip()
-                    if not line or not line.startswith("data:"):
-                        continue
+                # 移除 "data: " 前缀
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    print("\n- - - - - - - - - - - - - - - - - - - - - - - - - -")
+                    print("📡 流结束 [DONE]")
+                    break
 
-                    # 移除 "data: " 前缀
-                    data_str = line[5:].strip()
-                    if data_str == "[DONE]":
-                        print("\n- - - - - - - - - - - - - - - - - - - - - - - - - -")
-                        print("📡 流结束 [DONE]")
-                        break
+                event_count += 1
 
-                    event_count += 1
+                try:
+                    chunk = json.loads(data_str)
 
-                    try:
-                        chunk = json.loads(data_str)
+                    # 打印原始 chunk
+                    print(f"\n[事件 {event_count}] 原始数据:")
+                    print(json.dumps(chunk, indent=2, ensure_ascii=False)[:500])
 
-                        # 打印原始 chunk
-                        print(f"\n[事件 {event_count}] 原始数据:")
-                        print(json.dumps(chunk, indent=2, ensure_ascii=False)[:500])
+                    # 解析
+                    choices = chunk.get("choices", [])
+                    if choices:
+                        delta = choices[0].get("delta", {})
+                        finish_reason = choices[0].get("finish_reason")
 
-                        # 解析
-                        choices = chunk.get("choices", [])
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            finish_reason = choices[0].get("finish_reason")
+                        if delta.get("role"):
+                            print(f"  → 角色：{delta['role']}")
 
-                            if delta.get("role"):
-                                print(f"  → 角色：{delta['role']}")
+                        if delta.get("reasoning_content") or delta.get("reasoning"):
+                            reasoning = delta.get("reasoning_content") or delta.get("reasoning", "")
+                            accumulated_reasoning += reasoning
+                            print(f"  → 思考内容：{reasoning[:100]}...")
 
-                            if delta.get("reasoning_content") or delta.get("reasoning"):
-                                reasoning = delta.get("reasoning_content") or delta.get("reasoning", "")
-                                accumulated_reasoning += reasoning
-                                print(f"  → 思考内容：{reasoning[:100]}...")
+                        if delta.get("content"):
+                            content = delta["content"]
+                            accumulated_content += content
+                            print(f"  → 回答内容：{content[:100]}...")
 
-                            if delta.get("content"):
-                                content = delta["content"]
-                                accumulated_content += content
-                                print(f"  → 回答内容：{content[:100]}...")
+                        if finish_reason:
+                            print(f"  → 结束原因：{finish_reason}")
 
-                            if finish_reason:
-                                print(f"  → 结束原因：{finish_reason}")
+                    # 检查 usage
+                    if chunk.get("usage"):
+                        print(f"\n📊 Token 使用：{json.dumps(chunk['usage'], ensure_ascii=False)}")
 
-                        # 检查 usage
-                        if chunk.get("usage"):
-                            print(f"\n📊 Token 使用：{json.dumps(chunk['usage'], ensure_ascii=False)}")
+                except json.JSONDecodeError as e:
+                    print(f"  ⚠️ JSON 解析失败：{e}")
+                    print(f"  原始数据：{data_str[:200]}")
 
-                    except json.JSONDecodeError as e:
-                        print(f"  ⚠️ JSON 解析失败：{e}")
-                        print(f"  原始数据：{data_str[:200]}")
-
-                print("\n" + "=" * 60)
-                print("📊 流式调用汇总")
-                print("=" * 60)
-                print(f"事件总数：{event_count}")
-                print(f"思考内容长度：{len(accumulated_reasoning)}")
-                print(f"回答内容长度：{len(accumulated_content)}")
-                print(f"\n思考内容预览:")
-                print(accumulated_reasoning[:300] if accumulated_reasoning else "无")
-                print(f"\n回答内容预览:")
-                print(accumulated_content[:300] if accumulated_content else "无")
+            print("\n" + "=" * 60)
+            print("📊 流式调用汇总")
+            print("=" * 60)
+            print(f"事件总数：{event_count}")
+            print(f"思考内容长度：{len(accumulated_reasoning)}")
+            print(f"回答内容长度：{len(accumulated_content)}")
+            print(f"\n思考内容预览:")
+            print(accumulated_reasoning[:300] if accumulated_reasoning else "无")
+            print(f"\n回答内容预览:")
+            print(accumulated_content[:300] if accumulated_content else "无")
 
     except Exception as e:
         print(f"\n❌ 流式请求失败：{e}")

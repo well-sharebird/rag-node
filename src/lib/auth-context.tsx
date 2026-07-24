@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { login as loginApi, getMe, type UserResponse } from '@/lib/api-client';
 
 interface User {
   id: number;
@@ -20,7 +21,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_BASE = '/api/v1';
+function apiUserToLocal(user: UserResponse): User {
+  return {
+    id: user.id,
+    email: user.email,
+    username: user.username,
+    fullName: user.full_name,
+    is_active: user.is_active,
+    roles: user.roles?.map(r => ({ id: r.id, name: r.name })) || [],
+  };
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -41,42 +51,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = async (authToken: string) => {
     try {
-      const res = await fetch(`${API_BASE}/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data);
-      } else {
-        localStorage.removeItem('auth_token');
-        setToken(null);
-      }
+      const data = await getMe();
+      setUser(apiUserToLocal(data));
     } catch (e) {
       localStorage.removeItem('auth_token');
       setToken(null);
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   const login = async (username: string, password: string) => {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: 'Login failed' }));
-      throw new Error(err.detail || 'Login failed');
+    try {
+      const data = await loginApi({ username, password });
+      setToken(data.access_token);
+      if (data.user) {
+        setUser(apiUserToLocal(data.user));
+      }
+      localStorage.setItem('auth_token', data.access_token);
+    } catch (e: any) {
+      throw new Error(e.message || 'Login failed');
     }
-
-    const data = await res.json();
-    setToken(data.access_token);
-    setUser(data.user);
-    localStorage.setItem('auth_token', data.access_token);
   };
 
   const logout = () => {

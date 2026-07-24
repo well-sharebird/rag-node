@@ -20,7 +20,7 @@ logger = logging.getLogger("app.services.data_source")
 
 async def list_data_sources(
     db: AsyncSession,
-    kb_id: Optional[int] = None,
+    kb_id: Optional[str] = None,  # Changed to str to match UUID format
     source_type: Optional[str] = None,
     enabled_only: bool = False,
     page: int = 1,
@@ -85,7 +85,7 @@ async def create_data_source(db: AsyncSession, data: DataSourceCreate) -> DataSo
     )
 
     db.add(source)
-    await db.flush()
+    await db.commit()
     await db.refresh(source)
 
     logger.info("Data source created | id=%d name=%s type=%s", source.id, source.name, source.source_type)

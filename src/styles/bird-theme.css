@@ -1,0 +1,293 @@
+/**
+ * Ui2-inspired Design System
+ * 基于 Ui2 AI 的 UI/UX 风格设计规范
+ */
+
+:root {
+  /* ============================================
+   * 颜色系统 - Color Palette
+   * ============================================ */
+
+  /* 主色调 - 紫色系 (Ui2 风格) */
+  --bird-primary-50: #f5f3ff;
+  --bird-primary-100: #ede9fe;
+  --bird-primary-200: #ddd6fe;
+  --bird-primary-300: #c4b5fd;
+  --bird-primary-400: #a78bfa;
+  --bird-primary-500: #8b5cf6;
+  --bird-primary-600: #7c3aed;
+  --bird-primary-700: #6d28d9;
+  --bird-primary-800: #5b21b6;
+  --bird-primary-900: #4c1d95;
+
+  /* 中性色 - 用于文本和边框 */
+  --bird-neutral-0: #ffffff;
+  --bird-neutral-50: #f9fafb;
+  --bird-neutral-100: #f3f4f6;
+  --bird-neutral-200: #e5e7eb;
+  --bird-neutral-300: #d1d5db;
+  --bird-neutral-400: #9ca3af;
+  --bird-neutral-500: #6b7280;
+  --bird-neutral-600: #4b5563;
+  --bird-neutral-700: #374151;
+  --bird-neutral-800: #1f2937;
+  --bird-neutral-900: #111827;
+  --bird-neutral-950: #030712;
+
+  /* 功能色 */
+  --bird-success: #10b981;
+  --bird-success-bg: #d1fae5;
+  --bird-warning: #f59e0b;
+  --bird-warning-bg: #fef3c7;
+  --bird-error: #ef4444;
+  --bird-error-bg: #fee2e2;
+  --bird-info: #3b82f6;
+  --bird-info-bg: #dbeafe;
+
+  /* ============================================
+   * 背景色系统
+   * ============================================ */
+
+  /* 页面背景 */
+  --bird-bg-primary: #f9fafb;
+  --bird-bg-secondary: #ffffff;
+  --bird-bg-tertiary: #f3f4f6;
+
+  /* 侧边栏背景 */
+  --bird-sidebar-bg: #ffffff;
+  --bird-sidebar-border: #e5e7eb;
+
+  /* 卡片背景 */
+  --bird-card-bg: #ffffff;
+  --bird-card-border: #e5e7eb;
+
+  /* 输入框背景 */
+  --bird-input-bg: #ffffff;
+  --bird-input-border: #e5e7eb;
+  --bird-input-focus-border: #7c3aed;
+
+  /* ============================================
+   * 文本颜色
+   * ============================================ */
+
+  --bird-text-primary: #111827;
+  --bird-text-secondary: #4b5563;
+  --bird-text-tertiary: #9ca3af;
+  --bird-text-disabled: #d1d5db;
+
+  /* 链接颜色 */
+  --bird-link: #7c3aed;
+  --bird-link-hover: #6d28d9;
+
+  /* ============================================
+   * 圆角规范 - Border Radius
+   * ============================================ */
+
+  --bird-radius-none: 0;
+  --bird-radius-sm: 4px;
+  --bird-radius-md: 8px;
+  --bird-radius-lg: 12px;
+  --bird-radius-xl: 16px;
+  --bird-radius-2xl: 20px;
+  --bird-radius-3xl: 24px;
+  --bird-radius-full: 9999px;
+
+  /* 组件圆角 */
+  --bird-button-radius: var(--bird-radius-lg);
+  --bird-input-radius: var(--bird-radius-full);
+  --bird-card-radius: var(--bird-radius-xl);
+  --bird-modal-radius: var(--bird-radius-2xl);
+  --bird-dropdown-radius: var(--bird-radius-xl);
+  --bird-badge-radius: var(--bird-radius-full);
+
+  /* ============================================
+   * 阴影系统 - Shadows
+   * ============================================ */
+
+  --bird-shadow-none: none;
+  --bird-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --bird-shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+  --bird-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --bird-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --bird-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  --bird-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+
+  /* 组件阴影 */
+  --bird-card-shadow: var(--bird-shadow-sm);
+  --bird-card-hover-shadow: var(--bird-shadow-md);
+  --bird-modal-shadow: var(--bird-shadow-2xl);
+  --bird-dropdown-shadow: var(--bird-shadow-lg);
+  --bird-popover-shadow: var(--bird-shadow-lg);
+
+  /* ============================================
+   * 字体系统 - Typography
+   * ============================================ */
+
+  /* 字体族 */
+  --bird-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --bird-font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace;
+
+  /* 字体大小 */
+  --bird-text-xs: 11px;
+  --bird-text-sm: 12px;
+  --bird-text-base: 13px;
+  --bird-text-lg: 14px;
+  --bird-text-xl: 15px;
+  --bird-text-2xl: 16px;
+  --bird-text-3xl: 18px;
+  --bird-text-4xl: 20px;
+  --bird-text-5xl: 24px;
+
+  /* 字重 */
+  --bird-font-normal: 400;
+  --bird-font-medium: 500;
+  --bird-font-semibold: 600;
+  --bird-font-bold: 700;
+
+  /* 行高 */
+  --bird-line-height-tight: 1.25;
+  --bird-line-height-normal: 1.5;
+  --bird-line-height-relaxed: 1.625;
+  --bird-line-height-loose: 1.75;
+
+  /* ============================================
+   * 间距系统 - Spacing (基于 4px 栅格)
+   * ============================================ */
+
+  --bird-spacing-0: 0;
+  --bird-spacing-1: 4px;
+  --bird-spacing-2: 8px;
+  --bird-spacing-3: 12px;
+  --bird-spacing-4: 16px;
+  --bird-spacing-5: 20px;
+  --bird-spacing-6: 24px;
+  --bird-spacing-7: 28px;
+  --bird-spacing-8: 32px;
+  --bird-spacing-9: 36px;
+  --bird-spacing-10: 40px;
+  --bird-spacing-12: 48px;
+  --bird-spacing-14: 56px;
+  --bird-spacing-16: 64px;
+
+  /* 组件间距 */
+  --bird-button-padding-x: var(--bird-spacing-4);
+  --bird-button-padding-y: var(--bird-spacing-2);
+  --bird-input-padding-x: var(--bird-spacing-4);
+  --bird-input-padding-y: var(--bird-spacing-2);
+  --bird-card-padding: var(--bird-spacing-6);
+  --bird-modal-padding: var(--bird-spacing-6);
+
+  /* ============================================
+   * 高度系统
+   * ============================================ */
+
+  /* 图标尺寸 */
+  --bird-icon-xs: 12px;
+  --bird-icon-sm: 14px;
+  --bird-icon-md: 16px;
+  --bird-icon-lg: 18px;
+  --bird-icon-xl: 20px;
+  --bird-icon-2xl: 24px;
+  --bird-icon-3xl: 28px;
+  --bird-icon-4xl: 32px;
+  --bird-icon-5xl: 36px;
+
+  /* 组件高度 */
+  --bird-button-height-sm: 28px;
+  --bird-button-height-md: 32px;
+  --bird-button-height-lg: 36px;
+  --bird-button-height-xl: 40px;
+
+  --bird-input-height-sm: 28px;
+  --bird-input-height-md: 32px;
+  --bird-input-height-lg: 36px;
+  --bird-input-height-xl: 40px;
+
+  /* ============================================
+   * 过渡动画 - Transitions
+   * ============================================ */
+
+  --bird-transition-fast: 150ms ease;
+  --bird-transition-normal: 200ms ease;
+  --bird-transition-slow: 300ms ease;
+  --bird-transition-slower: 500ms ease;
+
+  /* 组件过渡 */
+  --bird-button-transition: all var(--bird-transition-fast);
+  --bird-input-transition: all var(--bird-transition-fast);
+  --bird-card-transition: all var(--bird-transition-normal);
+  --bird-modal-transition: all var(--bird-transition-slow);
+
+  /* ============================================
+   * 侧边栏特定变量
+   * ============================================ */
+
+  --bird-sidebar-width: 240px;
+  --bird-sidebar-collapsed-width: 64px;
+  --bird-sidebar-header-height: 52px;
+  --bird-sidebar-item-height: 36px;
+  --bird-sidebar-item-icon-size: 18px;
+
+  /* ============================================
+   * 对话框/弹窗特定变量
+   * ============================================ */
+
+  --bird-modal-overlay-bg: rgba(0, 0, 0, 0.45);
+  --bird-modal-max-width: 520px;
+  --bird-modal-header-padding: var(--bird-spacing-5) var(--bird-spacing-6);
+  --bird-modal-body-padding: var(--bird-spacing-6);
+  --bird-modal-footer-padding: var(--bird-spacing-5) var(--bird-spacing-6);
+  --bird-modal-footer-gap: var(--bird-spacing-3);
+
+  /* ============================================
+   * 表格特定变量
+   * ============================================ */
+
+  --bird-table-border: 1px solid var(--bird-neutral-200);
+  --bird-table-header-bg: var(--bird-neutral-50);
+  --bird-table-header-font-weight: var(--bird-font-medium);
+  --bird-table-row-height: 44px;
+  --bird-table-cell-padding: var(--bird-spacing-3) var(--bird-spacing-4);
+  --bird-table-row-hover-bg: var(--bird-neutral-50);
+  --bird-table-row-striped-bg: var(--bird-neutral-50);
+
+  /* ============================================
+   * 表单特定变量
+   * ============================================ */
+
+  --bird-form-label-font-size: var(--bird-text-sm);
+  --bird-form-label-color: var(--bird-text-secondary);
+  --bird-form-error-color: var(--bird-error);
+  --bird-form-helper-color: var(--bird-text-tertiary);
+}
+
+/* ============================================
+ * 深色主题支持
+ * ============================================ */
+
+.dark {
+  /* 背景色 */
+  --bird-bg-primary: #0a0a0a;
+  --bird-bg-secondary: #171717;
+  --bird-bg-tertiary: #262626;
+  --bird-sidebar-bg: #171717;
+  --bird-sidebar-border: #262626;
+  --bird-card-bg: #171717;
+  --bird-card-border: #262626;
+  --bird-input-bg: #262626;
+  --bird-input-border: #404040;
+  --bird-input-focus-border: #a78bfa;
+
+  /* 文本色 */
+  --bird-text-primary: #f5f5f5;
+  --bird-text-secondary: #a3a3a3;
+  --bird-text-tertiary: #737373;
+  --bird-text-disabled: #404040;
+
+  /* 阴影 */
+  --bird-shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
+  --bird-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+  --bird-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  --bird-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.6);
+  --bird-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+}

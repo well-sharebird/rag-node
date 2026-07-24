@@ -101,40 +101,5 @@ class UserQuota(Base):
     user = relationship("User", back_populates="quota")
 
 
-class ModelProvider(Base):
-    """模型供应商配置"""
-    __tablename__ = "model_providers"
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-
-    # Provider info
-    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)  # openai, anthropic, local
-    display_name: Mapped[str] = mapped_column(String(100), nullable=False)  # OpenAI, Anthropic, Local
-
-    # Type
-    provider_type: Mapped[str] = mapped_column(String(50), nullable=False)  # api, local
-    category: Mapped[str] = mapped_column(String(50), default="llm")  # llm, embedding, multimodal
-
-    # Connection
-    api_base: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    auth_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # api_key, bearer, none
-
-    # Pricing (JSON format)
-    # {"input_per_1k": 0.001, "output_per_1k": 0.003, "currency": "USD"}
-    pricing: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Features
-    supported_models: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
-    capabilities: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array: chat, vision, function_calling
-
-    # Status
-    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    # Metadata
-    icon: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Icon URL or name
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-    # Timestamps
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+# Note: ModelProvider is now defined in app.models.model_gateway
+# This file only contains TokenUsage and UserQuota models
