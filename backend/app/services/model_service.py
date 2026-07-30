@@ -7,12 +7,23 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.model_config import ModelConfig
+from app.models.model_gateway import ModelProvider
 from app.schemas.model import (
     ModelConfigCreate, ModelConfigUpdate, ModelConfigResponse,
     ModelType, ModelStatus, COMMON_PRESETS
 )
 
 logger = logging.getLogger("app.services.model")
+
+
+async def _validate_provider_exists(db: AsyncSession, provider_code: str) -> None:
+    """Validate that a provider exists, raise ValueError if not"""
+    provider = await db.execute(
+        select(ModelProvider).where(ModelProvider.code == provider_code)
+    )
+    provider = provider.scalar_one_or_none()
+    if not provider:
+        raise ValueError(f"Provider '{provider_code}' not found")
 
 
 async def list_models(
@@ -46,6 +57,8 @@ async def create_model(
     data: ModelConfigCreate,
 ) -> ModelConfig:
     """Create a new model configuration"""
+    await _validate_provider_exists(db, data.provider)
+
     # If setting as default, unset other defaults for same type
     if data.is_default:
         await db.execute(
@@ -96,6 +109,10 @@ async def update_model(
     if not model:
         return None
 
+    # Validate provider if it's being changed
+    if data.provider is not None:
+        await _validate_provider_exists(db, data.provider)
+
     # If setting as default, unset other defaults for same type
     if data.is_default:
         await db.execute(
@@ -118,7 +135,7 @@ async def update_model(
     for key, value in update_data.items():
         setattr(model, key, value)
 
-    await db.flush()
+    await db.commit()
     await db.refresh(model)
 
     logger.info("Model config updated | id=%d name=%s", model.id, model.name)
@@ -132,7 +149,7 @@ async def delete_model(db: AsyncSession, model_id: int) -> bool:
         return False
 
     await db.delete(model)
-    await db.flush()
+    await db.commit()
 
     logger.info("Model config deleted | id=%d name=%s", model_id, model.name)
     return True

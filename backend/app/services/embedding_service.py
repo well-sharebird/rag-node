@@ -6,6 +6,7 @@ and stored in the model_configs database table. This service only handles API ca
 from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
+from app.core.tracing import traceable
 
 logger = logging.getLogger("app.services.embedding")
 
@@ -35,6 +36,7 @@ class APIEmbeddingService(BaseEmbeddingService):
         self._model = model
         self._dim = dim
 
+    @traceable(node_type='embedding', node_name='embed_texts', capture_input=True, capture_output=True)
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
         import httpx
         import asyncio

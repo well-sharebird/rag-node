@@ -1,13 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
+import { flushSync } from 'react-dom';
 import { useAppContext } from '@/lib/app-context';
 import { useAuth } from '@/src/lib/auth-context';
 import { useI18n } from '@/src/lib/i18n';
 import { toast } from 'sonner';
-import { Send, Bot, User, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, ChevronDown, ChevronRight, AtSign, Check } from 'lucide-react';
+import { Send, Bot, User, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, ChevronDown, ChevronRight, AtSign, Check, Cpu, ChevronUp } from 'lucide-react';
 import { SourcePanel } from './SourcePanel';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { submitFeedback } from '@/lib/api-client';
+import { getApiUrl } from '@/src/lib/env';
 
 interface Citation {
   index: number;
@@ -74,6 +76,15 @@ interface FeedbackData {
   reason?: string;
 }
 
+interface ModelConfig {
+  id: number;
+  name: string;
+  model_id: string;
+  model_type: string;
+  provider: string;
+  is_enabled: boolean;
+}
+
 export function QAChatView() {
   const { knowledgeBases } = useAppContext();
   const { token } = useAuth();
@@ -86,6 +97,16 @@ export function QAChatView() {
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [allCitations, setAllCitations] = useState<Citation[]>([]);
+
+  // Model selection state
+  const [availableModels, setAvailableModels] = useState<ModelConfig[]>([]);
+  const [selectedModelId, setSelectedModelId] = useState<string>(''); // 存储模型的 model_id 字符串
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+
+  // Agent state - 用于 QAChat 的 AI 助手 Agent
+  const [aiAssistantAgentId, setAiAssistantAgentId] = useState<string>('');
+  const [isLoadingAgent, setIsLoadingAgent] = useState(false);
 
   // @ mention selector state
   const [showKbSelector, setShowKbSelector] = useState(false);
@@ -100,6 +121,62 @@ export function QAChatView() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Load available models
+  useEffect(() => {
+    const loadModels = async () => {
+      setIsLoadingModels(true);
+      try {
+        const data = await fetch(getApiUrl('/api/v1/models?enabled_only=true'), {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }).then(res => res.json());
+        const llmModels = (data.items || []).filter((m: ModelConfig) => m.model_type === 'llm');
+        setAvailableModels(llmModels);
+        // Set default model (first one or previously selected) - store model_id string
+        if (llmModels.length > 0 && !selectedModelId) {
+          const defaultModel = llmModels.find((m: ModelConfig) => m.is_enabled && m.is_default) || llmModels[0];
+          setSelectedModelId(defaultModel.model_id); // 使用 model_id 字符串而不是数字 id
+        }
+      } catch (e: any) {
+        console.error('Failed to load models:', e);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+    loadModels();
+  }, [token]);
+
+  // Load AI Assistant Agent ID - 使用"智能体助手"，它有创建智能体的能力
+  useEffect(() => {
+    const loadAiAssistant = async () => {
+      setIsLoadingAgent(true);
+      try {
+        // 获取所有 Agent，查找智能体助手
+        const data = await fetch(getApiUrl('/api/v1/agents'), {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        }).then(res => res.json());
+        const agents = Array.isArray(data) ? data : [];
+        // 优先使用"智能体助手"，它有创建智能体的工具
+        const agent = agents.find((a: any) => a.name === '智能体助手') ||
+                      agents.find((a: any) => a.name === 'AI 助手');
+        if (agent) {
+          setAiAssistantAgentId(agent.id);
+          console.log('Assistant Agent loaded:', agent.id, agent.name);
+        } else {
+          console.warn('Assistant Agent not found, will use direct LLM call');
+        }
+      } catch (e: any) {
+        console.error('Failed to load Assistant Agent:', e);
+      } finally {
+        setIsLoadingAgent(false);
+      }
+    };
+    loadAiAssistant();
+  }, [token]);
+
   // Close KB selector on Escape
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -107,7 +184,19 @@ export function QAChatView() {
     };
     window.addEventListener('keydown', handleEsc);
     return () => window.removeEventListener('keydown', handleEsc);
-  }, []);
+  }, [showKbSelector]);
+
+  // Close model selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (showModelSelector && !target.closest('button') && !target.closest('.absolute')) {
+        setShowModelSelector(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showModelSelector]);
 
   const handleSend = async () => {
     if (!input.trim()) {
@@ -140,23 +229,53 @@ export function QAChatView() {
     try {
       // If no KB selected, use direct LLM chat without RAG
       const useRAG = selectedKbs.length > 0;
+      // 确保模型名称正确传递 - 使用 model_id 而不是 name
+      const modelName = availableModels.find(m => m.model_id === selectedModelId)?.model_id || availableModels[0]?.model_id;
 
-      const res = await fetch('/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      // 使用 Agent 接口进行问答，如果没有 AI 助手 Agent，则回退到直接 LLM 调用
+      let res: Response;
+      if (aiAssistantAgentId) {
+        // 使用 Agent 接口
+        const requestBody: any = {
           query,
-          kb_ids: useRAG ? selectedKbs : [],
+          kb_ids: useRAG ? selectedKbs : undefined,
           top_k: 5,
           enable_rerank: useRAG,
-          enable_expansion: useRAG,
-          stream: true,
-        }),
-        signal: abortControllerRef.current.signal,
-      });
+        };
+        // 只在有选择模型时传递 model_name，让 Agent 使用默认配置
+        if (modelName) {
+          requestBody.model_name = modelName;
+        }
+
+        res = await fetch(getApiUrl(`/api/v1/agents/${aiAssistantAgentId}/execute/stream`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify(requestBody),
+          signal: abortControllerRef.current.signal,
+        });
+      } else {
+        // 回退到直接 LLM 调用
+        res = await fetch(getApiUrl('/api/v1/chat/completions'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            query,
+            kb_ids: useRAG ? selectedKbs : [],
+            top_k: 5,
+            enable_rerank: useRAG,
+            enable_expansion: useRAG,
+            stream: true,
+            model_id: modelName,
+          }),
+          signal: abortControllerRef.current.signal,
+        });
+      }
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -190,6 +309,50 @@ export function QAChatView() {
             try {
               const parsed = JSON.parse(data);
 
+              // Handle Agent API stream format: {"type": "token", "content": "..."}
+              if (parsed.type === 'token' && parsed.content) {
+                accumulatedContent += parsed.content;
+                flushSync(() => {
+                  setMessages(prev => prev.map(msg =>
+                    msg.messageId === messageId
+                      ? { ...msg, content: accumulatedContent }
+                      : msg
+                  ));
+                });
+                continue;
+              }
+
+              // Handle done event
+              if (parsed.type === 'done') {
+                setMessages(prev => prev.map(msg =>
+                  msg.messageId === messageId
+                    ? { ...msg, isStreaming: false }
+                    : msg
+                ));
+                setLoading(false);
+                continue;
+              }
+
+              // Handle error event - 只在没有收到任何内容时才删除消息
+              if (parsed.type === 'error' && parsed.error) {
+                // 如果已经有内容了，说明是后续的错误（如 checkpoint 保存失败），不删除消息
+                if (accumulatedContent.trim().length === 0) {
+                  toast.error(parsed.error);
+                  setMessages(prev => prev.filter(msg => msg.messageId !== messageId));
+                } else {
+                  // 已经有成功内容，只显示 toast 警告，不删除消息
+                  console.warn('Stream completed with content, but got trailing error:', parsed.error);
+                  setMessages(prev => prev.map(msg =>
+                    msg.messageId === messageId
+                      ? { ...msg, isStreaming: false }
+                      : msg
+                  ));
+                  setLoading(false);
+                }
+                setLoading(false);
+                continue;
+              }
+
               // Handle custom citations event (sent before streaming)
               if (parsed.type === 'citations' && parsed.citations) {
                 sources = parsed.citations;
@@ -211,7 +374,7 @@ export function QAChatView() {
                 continue;
               }
 
-              // Handle OpenAI-style chat.completion.chunk
+              // Handle OpenAI-style chat.completion.chunk (fallback for direct LLM calls)
               if (parsed.object === 'chat.completion.chunk' && parsed.choices) {
                 const choice = parsed.choices[0];
                 const delta = choice?.delta;
@@ -232,21 +395,25 @@ export function QAChatView() {
                 const reasoningChunk = delta?.reasoning_content || delta?.reasoning || '';
                 if (reasoningChunk) {
                   accumulatedReasoning += reasoningChunk;
-                  setMessages(prev => prev.map(msg =>
-                    msg.messageId === messageId
-                      ? { ...msg, reasoning: accumulatedReasoning, showReasoning: true }
-                      : msg
-                  ));
+                  flushSync(() => {
+                    setMessages(prev => prev.map(msg =>
+                      msg.messageId === messageId
+                        ? { ...msg, reasoning: accumulatedReasoning, showReasoning: true }
+                        : msg
+                    ));
+                  });
                 }
 
                 // Handle content (final answer)
                 if (delta?.content) {
                   accumulatedContent += delta.content;
-                  setMessages(prev => prev.map(msg =>
-                    msg.messageId === messageId
-                      ? { ...msg, content: accumulatedContent }
-                      : msg
-                  ));
+                  flushSync(() => {
+                    setMessages(prev => prev.map(msg =>
+                      msg.messageId === messageId
+                        ? { ...msg, content: accumulatedContent }
+                        : msg
+                    ));
+                  });
                 }
 
                 // For Qwen: if we have reasoning but no content, parse the reasoning
@@ -450,7 +617,7 @@ export function QAChatView() {
       {/* Header */}
       <header className="h-[52px] px-5 bg-white flex items-center justify-between shrink-0" style={{ borderBottom: '0.5px solid #e2e1dd' }}>
         <div className="flex items-baseline gap-3">
-          <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('qa.title')}</h1>
+          <h1 className="text-[15px] font-medium text-[var(--text-primary)]">{t('qa.title')}</h1>
           <span className="text-[11px] text-[#9b9b9b] hidden sm:inline">{t('qa.desc')}</span>
           {/* Mode indicator */}
           <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium ${
@@ -460,6 +627,54 @@ export function QAChatView() {
           }`}>
             {selectedKbs.length > 0 ? 'RAG 模式' : 'LLM 模式'}
           </span>
+          {/* Model selector */}
+          <div className="relative">
+            <button
+              onClick={() => setShowModelSelector(!showModelSelector)}
+              className="ml-2 px-2.5 py-1 rounded-lg text-[10px] font-medium border hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+              style={{ borderColor: '#e2e1dd', color: '#534ab7' }}
+              disabled={isLoadingModels}
+            >
+              <Cpu className="w-3 h-3" />
+              {isLoadingModels ? '加载中...' :
+               availableModels.find(m => String(m.id) === selectedModelId)?.name ||
+               availableModels[0]?.name || '选择模型'}
+              {showModelSelector ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+
+            {/* Model selector dropdown */}
+            {showModelSelector && (
+              <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-[#e2e1dd] z-50 overflow-hidden">
+                <div className="max-h-64 overflow-y-auto py-1">
+                  {availableModels.map((model) => (
+                    <button
+                      key={model.id}
+                      onClick={() => {
+                        setSelectedModelId(String(model.id));
+                        setShowModelSelector(false);
+                      }}
+                      className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 flex items-center justify-between ${
+                        String(selectedModelId) === String(model.id) ? 'bg-[#eeedfe]' : ''
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-[var(--text-primary)] truncate">{model.name}</div>
+                        <div className="text-[#9b9b9b] text-[10px] truncate">{model.model_id}</div>
+                      </div>
+                      {selectedModelId === model.model_id && (
+                        <Check className="w-3.5 h-3.5 text-[#534ab7] shrink-0 ml-2" />
+                      )}
+                    </button>
+                  ))}
+                  {availableModels.length === 0 && (
+                    <div className="px-3 py-4 text-center text-xs text-[#9b9b9b]">
+                      暂无可用模型
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {allCitations.length > 0 && (
@@ -476,13 +691,13 @@ export function QAChatView() {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-5 bg-[#f7f7f5]">
+      <div className="flex-1 overflow-y-auto p-5 bg-white">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
             <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: '#eeedfe' }}>
               <Bot className="w-6 h-6" style={{ color: '#534ab7' }} />
             </div>
-            <p className="font-medium text-[#6b6b6b] text-sm">{t('qa.empty.title')}</p>
+            <p className="font-medium text-[var(--text-secondary)] text-sm">{t('qa.empty.title')}</p>
             <p className="text-[13px] text-[#9b9b9b] text-center max-w-sm">
               {selectedKbs.length > 0
                 ? `已选择 ${selectedKbs.length} 个知识库，开始提问吧。`
@@ -599,7 +814,7 @@ export function QAChatView() {
                 </div>
                 {msg.role === 'user' && (
                   <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1" style={{ background: '#f1f0ed' }}>
-                    <User className="w-3.5 h-3.5 text-[#6b6b6b]" />
+                    <User className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
                   </div>
                 )}
               </div>
@@ -683,7 +898,7 @@ export function QAChatView() {
             ) : (
               <button
                 onClick={handleSend}
-                disabled={selectedKbs.length === 0}
+                disabled={!input.trim()}
                 className="px-4 py-2.5 rounded-lg text-white font-medium transition-colors disabled:opacity-50 flex items-center gap-1.5 text-[13px]"
                 style={{ background: '#534ab7' }}
               >
@@ -699,8 +914,8 @@ export function QAChatView() {
               className="absolute bottom-28 left-1/2 -translate-x-1/2 w-full max-w-lg z-50"
               style={{ pointerEvents: 'auto' }}
             >
-              <div className="bg-white rounded-xl shadow-2xl border border-[#e5e5e5] overflow-hidden">
-                <div className="px-3 py-2 border-b border-[#e5e5e5] bg-[#f9f9f9] flex items-center justify-between">
+              <div className="bg-white rounded-xl shadow-2xl border border-[var(--gray-200)] overflow-hidden">
+                <div className="px-3 py-2 border-b border-[var(--gray-200)] bg-[#f9f9f9] flex items-center justify-between">
                   <span className="text-xs font-medium text-[#666]">
                     {language === 'zh' ? '选择知识库' : 'Select Knowledge Base'}
                   </span>
@@ -725,7 +940,7 @@ export function QAChatView() {
                           onClick={() => toggleKbSelection(kb.id)}
                           className={cn(
                             "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-                            idx === kbSelectorIndex ? "bg-[#f5f5f5]" : "",
+                            idx === kbSelectorIndex ? "bg-[var(--gray-50)]" : "",
                             isSelected ? "bg-[#eeedfe]" : "hover:bg-[#f9f9f9]"
                           )}
                         >
@@ -735,7 +950,7 @@ export function QAChatView() {
                           )} />
                           <span className={cn(
                             "flex-1 text-left truncate",
-                            isSelected ? "text-[#534ab7] font-medium" : "text-[#1a1a1a]"
+                            isSelected ? "text-[#534ab7] font-medium" : "text-[var(--text-primary)]"
                           )}>
                             {kb.name}
                           </span>
@@ -747,7 +962,7 @@ export function QAChatView() {
                     })
                   )}
                 </div>
-                <div className="px-3 py-2 border-t border-[#e5e5e5] bg-[#f9f9f9]">
+                <div className="px-3 py-2 border-t border-[var(--gray-200)] bg-[#f9f9f9]">
                   <p className="text-[10px] text-[#999]">
                     {language === 'zh'
                       ? '↑↓ 导航，Enter 选择，Esc 关闭'

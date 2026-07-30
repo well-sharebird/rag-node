@@ -121,7 +121,7 @@ async def execute_sync_job(ctx: dict, job_id: int) -> dict:
                         continue
 
                     # Chunk
-                    chunks = chunk_text(
+                    chunks = await chunk_text(
                         text,
                         strategy=chunk_cfg.get("strategy", "semantic"),
                         chunk_size=chunk_cfg.get("chunk_size", 512),

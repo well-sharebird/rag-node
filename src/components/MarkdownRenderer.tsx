@@ -114,7 +114,7 @@ function JsonTreeView({ code }: JsonTreeViewProps) {
       return (
         <div className="flex items-center">
           {key !== undefined && (
-            <span className="text-purple-600 mr-1">"{key}":</span>
+            <span className="text-var(--accent) mr-1">"{key}":</span>
           )}
           <span className={
             typeof value === 'string' ? 'text-green-600' :
@@ -146,7 +146,7 @@ function JsonTreeView({ code }: JsonTreeViewProps) {
             <ChevronRight className="w-4 h-4 text-gray-500" />
           )}
           {key !== undefined && (
-            <span className="text-purple-600">"{key}":</span>
+            <span className="text-var(--accent)">"{key}":</span>
           )}
           <span className="text-gray-600">
             {isArray ? `Array[${value.length}]` : `Object{${Object.keys(value).length}}`}

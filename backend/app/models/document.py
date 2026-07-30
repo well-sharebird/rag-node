@@ -33,6 +33,10 @@ class Document(Base, TimestampMixin):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
+    # 处理进度追踪
+    progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    current_stage: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # pending, parsing, cleaning, chunking, embedding, indexing, completed, failed
+
     @property
     def tags_list(self) -> list[str]:
         import json

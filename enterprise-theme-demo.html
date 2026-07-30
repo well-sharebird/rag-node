@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>企业级设计系统 - 方案 A：深空灰 + 雾霾蓝</title>
+  <style>
+    /* ========== 企业级设计变量 - 方案 A ========== */
+    :root {
+      --primary: #2d3748;        /* 深空灰 - 主色 */
+      --primary-hover: #1a202c;  /* 更深灰 - hover 态 */
+      --accent: #5a67d8;         /* 雾霾蓝 - 强调色 */
+      --accent-hover: #434190;   /* 深蓝 - hover 态 */
+      --bg-base: #f7fafc;        /* 极淡蓝灰 - 背景 */
+      
+      /* 中性灰色阶 */
+      --gray-50: #f7fafc;
+      --gray-100: #edf2f7;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e0;
+      --gray-400: #a0aec0;
+      --gray-500: #718096;
+      --gray-600: #4a5568;
+      --gray-700: #2d3748;
+      --gray-800: #1a202c;
+      --gray-900: #111827;
+      
+      /* 功能色 */
+      --success: #059669;
+      --success-bg: #d1fae5;
+      --warning: #d97706;
+      --warning-bg: #fef3c7;
+      --error: #dc2626;
+      --error-bg: #fee2e2;
+      
+      /* 圆角 */
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      
+      /* 阴影 */
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.06);
+      --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.05), 0 10px 15px rgba(0, 0, 0, 0.08);
+      --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.05), 0 20px 25px rgba(0, 0, 0, 0.1);
+      
+      /* 字体 */
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Microsoft YaHei', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-base);
+      color: var(--gray-900);
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+
+    .container { max-width: 1200px; margin: 0 auto; }
+    
+    header { 
+      text-align: center; 
+      margin-bottom: 60px;
+      padding: 40px 0;
+    }
+    
+    h1 {
+      font-size: 36px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--primary);
+    }
+    
+    .subtitle {
+      font-size: 16px;
+      color: var(--gray-500);
+    }
+
+    .section { margin-bottom: 60px; }
+    
+    .section-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 24px;
+      color: var(--gray-800);
+      padding-bottom: 12px;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .component-showcase {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .component-card {
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--gray-200);
+    }
+
+    .component-card h3 {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--gray-700);
+      margin-bottom: 16px;
+    }
+
+    .demo-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .demo-row code {
+      font-size: 12px;
+      color: var(--gray-500);
+      background: var(--gray-100);
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+    }
+
+    /* ========== 按钮系统 ========== */
+    .enterprise-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-family: var(--font-sans);
+    }
+
+    .enterprise-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .enterprise-btn:active {
+      transform: translateY(0);
+    }
+
+    .enterprise-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* 主要按钮 - 深空灰渐变 */
+    .enterprise-btn-primary {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+      color: white;
+      box-shadow: 0 2px 4px rgba(45, 55, 72, 0.2);
+    }
+
+    .enterprise-btn-primary:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--primary-hover) 0%, #0d1116 100%);
+      box-shadow: 0 4px 8px rgba(45, 55, 72, 0.3);
+    }
+
+    /* 次要按钮 - 白色 */
+    .enterprise-btn-secondary {
+      background: white;
+      color: var(--primary);
+      border: 1px solid var(--gray-300);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .enterprise-btn-secondary:hover:not(:disabled) {
+      background: var(--gray-50);
+      border-color: var(--gray-400);
+      box-shadow: var(--shadow-md);
+    }
+
+    /* 幽灵按钮 - 透明 */
+    .enterprise-btn-ghost {
+      background: transparent;
+      color: var(--accent);
+      box-shadow: none;
+    }
+
+    .enterprise-btn-ghost:hover:not(:disabled) {
+      background: rgba(90, 103, 216, 0.08);
+      box-shadow: none;
+    }
+
+    /* 强调按钮 - 雾霾蓝渐变 */
+    .enterprise-btn-accent {
+      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+      color: white;
+      box-shadow: 0 2px 4px rgba(90, 103, 216, 0.2);
+    }
+
+    .enterprise-btn-accent:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--accent-hover) 0%, #3730a3 100%);
+      box-shadow: 0 4px 8px rgba(90, 103, 216, 0.3);
+    }
+
+    /* 成功按钮 - 青翠绿 */
+    .enterprise-btn-success {
+      background: linear-gradient(135deg, var(--success) 0%, #047857 100%);
+      color: white;
+      box-shadow: 0 2px 4px rgba(5, 150, 105, 0.2);
+    }
+
+    .enterprise-btn-success:hover:not(:disabled) {
+      background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+      box-shadow: 0 4px 8px rgba(5, 150, 105, 0.3);
+    }
+
+    /* 危险按钮 - 绯红色 */
+    .enterprise-btn-danger {
+      background: linear-gradient(135deg, var(--error) 0%, #b91c1c 100%);
+      color: white;
+      box-shadow: 0 2px 4px rgba(220, 38, 38, 0.2);
+    }
+
+    .enterprise-btn-danger:hover:not(:disabled) {
+      background: linear-gradient(135deg, #b91c1c 0%, #991b1b 100%);
+      box-shadow: 0 4px 8px rgba(220, 38, 38, 0.3);
+    }
+
+    /* 按钮尺寸 */
+    .enterprise-btn-sm {
+      padding: 6px 12px;
+      font-size: 13px;
+    }
+
+    .enterprise-btn-lg {
+      padding: 14px 28px;
+      font-size: 16px;
+    }
+
+    /* ========== 输入框 ========== */
+    .enterprise-input {
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      color: var(--gray-900);
+      background: white;
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius-md);
+      transition: all 0.2s ease;
+      outline: none;
+    }
+
+    .enterprise-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(90, 103, 216, 0.1);
+    }
+
+    .enterprise-input::placeholder {
+      color: var(--gray-400);
+    }
+
+    .enterprise-input:disabled {
+      background: var(--gray-100);
+      cursor: not-allowed;
+    }
+
+    /* ========== 表格 ========== */
+    .enterprise-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+      background: white;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+    }
+
+    .enterprise-table thead {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--gray-800) 100%);
+      color: white;
+    }
+
+    .enterprise-table th {
+      padding: 14px 16px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.3px;
+    }
+
+    .enterprise-table tbody tr {
+      border-bottom: 1px solid var(--gray-200);
+      transition: background 0.15s ease;
+    }
+
+    .enterprise-table tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    .enterprise-table tbody tr:hover {
+      background: var(--gray-50);
+    }
+
+    .enterprise-table td {
+      padding: 14px 16px;
+      color: var(--gray-700);
+    }
+
+    .enterprise-table tbody tr:nth-child(even) {
+      background: var(--gray-50);
+    }
+
+    .enterprise-table tbody tr:nth-child(even):hover {
+      background: var(--gray-100);
+    }
+
+    /* ========== 徽章 ========== */
+    .enterprise-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      border: 1px solid;
+    }
+
+    .enterprise-badge-primary {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+
+    .enterprise-badge-accent {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    .enterprise-badge-success {
+      background: var(--success-bg);
+      color: #065f46;
+      border-color: var(--success);
+    }
+
+    .enterprise-badge-warning {
+      background: var(--warning-bg);
+      color: #92400e;
+      border-color: var(--warning);
+    }
+
+    .enterprise-badge-error {
+      background: var(--error-bg);
+      color: #991b1b;
+      border-color: var(--error);
+    }
+
+    .enterprise-badge-outline {
+      background: white;
+      color: var(--gray-600);
+      border-color: var(--gray-300);
+    }
+
+    /* ========== 卡片 ========== */
+    .enterprise-card {
+      background: white;
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--gray-200);
+      transition: all 0.2s ease;
+    }
+
+    .enterprise-card:hover {
+      box-shadow: var(--shadow-lg);
+      border-color: var(--gray-300);
+    }
+
+    .enterprise-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    .enterprise-card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--gray-800);
+    }
+
+    .enterprise-card-description {
+      font-size: 14px;
+      color: var(--gray-500);
+      margin-bottom: 16px;
+    }
+
+    /* ========== 复选框 ========== */
+    .enterprise-checkbox {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+
+    /* ========== 开关 ========== */
+    .enterprise-switch {
+      display: inline-block;
+      position: relative;
+      width: 44px;
+      height: 24px;
+    }
+
+    .enterprise-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .enterprise-switch-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--gray-300);
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+
+    .enterprise-switch-slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .enterprise-switch input:checked + .enterprise-switch-slider {
+      background-color: var(--accent);
+    }
+
+    .enterprise-switch input:checked + .enterprise-switch-slider:before {
+      transform: translateX(20px);
+    }
+
+    /* ========== 主题展示卡 ========== */
+    .theme-card {
+      padding: 24px;
+      border-radius: var(--radius-lg);
+      cursor: pointer;
+      transition: all 0.3s ease;
+      border: 2px solid transparent;
+    }
+
+    .theme-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .theme-card h4 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .theme-card p {
+      font-size: 13px;
+      opacity: 0.8;
+      margin-bottom: 16px;
+    }
+
+    .color-dots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .color-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,0.8);
+    }
+
+    .theme-showcase {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+    }
+
+    /* ========== 颜色展示 ========== */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .color-swatch {
+      height: 80px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 8px;
+      font-size: 12px;
+      font-weight: 500;
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* ========== 标签页 ========== */
+    .enterprise-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+      border-bottom: 2px solid var(--gray-200);
+      padding-bottom: 0;
+    }
+
+    .enterprise-tab {
+      padding: 10px 20px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-600);
+      transition: all 0.2s ease;
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+    }
+
+    .enterprise-tab:hover {
+      color: var(--accent);
+      background: rgba(90, 103, 216, 0.04);
+    }
+
+    .enterprise-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: rgba(90, 103, 216, 0.04);
+    }
+
+    /* ========== 下拉菜单 ========== */
+    .enterprise-select {
+      width: 100%;
+      padding: 10px 36px 10px 14px;
+      font-size: 14px;
+      font-family: var(--font-sans);
+      color: var(--gray-900);
+      background: white;
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius-md);
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%234a5568' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+    }
+
+    .enterprise-select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(90, 103, 216, 0.1);
+    }
+
+    /* ========== 警告框 ========== */
+    .enterprise-alert {
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      margin-bottom: 16px;
+      border-left: 4px solid;
+      font-size: 14px;
+    }
+
+    .enterprise-alert-info {
+      background: rgba(90, 103, 216, 0.08);
+      border-left-color: var(--accent);
+      color: var(--gray-700);
+    }
+
+    .enterprise-alert-success {
+      background: var(--success-bg);
+      border-left-color: var(--success);
+      color: #065f46;
+    }
+
+    .enterprise-alert-warning {
+      background: var(--warning-bg);
+      border-left-color: var(--warning);
+      color: #92400e;
+    }
+
+    .enterprise-alert-error {
+      background: var(--error-bg);
+      border-left-color: var(--error);
+      color: #991b1b;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>企业级设计系统</h1>
+      <p class="subtitle">方案 A：深空灰 + 雾霾蓝 - 专业、现代、简洁的 UI 组件库</p>
+    </header>
+
+    <!-- 配色方案展示（仅展示当前方案 A） -->
+    <section class="section">
+      <h2 class="section-title">1. 配色方案 - 方案 A</h2>
+      
+      <div class="theme-showcase">
+        <div class="theme-card" style="background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%); color: #2d3748; border: 2px solid var(--accent);">
+          <h4>方案 A：深空灰 + 雾霾蓝</h4>
+          <p>沉稳专业，适合企业级应用（当前使用）</p>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #2d3748;"></div>
+            <div class="color-dot" style="background: #5a67d8;"></div>
+            <div class="color-dot" style="background: #f7fafc;"></div>
+          </div>
+        </div>
+        
+        <div class="theme-card" style="background: linear-gradient(135deg, #f9fafb 0%, #f3f4f6 100%); color: #1a202c;" onclick="alert('切换主题功能可在完整版本中实现')">
+          <h4>方案 B：碳黑 + 琥珀橙</h4>
+          <p>现代活力，适合创新产品</p>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #1a202c;"></div>
+            <div class="color-dot" style="background: #dd6b20;"></div>
+            <div class="color-dot" style="background: #f9fafb;"></div>
+          </div>
+        </div>
+        
+        <div class="theme-card" style="background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); color: #1e3a5f;" onclick="alert('切换主题功能可在完整版本中实现')">
+          <h4>方案 C：海军蓝 + 金铜色</h4>
+          <p>经典优雅，适合金融服务</p>
+          <div class="color-dots">
+            <div class="color-dot" style="background: #1e3a5f;"></div>
+            <div class="color-dot" style="background: #b45309;"></div>
+            <div class="color-dot" style="background: #f8fafc;"></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="font-size: 18px; margin: 32px 0 16px; color: var(--gray-600);">主色调</h3>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: var(--primary); color: white;">#2d3748<br>Primary</div>
+        <div class="color-swatch" style="background: var(--accent); color: white;">#5a67d8<br>Accent</div>
+        <div class="color-swatch" style="background: white; border: 1px solid var(--gray-200);">#ffffff<br>White</div>
+      </div>
+
+      <h3 style="font-size: 18px; margin: 24px 0 16px; color: var(--gray-600);">中性灰色阶</h3>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: var(--gray-50);">50</div>
+        <div class="color-swatch" style="background: var(--gray-100);">100</div>
+        <div class="color-swatch" style="background: var(--gray-200);">200</div>
+        <div class="color-swatch" style="background: var(--gray-300);">300</div>
+        <div class="color-swatch" style="background: var(--gray-400);">400</div>
+        <div class="color-swatch" style="background: var(--gray-500); color: white;">500</div>
+        <div class="color-swatch" style="background: var(--gray-600); color: white;">600</div>
+        <div class="color-swatch" style="background: var(--gray-700); color: white;">700</div>
+        <div class="color-swatch" style="background: var(--gray-800); color: white;">800</div>
+        <div class="color-swatch" style="background: var(--gray-900); color: white;">900</div>
+      </div>
+    </section>
+
+    <!-- 按钮组件 -->
+    <section class="section">
+      <h2 class="section-title">2. 按钮组件</h2>
+      <div class="component-showcase">
+        <div class="component-card">
+          <h3>主要按钮 (深空灰渐变)</h3>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-primary">主要按钮</button>
+            <code>enterprise-btn-primary</code>
+          </div>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-primary" disabled>禁用状态</button>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>次要按钮 (白色)</h3>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-secondary">次要按钮</button>
+            <code>enterprise-btn-secondary</code>
+          </div>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-secondary" disabled>禁用状态</button>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>幽灵按钮 (透明)</h3>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-ghost">幽灵按钮</button>
+            <code>enterprise-btn-ghost</code>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>强调按钮 (雾霾蓝渐变)</h3>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-accent">强调按钮</button>
+            <code>enterprise-btn-accent</code>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>功能按钮 (成功/危险)</h3>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-success">成功操作</button>
+            <button class="enterprise-btn enterprise-btn-danger">危险操作</button>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>按钮尺寸</h3>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-sm enterprise-btn-primary">小按钮</button>
+            <button class="enterprise-btn enterprise-btn-primary">标准按钮</button>
+            <button class="enterprise-btn enterprise-btn-lg enterprise-btn-primary">大按钮</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 输入框和表单 -->
+    <section class="section">
+      <h2 class="section-title">3. 输入框与表单</h2>
+      <div class="component-showcase">
+        <div class="component-card">
+          <h3>输入框</h3>
+          <div class="demo-row" style="flex-direction: column; align-items: stretch;">
+            <input class="enterprise-input" placeholder="默认输入框" style="margin-bottom: 12px;">
+            <input class="enterprise-input" placeholder="聚焦状态的输入框" style="margin-bottom: 12px;">
+            <input class="enterprise-input" placeholder="禁用状态的输入框" disabled>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>下拉选择框</h3>
+          <div class="demo-row" style="flex-direction: column; align-items: stretch;">
+            <select class="enterprise-select" style="margin-bottom: 12px;">
+              <option>选择选项 1</option>
+              <option>选择选项 2</option>
+              <option>选择选项 3</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>复选框</h3>
+          <div class="demo-row">
+            <input type="checkbox" class="enterprise-checkbox" checked>
+            <span>已选中</span>
+          </div>
+          <div class="demo-row">
+            <input type="checkbox" class="enterprise-checkbox">
+            <span>未选中</span>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>开关</h3>
+          <div class="demo-row">
+            <label class="enterprise-switch">
+              <input type="checkbox" checked>
+              <span class="enterprise-switch-slider"></span>
+            </label>
+            <span>开启状态</span>
+          </div>
+          <div class="demo-row">
+            <label class="enterprise-switch">
+              <input type="checkbox">
+              <span class="enterprise-switch-slider"></span>
+            </label>
+            <span>关闭状态</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 表格组件 -->
+    <section class="section">
+      <h2 class="section-title">4. 表格组件</h2>
+      <div class="component-card" style="grid-column: span 2;">
+        <table class="enterprise-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>名称</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>#001</td>
+              <td>深空灰主题</td>
+              <td><span class="enterprise-badge enterprise-badge-success">启用</span></td>
+              <td>
+                <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">编辑</button>
+                <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">删除</button>
+              </td>
+            </tr>
+            <tr>
+              <td>#002</td>
+              <td>碳黑主题</td>
+              <td><span class="enterprise-badge enterprise-badge-outline">未启用</span></td>
+              <td>
+                <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">编辑</button>
+                <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">删除</button>
+              </td>
+            </tr>
+            <tr>
+              <td>#003</td>
+              <td>海军蓝主题</td>
+              <td><span class="enterprise-badge enterprise-badge-warning">测试中</span></td>
+              <td>
+                <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">编辑</button>
+                <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">删除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 徽章组件 -->
+    <section class="section">
+      <h2 class="section-title">5. 徽章组件</h2>
+      <div class="component-showcase">
+        <div class="component-card">
+          <h3>状态徽章</h3>
+          <div class="demo-row">
+            <span class="enterprise-badge enterprise-badge-primary">默认</span>
+            <span class="enterprise-badge enterprise-badge-accent">强调</span>
+            <span class="enterprise-badge enterprise-badge-success">成功</span>
+            <span class="enterprise-badge enterprise-badge-warning">警告</span>
+            <span class="enterprise-badge enterprise-badge-error">错误</span>
+            <span class="enterprise-badge enterprise-badge-outline">轮廓</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 卡片组件 -->
+    <section class="section">
+      <h2 class="section-title">6. 卡片组件</h2>
+      <div class="component-showcase">
+        <div class="component-card">
+          <div class="enterprise-card-header">
+            <h3 class="enterprise-card-title">标准卡片</h3>
+            <button class="enterprise-btn enterprise-btn-sm enterprise-btn-ghost">更多</button>
+          </div>
+          <p class="enterprise-card-description">这是一个标准的企业级卡片组件，包含标题、描述和操作区域。</p>
+          <div class="demo-row">
+            <button class="enterprise-btn enterprise-btn-primary">主要操作</button>
+            <button class="enterprise-btn enterprise-btn-secondary">次要操作</button>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <div class="enterprise-card-header">
+            <h3 class="enterprise-card-title">带徽章的卡片</h3>
+            <span class="enterprise-badge enterprise-badge-accent">NEW</span>
+          </div>
+          <p class="enterprise-card-description">卡片可以包含徽章来展示状态或特殊标识。</p>
+          <div class="enterprise-alert enterprise-alert-info">
+            <strong>提示：</strong>这是卡片中的提示信息区域。
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 警告框组件 -->
+    <section class="section">
+      <h2 class="section-title">7. 警告框组件</h2>
+      <div class="component-card" style="grid-column: span 2;">
+        <div class="enterprise-alert enterprise-alert-info">
+          <strong>信息提示：</strong>这是一条普通的信息提示。
+        </div>
+        <div class="enterprise-alert enterprise-alert-success">
+          <strong>成功提示：</strong>操作已成功完成。
+        </div>
+        <div class="enterprise-alert enterprise-alert-warning">
+          <strong>警告提示：</strong>请注意此操作可能带来的影响。
+        </div>
+        <div class="enterprise-alert enterprise-alert-error">
+          <strong>错误提示：</strong>操作失败，请重试或联系管理员。
+        </div>
+      </div>
+    </section>
+
+    <!-- 标签页组件 -->
+    <section class="section">
+      <h2 class="section-title">8. 标签页组件</h2>
+      <div class="component-card" style="grid-column: span 2;">
+        <div class="enterprise-tabs">
+          <button class="enterprise-tab active">概览</button>
+          <button class="enterprise-tab">文档</button>
+          <button class="enterprise-tab">设置</button>
+          <button class="enterprise-tab">帮助</button>
+        </div>
+        <div style="padding: 20px; background: var(--gray-50); border-radius: var(--radius-md);">
+          <p style="color: var(--gray-600);">这是标签页的内容区域。点击不同的标签可以切换显示的内容。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 设计说明 -->
+    <section class="section">
+      <h2 class="section-title">9. 设计理念</h2>
+      <div class="component-card" style="grid-column: span 2;">
+        <div style="padding: 20px;">
+          <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--gray-800);">方案 A：深空灰 + 雾霾蓝</h3>
+          <ul style="padding-left: 20px; color: var(--gray-700); line-height: 2;">
+            <li><strong>专业沉稳：</strong>深空灰 (#2d3748) 作为主色调，传递专业、可靠的企业形象</li>
+            <li><strong>现代活力：</strong>雾霾蓝 (#5a67d8) 作为强调色，为界面注入现代感和活力</li>
+            <li><strong>简洁清晰：</strong>极淡蓝灰背景 (#f7fafc) 保持界面清爽，减少视觉疲劳</li>
+            <li><strong>渐变层次：</strong>按钮使用微妙渐变，增强立体感和精致度</li>
+            <li><strong>精致阴影：</strong>配合主题色的彩色阴影，提升设计品质</li>
+            <li><strong>微动效：</strong>hover 时轻微上浮，增加交互趣味性</li>
+          </ul>
+          
+          <h3 style="font-size: 18px; margin: 32px 0 16px; color: var(--gray-800);">适用场景</h3>
+          <ul style="padding-left: 20px; color: var(--gray-700); line-height: 2;">
+            <li>企业级 SaaS 平台</li>
+            <li>B 端管理系统</li>
+            <li>专业工具应用</li>
+            <li>数据可视化平台</li>
+            <li>金融科技产品</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

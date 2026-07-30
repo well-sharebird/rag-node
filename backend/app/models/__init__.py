@@ -16,6 +16,14 @@ from app.models.prompt_template import (
     PromptEvalRun,
     PromptAuditLog,
 )
+from app.models.agent import (
+    AgentConfig,
+    AgentVersion,
+    AgentMemory,
+    AgentCallLog,
+)
+from app.models.synonym import Synonym
+from app.models.desensitization_config import DesensitizationConfig
 
 __all__ = [
     "Base",
@@ -43,4 +51,10 @@ __all__ = [
     "PromptTestCase",
     "PromptEvalRun",
     "PromptAuditLog",
+    "AgentConfig",
+    "AgentVersion",
+    "AgentMemory",
+    "AgentCallLog",
+    "Synonym",
+    "DesensitizationConfig",
 ]

@@ -8,6 +8,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Callable
 from abc import ABC, abstractmethod
+from app.core.tracing import traceable
 
 logger = logging.getLogger("app.services.chunking")
 
@@ -26,7 +27,8 @@ class Chunk:
     content_type: str = "text"  # "text", "table", "image"
 
 
-def chunk_text(
+@traceable(node_type='chunking', node_name='chunk_text', capture_input=True, capture_output=True)
+async def chunk_text(
     text: str,
     strategy: str = "fixed",
     chunk_size: int = 512,

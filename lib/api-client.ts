@@ -3,7 +3,9 @@
  * 基础 API 客户端工具
  */
 
-const API_BASE_URL = '';
+// 使用环境变量配置后端地址，支持直接连接后端 8000 端口
+// 优先级：VITE_API_BASE_URL > 默认值
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 // 通用 fetch 封装
 export async function fetchApi<T>(

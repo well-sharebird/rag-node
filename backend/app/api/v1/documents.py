@@ -1,5 +1,10 @@
+import asyncio
 import logging
+from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Query, UploadFile, File, BackgroundTasks, HTTPException
+from pydantic import BaseModel
 
 from app.core.deps import DBSession, MilvusDep
 from app.config import settings as app_settings
@@ -37,29 +42,72 @@ async def list_docs(
 
 @router.post("/upload", response_model=UploadResponse, status_code=201)
 async def upload_document(
-    db: DBSession, milvus: MilvusDep,
+    db: DBSession,
     file: UploadFile = File(...), kb_id: str = Query(...),
 ):
+    """
+    上传文档并启动后台异步处理
+
+    流程：
+    1. 上传文件到 MinIO
+    2. 创建文档记录（status=pending, progress=0）
+    3. 启动后台任务异步处理
+    4. 立即返回，前端轮询进度
+    """
     content = await file.read()
     doc, _ = await document_service.upload_document(
         db, kb_id, file.filename or "unknown", content, len(content), minio=_get_minio()
     )
-    # Always commit and process the document
     await db.commit()
-    try:
-        from app.workers.document_pipeline import process_document
-        result = await process_document({}, doc.id)
-        logger.info("Document processed inline | doc_id=%s result=%s", doc.id, result)
-        status = result.get("status", "completed") if result else "completed"
-    except Exception:
-        logger.exception("Processing failed | doc_id=%s", doc.id)
-        status = "failed"
-    await db.begin()
+
+    # 启动后台异步任务处理文档
+    asyncio.create_task(process_document_background(str(doc.id)))
+    logger.info("Document background task started | doc_id=%s", doc.id)
 
     return UploadResponse(
-        id=doc.id, status=status,
-        message=f"Uploaded and processed (chunks: {result.get('chunks', 'N/A')})" if result and status == "completed" else "Uploaded but processing failed",
+        id=doc.id, status="pending",
+        message="Document uploaded, processing in background",
     )
+
+
+async def process_document_background(doc_id: str):
+    """在后台异步处理文档，不阻塞 API 响应。"""
+    from app.core.database import async_session_factory
+    from app.workers.document_pipeline import process_document
+    from sqlalchemy import update
+    from app.models.document import Document
+
+    try:
+        async with async_session_factory() as session:
+            result = await process_document(session, doc_id)
+
+            # 更新文档状态
+            if result and result.get("status") == "completed":
+                await session.execute(
+                    update(Document).where(Document.id == doc_id).values(
+                        status="completed",
+                        chunk_count=result.get("chunks", 0)
+                    )
+                )
+            else:
+                await session.execute(
+                    update(Document).where(Document.id == doc_id).values(status="failed")
+                )
+            await session.commit()
+
+            logger.info("Document background processing completed | doc_id=%s result=%s", doc_id, result)
+
+    except Exception as e:
+        logger.exception("Document background processing failed | doc_id=%s", doc_id)
+        # 更新失败状态
+        async with async_session_factory() as session:
+            await session.execute(
+                update(Document).where(Document.id == doc_id).values(
+                    status="failed",
+                    error_message=f"{type(e).__name__}: {e}"
+                )
+            )
+            await session.commit()
 
 
 @router.post("/batch-upload", response_model=list[UploadResponse], status_code=201)
@@ -142,7 +190,7 @@ async def preview_chunks(data: ChunkPreviewRequest):
     from app.services.chunking_service import chunk_text
 
     cfg = get_chunking_config()
-    chunks = chunk_text(
+    chunks = await chunk_text(
         data.content,
         strategy=cfg.get("strategy", "semantic"),
         chunk_size=cfg.get("chunk_size", 512),
@@ -316,3 +364,44 @@ async def batch_reprocess_documents(
 @router.delete("/{doc_id}", status_code=204)
 async def delete_document(db: DBSession, milvus: MilvusDep, doc_id: str):
     await document_service.delete_document(db, milvus, doc_id, minio=_get_minio())
+    await db.commit()
+
+
+class DocumentProgressResponse(BaseModel):
+    """Document processing progress response"""
+    doc_id: str
+    status: str
+    progress: int
+    current_stage: Optional[str]
+    chunk_count: Optional[int]
+    error_message: Optional[str]
+    uploaded_at: datetime
+    processed_at: Optional[datetime]
+
+
+@router.get("/{doc_id}/progress", response_model=DocumentProgressResponse)
+async def get_document_progress(db: DBSession, doc_id: str):
+    """
+    获取文档处理进度
+
+    返回当前处理状态和进度百分比，用于前端实时展示
+    """
+    from sqlalchemy import select
+    from app.models.document import Document
+
+    result = await db.execute(select(Document).where(Document.id == doc_id))
+    doc = result.scalar_one_or_none()
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return DocumentProgressResponse(
+        doc_id=str(doc.id),
+        status=doc.status,
+        progress=doc.progress,
+        current_stage=doc.current_stage,
+        chunk_count=doc.chunk_count,
+        error_message=doc.error_message,
+        uploaded_at=doc.uploaded_at,
+        processed_at=doc.processed_at,
+    )

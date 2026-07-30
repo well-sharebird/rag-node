@@ -163,7 +163,7 @@ export function ModelConfigForm({
     <div className="space-y-4 py-2">
       {/* 基本信息 - 参考图风格 */}
       <div className="rounded-3xl bg-[#f8f9fa] p-5">
-        <h3 className="text-[15px] font-semibold text-[#1a1a1a] mb-4">基本信息</h3>
+        <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-4">基本信息</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* 模型名称 */}
           <div className="space-y-2">
@@ -253,7 +253,7 @@ export function ModelConfigForm({
               </SelectContent>
             </Select>
             {providers.length > 0 && (
-              <p className="text-[11px] text-[#999999] ml-2">
+              <p className="text-[11px] text-[var(--text-tertiary)] ml-2">
                 已加载 {providers.length} 个供应商，选择后自动填充 API 配置
               </p>
             )}
@@ -292,7 +292,7 @@ export function ModelConfigForm({
       {/* 连接设置 - 参考图风格 */}
       {needsApiFields && (
         <div className="rounded-3xl bg-[#f8f9fa] p-5">
-          <h3 className="text-[15px] font-semibold text-[#1a1a1a] mb-4">连接设置</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-4">连接设置</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-[12px] font-medium text-[#666666]">
@@ -326,7 +326,7 @@ export function ModelConfigForm({
               />
               {errors.api_key && <p className="text-xs text-red-500 ml-2">{errors.api_key}</p>}
               {isEdit && formData.api_key && (
-                <p className="text-xs text-[#999999] ml-2">当前：{maskApiKey(formData.api_key)}</p>
+                <p className="text-xs text-[var(--text-tertiary)] ml-2">当前：{maskApiKey(formData.api_key)}</p>
               )}
             </div>
           </div>
@@ -336,7 +336,7 @@ export function ModelConfigForm({
       {/* 高级参数 - 参考图风格 */}
       {needsAdvancedParams && (
         <div className="rounded-3xl bg-[#f8f9fa] p-5">
-          <h3 className="text-[15px] font-semibold text-[#1a1a1a] mb-4">高级参数</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-4">高级参数</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label className="text-[12px] font-medium text-[#666666]">Temperature</Label>
@@ -349,7 +349,7 @@ export function ModelConfigForm({
                 max="2"
                 className="rounded-full h-11 border border-[#e0e0e0] bg-white px-4 text-[14px]"
               />
-              <p className="text-[11px] text-[#999999] ml-2">随机性 (0-2，默认 0.7)</p>
+              <p className="text-[11px] text-[var(--text-tertiary)] ml-2">随机性 (0-2，默认 0.7)</p>
             </div>
 
             <div className="space-y-2">
@@ -360,7 +360,7 @@ export function ModelConfigForm({
                 type="number"
                 className="rounded-full h-11 border border-[#e0e0e0] bg-white px-4 text-[14px]"
               />
-              <p className="text-[11px] text-[#999999] ml-2">最大生成长度 (默认 4096)</p>
+              <p className="text-[11px] text-[var(--text-tertiary)] ml-2">最大生成长度 (默认 4096)</p>
             </div>
 
             <div className="space-y-2">
@@ -374,7 +374,7 @@ export function ModelConfigForm({
                 max="1"
                 className="rounded-full h-11 border border-[#e0e0e0] bg-white px-4 text-[14px]"
               />
-              <p className="text-[11px] text-[#999999] ml-2">核采样 (0-1，默认 0.9)</p>
+              <p className="text-[11px] text-[var(--text-tertiary)] ml-2">核采样 (0-1，默认 0.9)</p>
             </div>
           </div>
         </div>
@@ -383,7 +383,7 @@ export function ModelConfigForm({
       {/* 向量配置 - 参考图风格 */}
       {isEmbedding && (
         <div className="rounded-3xl bg-[#f8f9fa] p-5">
-          <h3 className="text-[15px] font-semibold text-[#1a1a1a] mb-4">向量配置</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-4">向量配置</h3>
           <div className="space-y-2">
             <Label className="text-[12px] font-medium text-[#666666]">
               向量维度 <span className="text-red-500">*</span>
@@ -405,7 +405,7 @@ export function ModelConfigForm({
 
       {/* 启用设置 - 参考图风格 */}
       <div className="rounded-3xl bg-[#f8f9fa] p-5">
-        <h3 className="text-[15px] font-semibold text-[#1a1a1a] mb-4">启用设置</h3>
+        <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-4">启用设置</h3>
         <div className="flex flex-wrap items-center gap-6">
           <div className="flex items-center gap-3">
             <Switch

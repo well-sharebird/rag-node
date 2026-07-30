@@ -8,6 +8,7 @@ import logging
 import re
 from typing import Optional, List, Dict, Any, Tuple
 from app.utils.exceptions import ValidationException
+from app.core.tracing import traceable
 
 logger = logging.getLogger("app.services.parser")
 
@@ -18,6 +19,7 @@ ALLOWED_EXTENSIONS = {
 }
 
 
+@traceable(node_type='parsing', node_name='parse_document', capture_input=True, capture_output=True)
 async def parse_document(content: bytes, format: str) -> str:
     """
     Parse document content into plain text.

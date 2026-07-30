@@ -1,0 +1,257 @@
+/**
+ * Enterprise Design System — Volcano Engine Style
+ * 纯白通透 + 天蓝点睛 · 灵感来源：字节火山引擎
+ * 
+ * Design Philosophy:
+ * - Lightweight & Transparent — 轻盈通透，无大面积深色色块
+ * - Consumer-Grade B2B — 消费级企业产品
+ * - Warm & Human — 有亲和力，打破冷冰冰的工具印象
+ * - Clean & Modern — 干净现代，如 Linear / Vercel / Notion
+ */
+
+:root {
+  /* ============================================
+   * 强调色 — 天蓝 · 仅用于按钮/链接/高亮
+   * ============================================ */
+
+  --accent: #4F7BE5;             /* 柔和天蓝（降饱和度，更温和） */
+  --accent-hover: #3D6AD4;        /* hover 深蓝 */
+  --accent-light: #EEF2FB;        /* 极浅蓝背景 */
+  --accent-border: #C8D7F2;       /* 柔和蓝边框 */
+
+  /* ============================================
+   * 主色 — 温和灰 · 用于标题 & 文字层级
+   * ============================================ */
+
+  --primary: #3D6AD4;             /* 柔和深蓝（降饱和度） */
+  --primary-hover: #2F58BD;        /* hover */
+  --primary-light: #EEF2FB;        /* 浅蓝背景 */
+
+  /* ============================================
+   * 中性灰色系 — 10 级精细梯度
+   * ============================================ */
+
+  --gray-0: #FFFFFF;
+  --gray-50: #FAFBFC;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --gray-900: #111827;
+
+  /* ============================================
+   * 背景色 — 极淡蓝灰，几乎全白
+   * ============================================ */
+
+  --bg-primary: #FAFBFC;          /* 主背景 — 极淡蓝灰 */
+  --bg-secondary: #FFFFFF;        /* 次级背景 — 纯白 */
+  --bg-tertiary: #F3F4F6;         /* 第三级背景 */
+  --bg-elevated: #FFFFFF;         /* 浮层背景 */
+
+  /* 侧边栏 — 极淡蓝灰，与纯白内容区柔和区分 */
+  --sidebar-bg: #FAFBFC;
+  --sidebar-border: #F0F0F0;
+
+  /* 卡片 — 纯白 + 极浅边框 */
+  --card-bg: #FFFFFF;
+  --card-border: #F0F0F0;
+
+  /* 输入框 */
+  --input-bg: #FFFFFF;
+  --input-border: #D1D5DB;
+  --input-focus-border: #4F7BE5;
+  --input-focus-shadow: rgba(79, 123, 229, 0.10);
+
+  /* ============================================
+   * 文本颜色
+   * ============================================ */
+
+  --text-primary: #111827;
+  --text-secondary: #6B7280;
+  --text-tertiary: #9CA3AF;
+  --text-disabled: #D1D5DB;
+
+  /* 链接 */
+  --link: #4F7BE5;
+  --link-hover: #3D6AD4;
+
+  /* ============================================
+   * 功能色 — 明亮柔和
+   * ============================================ */
+
+  --success: #059669;
+  --success-bg: #D1FAE5;
+  --success-hover: #047857;
+
+  --warning: #B45309;
+  --warning-bg: #FEF3C7;
+  --warning-hover: #92400E;
+
+  --error: #DC2626;
+  --error-bg: #FEE2E2;
+  --error-hover: #B91C1C;
+
+  --info: #4F7BE5;
+  --info-bg: #EEF2FB;
+  --info-hover: #3D6AD4;
+
+  /* ============================================
+   * 圆角 — 适度圆润 (6-12px)
+   * ============================================ */
+
+  --radius-none: 0;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-full: 9999px;
+
+  --button-radius: 8px;
+  --input-radius: 8px;
+  --card-radius: 10px;
+  --modal-radius: 12px;
+  --table-radius: 10px;
+
+  /* ============================================
+   * 阴影 — 极轻 + subtle
+   * ============================================ */
+
+  --shadow-none: 0 0 0 0 transparent;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.05), 0 2px 4px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 8px 20px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.06);
+
+  --shadow-primary: 0 2px 8px rgba(37, 99, 235, 0.15);
+  --shadow-accent: 0 2px 8px rgba(59, 130, 246, 0.15);
+
+  /* ============================================
+   * 字体
+   * ============================================ */
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'SF Mono', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+  --text-4xl: 28px;
+
+  --font-normal: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+  --font-bold: 700;
+
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+
+  /* ============================================
+   * 间距 — 4px 基准
+   * ============================================ */
+
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* ============================================
+   * 过渡
+   * ============================================ */
+
+  --transition-fast: 150ms ease;
+  --transition-base: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  --transition-colors: color var(--transition-base), background-color var(--transition-base), border-color var(--transition-base);
+  --transition-transform: transform var(--transition-base);
+  --transition-shadow: box-shadow var(--transition-base);
+  --transition-all: all var(--transition-base);
+
+  /* ============================================
+   * 布局
+   * ============================================ */
+
+  --header-height: 52px;
+  --sidebar-width: 200px;
+  --sidebar-collapsed-width: 64px;
+
+  /* ============================================
+   * 边框
+   * ============================================ */
+
+  --border-width: 1px;
+  --border-width-thick: 2px;
+}
+
+/* ============================================
+ * 全局样式重置
+ * ============================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+ * 滚动条
+ * ============================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-400);
+}
+
+/* ============================================
+ * 选中文本颜色
+ * ============================================ */
+
+::selection {
+  background: var(--accent-light);
+  color: var(--text-primary);
+}

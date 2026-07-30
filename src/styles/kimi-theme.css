@@ -1,0 +1,294 @@
+/**
+ * Kimi.com Design System
+ * 基于 Kimi AI 的 UI/UX 风格设计规范
+ * 
+ * Design Philosophy:
+ * - Minimalist & Clean - 极简主义，干净利落
+ * - Generous Whitespace - 充裕的留白
+ * - High Contrast - 高对比度
+ * - Modern Typography - 现代化排版
+ * - Neutral Base + Accent Colors - 中性基调 + 强调色
+ */
+
+:root {
+  /* ============================================
+   * 颜色系统 - Color Palette
+   * ============================================ */
+
+  /* 主色调 - 经典黑 + 科技蓝 */
+  --kimi-black: #1a1a1a;
+  --kimi-black-soft: #2a2a2a;
+  --kimi-blue: #0066ff;
+  --kimi-blue-hover: #0052cc;
+  --kimi-blue-light: #e6f0ff;
+  
+  /* 中性灰色系 - 精细梯度 */
+  --kimi-gray-0: #ffffff;
+  --kimi-gray-50: #fafafa;
+  --kimi-gray-100: #f5f5f5;
+  --kimi-gray-200: #e5e5e5;
+  --kimi-gray-300: #d4d4d4;
+  --kimi-gray-400: #a3a3a3;
+  --kimi-gray-500: #737373;
+  --kimi-gray-600: #525252;
+  --kimi-gray-700: #404040;
+  --kimi-gray-800: #262626;
+  --kimi-gray-900: #171717;
+
+  /* 功能色 - 柔和不刺眼 */
+  --kimi-success: #10b981;
+  --kimi-success-bg: #d1fae5;
+  --kimi-warning: #f59e0b;
+  --kimi-warning-bg: #fef3c7;
+  --kimi-error: #ef4444;
+  --kimi-error-bg: #fee2e2;
+  --kimi-info: #3b82f6;
+  --kimi-info-bg: #dbeafe;
+
+  /* ============================================
+   * 背景色系统 - 极简分层
+   * ============================================ */
+
+  --kimi-bg-primary: #fafafa;
+  --kimi-bg-secondary: #ffffff;
+  --kimi-bg-tertiary: #f5f5f5;
+  --kimi-bg-elevated: #ffffff;
+
+  /* 侧边栏背景 */
+  --kimi-sidebar-bg: #ffffff;
+  --kimi-sidebar-border: #e5e5e5;
+
+  /* 卡片背景 */
+  --kimi-card-bg: #ffffff;
+  --kimi-card-border: #e5e5e5;
+
+  /* 输入框背景 */
+  --kimi-input-bg: #fafafa;
+  --kimi-input-border: #e5e5e5;
+  --kimi-input-focus-border: #1a1a1a;
+
+  /* ============================================
+   * 文本颜色 - 高对比度
+   * ============================================ */
+
+  --kimi-text-primary: #1a1a1a;
+  --kimi-text-secondary: #525252;
+  --kimi-text-tertiary: #a3a3a3;
+  --kimi-text-disabled: #d4d4d4;
+
+  /* 链接颜色 */
+  --kimi-link: #0066ff;
+  --kimi-link-hover: #0052cc;
+
+  /* ============================================
+   * 圆角规范 - 适度圆润 (6-12px)
+   * ============================================ */
+
+  --kimi-radius-none: 0;
+  --kimi-radius-xs: 4px;
+  --kimi-radius-sm: 6px;
+  --kimi-radius-md: 8px;
+  --kimi-radius-lg: 10px;
+  --kimi-radius-xl: 12px;
+  --kimi-radius-2xl: 16px;
+  --kimi-radius-full: 9999px;
+
+  /* 组件圆角 */
+  --kimi-button-radius: var(--kimi-radius-lg);
+  --kimi-input-radius: var(--kimi-radius-md);
+  --kimi-card-radius: var(--kimi-radius-xl);
+  --kimi-modal-radius: var(--kimi-radius-2xl);
+  --kimi-dropdown-radius: var(--kimi-radius-xl);
+  --kimi-badge-radius: var(--kimi-radius-full);
+
+  /* ============================================
+   * 阴影系统 - 极其微妙
+   * ============================================ */
+
+  --kimi-shadow-none: none;
+  --kimi-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  --kimi-shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.03);
+  --kimi-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --kimi-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.06), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --kimi-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.07), 0 8px 10px -6px rgba(0, 0, 0, 0.06);
+  --kimi-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.1);
+
+  /* 组件阴影 */
+  --kimi-card-shadow: var(--kimi-shadow-sm);
+  --kimi-card-hover-shadow: var(--kimi-shadow-md);
+  --kimi-modal-shadow: var(--kimi-shadow-2xl);
+  --kimi-dropdown-shadow: var(--kimi-shadow-lg);
+  --kimi-popover-shadow: var(--kimi-shadow-lg);
+
+  /* ============================================
+   * 字体系统 - 现代简洁
+   * ============================================ */
+
+  /* 字体族 - 优先使用系统字体 */
+  --kimi-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --kimi-font-mono: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace;
+
+  /* 字体大小 - 适中间距 */
+  --kimi-text-xs: 11px;
+  --kimi-text-sm: 12px;
+  --kimi-text-base: 13px;
+  --kimi-text-lg: 14px;
+  --kimi-text-xl: 15px;
+  --kimi-text-2xl: 16px;
+  --kimi-text-3xl: 18px;
+  --kimi-text-4xl: 20px;
+  --kimi-text-5xl: 24px;
+
+  /* 字重 */
+  --kimi-font-normal: 400;
+  --kimi-font-medium: 500;
+  --kimi-font-semibold: 600;
+  --kimi-font-bold: 700;
+
+  /* 行高 */
+  --kimi-line-height-tight: 1.25;
+  --kimi-line-height-normal: 1.5;
+  --kimi-line-height-relaxed: 1.625;
+  --kimi-line-height-loose: 1.75;
+
+  /* ============================================
+   * 间距系统 - 基于 4px 栅格
+   * ============================================ */
+
+  --kimi-spacing-0: 0;
+  --kimi-spacing-1: 4px;
+  --kimi-spacing-2: 8px;
+  --kimi-spacing-3: 12px;
+  --kimi-spacing-4: 16px;
+  --kimi-spacing-5: 20px;
+  --kimi-spacing-6: 24px;
+  --kimi-spacing-7: 28px;
+  --kimi-spacing-8: 32px;
+  --kimi-spacing-9: 36px;
+  --kimi-spacing-10: 40px;
+  --kimi-spacing-12: 48px;
+  --kimi-spacing-14: 56px;
+  --kimi-spacing-16: 64px;
+
+  /* 组件间距 */
+  --kimi-button-padding-x: var(--kimi-spacing-4);
+  --kimi-button-padding-y: var(--kimi-spacing-2);
+  --kimi-input-padding-x: var(--kimi-spacing-4);
+  --kimi-input-padding-y: var(--kimi-spacing-2);
+  --kimi-card-padding: var(--kimi-spacing-6);
+  --kimi-modal-padding: var(--kimi-spacing-6);
+
+  /* ============================================
+   * 高度系统
+   * ============================================ */
+
+  /* 图标尺寸 */
+  --kimi-icon-xs: 12px;
+  --kimi-icon-sm: 14px;
+  --kimi-icon-md: 16px;
+  --kimi-icon-lg: 18px;
+  --kimi-icon-xl: 20px;
+  --kimi-icon-2xl: 24px;
+  --kimi-icon-3xl: 28px;
+  --kimi-icon-4xl: 32px;
+
+  /* 组件高度 */
+  --kimi-button-height-sm: 28px;
+  --kimi-button-height-md: 32px;
+  --kimi-button-height-lg: 36px;
+  --kimi-button-height-xl: 40px;
+
+  --kimi-input-height-sm: 28px;
+  --kimi-input-height-md: 32px;
+  --kimi-input-height-lg: 36px;
+  --kimi-input-height-xl: 40px;
+
+  /* ============================================
+   * 过渡动画
+   * ============================================ */
+
+  --kimi-transition-fast: 150ms ease;
+  --kimi-transition-normal: 200ms ease;
+  --kimi-transition-slow: 300ms ease;
+  --kimi-transition-slower: 500ms ease;
+
+  /* 组件过渡 */
+  --kimi-button-transition: all var(--kimi-transition-fast);
+  --kimi-input-transition: all var(--kimi-transition-fast);
+  --kimi-card-transition: all var(--kimi-transition-normal);
+  --kimi-modal-transition: all var(--kimi-transition-slow);
+
+  /* ============================================
+   * 侧边栏
+   * ============================================ */
+
+  --kimi-sidebar-width: 240px;
+  --kimi-sidebar-collapsed-width: 64px;
+  --kimi-sidebar-header-height: 52px;
+  --kimi-sidebar-item-height: 36px;
+  --kimi-sidebar-item-icon-size: 18px;
+
+  /* ============================================
+   * 对话框/弹窗
+   * ============================================ */
+
+  --kimi-modal-overlay-bg: rgba(0, 0, 0, 0.45);
+  --kimi-modal-max-width: 520px;
+  --kimi-modal-header-padding: var(--kimi-spacing-5) var(--kimi-spacing-6);
+  --kimi-modal-body-padding: var(--kimi-spacing-6);
+  --kimi-modal-footer-padding: var(--kimi-spacing-5) var(--kimi-spacing-6);
+  --kimi-modal-footer-gap: var(--kimi-spacing-3);
+
+  /* ============================================
+   * 表格
+   * ============================================ */
+
+  --kimi-table-border: 1px solid var(--kimi-gray-200);
+  --kimi-table-header-bg: var(--kimi-gray-50);
+  --kimi-table-header-font-weight: var(--kimi-font-medium);
+  --kimi-table-row-height: 44px;
+  --kimi-table-cell-padding: var(--kimi-spacing-3) var(--kimi-spacing-4);
+  --kimi-table-row-hover-bg: var(--kimi-gray-50);
+  --kimi-table-row-striped-bg: var(--kimi-gray-50);
+
+  /* ============================================
+   * 表单
+   * ============================================ */
+
+  --kimi-form-label-font-size: var(--kimi-text-sm);
+  --kimi-form-label-color: var(--kimi-text-secondary);
+  --kimi-form-error-color: var(--kimi-error);
+  --kimi-form-helper-color: var(--kimi-text-tertiary);
+}
+
+/* ============================================
+ * 深色主题支持
+ * ============================================ */
+
+.dark {
+  /* 背景色 */
+  --kimi-bg-primary: #0a0a0a;
+  --kimi-bg-secondary: #171717;
+  --kimi-bg-tertiary: #262626;
+  --kimi-sidebar-bg: #171717;
+  --kimi-sidebar-border: #262626;
+  --kimi-card-bg: #171717;
+  --kimi-card-border: #262626;
+  --kimi-input-bg: #262626;
+  --kimi-input-border: #404040;
+  --kimi-input-focus-border: #737373;
+
+  /* 文本色 */
+  --kimi-text-primary: #f5f5f5;
+  --kimi-text-secondary: #a3a3a3;
+  --kimi-text-tertiary: #737373;
+  --kimi-text-disabled: #404040;
+
+  /* 阴影 */
+  --kimi-shadow-xs: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --kimi-shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+  --kimi-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+  --kimi-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.6), 0 4px 6px -4px rgba(0, 0, 0, 0.5);
+  --kimi-shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.7), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+  --kimi-shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+}

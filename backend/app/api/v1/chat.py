@@ -26,6 +26,7 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.retrieval_service import search_chunks as retrieval_search
 from app.services.retrieval_service import _rerank_results
 from app.services.query_expansion import expand_query, hyde_expand
+from app.services.synonym_service import SynonymService
 from app.services.conversation_memory import ConversationMemory
 from app.services.llm_service import generate_rag_response
 from app.schemas.retrieval import SearchRequest
@@ -80,6 +81,7 @@ async def chat_completions(
             stream=request.stream,
             user_id=current_user.id,
             use_rag=False,
+            model_id=request.model_id,
         )
 
         # Handle streaming response
@@ -121,7 +123,10 @@ async def chat_completions(
 
     # Step 2: Query expansion (optional)
     hyde_text = ""
-    if request.enable_expansion and request.enable_expansion:
+    expanded_queries = [query]
+
+    # 2a: HyDE expansion
+    if request.enable_expansion:
         try:
             expansion = await expand_query(query)
             if expansion.get("hyde_text"):
@@ -130,22 +135,35 @@ async def chat_completions(
         except Exception as e:
             logger.debug("Query expansion failed: %s", e)
 
-    # Step 3: Retrieve from each KB
+    # 2b: Synonym expansion - expand query with synonyms (e.g., "apple" → "苹果")
+    try:
+        synonym_service = SynonymService(db)
+        synonym_expanded = await synonym_service.expand_query(query, kb_id=kb_ids[0] if kb_ids else None)
+        if synonym_expanded and len(synonym_expanded) > 1:
+            expanded_queries = synonym_expanded
+            logger.info("Query expanded with synonyms: %s → %s", query, synonym_expanded)
+    except Exception as e:
+        logger.debug("Synonym expansion failed: %s", e)
+
+    # Step 3: Retrieve from each KB using expanded queries
     all_chunks = []
+    search_queries = expanded_queries if expanded_queries else [hyde_text if hyde_text else query]
+
     for kb in kbs:
-        try:
-            search_request = SearchRequest(
-                kb_id=kb.id,
-                query=hyde_text if hyde_text else query,
-                top_k=request.top_k or 10,
-                min_score=request.min_score or 0.0,
-                enable_hybrid=request.enable_hybrid or False,
-                enable_rerank=False,  # We rerank later with merged results
-            )
-            response = await retrieval_search(db, redis, milvus, search_request)
-            all_chunks.extend(response.results)
-        except Exception as e:
-            logger.warning("Search failed for KB %s: %s", kb.id, e)
+        for search_query in search_queries:
+            try:
+                search_request = SearchRequest(
+                    kb_id=kb.id,
+                    query=search_query,
+                    top_k=request.top_k or 10,
+                    min_score=request.min_score or 0.0,
+                    enable_hybrid=request.enable_hybrid or False,
+                    enable_rerank=False,  # We rerank later with merged results
+                )
+                response = await retrieval_search(db, redis, milvus, search_request)
+                all_chunks.extend(response.results)
+            except Exception as e:
+                logger.warning("Search failed for KB %s with query '%s': %s", kb.id, search_query, e)
 
     if not all_chunks:
         return ChatResponse(
@@ -200,6 +218,7 @@ async def chat_completions(
         conversation_context=conversation_context,
         stream=request.stream,
         user_id=current_user.id,
+        model_id=request.model_id,
     )
 
     # Step 7: Handle streaming vs non-streaming response
@@ -315,228 +334,57 @@ async def _stream_rag_response(result: dict, memory: ConversationMemory, user_id
     accumulated_reasoning = ""
     accumulated_content = ""
     has_sent_role = False
-    has_sent_finish = False  # Track if we've sent finish_reason
+    has_sent_finish = False
 
-    # Buffer for incomplete UTF-8 sequences and lines
-    byte_buffer = bytearray()
-    line_buffer = ""
-
-    if stream and hasattr(stream, "aiter_bytes"):
+    # Use aiter_lines for proper line-based streaming (no buffering)
+    if stream and hasattr(stream, "aiter_lines"):
         try:
-            # Use aiter_bytes for true streaming (aiter_lines can buffer)
-            async for chunk_bytes in stream.aiter_bytes(chunk_size=256):
-                # Accumulate bytes
-                byte_buffer.extend(chunk_bytes)
-
-                # Try to decode, handling incomplete UTF-8 sequences
-                try:
-                    decoded = byte_buffer.decode("utf-8")
-                    byte_buffer.clear()
-                    line_buffer += decoded
-                except UnicodeDecodeError:
-                    # Incomplete UTF-8 sequence, wait for more bytes
+            async for line in stream.aiter_lines():
+                line = line.strip()
+                if not line or line == "[DONE]":
                     continue
-
-                # Process complete lines
-                while "\n" in line_buffer:
-                    line, line_buffer = line_buffer.split("\n", 1)
-                    line = line.strip()
-
-                    # Skip empty lines
-                    if not line:
-                        continue
-
-                    # Remove "data: " prefix if present
-                    if line.startswith("data: "):
-                        line = line[6:]
-
-                    # Skip [DONE] marker
-                    if line.strip() == "[DONE]":
-                        continue
-
-                    try:
-                        chunk = json.loads(line)
-
-                        # Handle LLM's OpenAI-style completion chunks
-                        choices = chunk.get("choices", [])
-                        if choices and len(choices) > 0:
-                            delta = choices[0].get("delta", {})
-                            finish_reason = choices[0].get("finish_reason")
-
-                            # Send role on first chunk
-                            if not has_sent_role:
-                                has_sent_role = True
-                                openai_chunk = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"role": "assistant"},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n"
-
-                            # Handle reasoning_content / reasoning (thinking process)
-                            # For Qwen: reasoning contains both thinking AND final answer
-                            # We forward reasoning as-is, frontend should parse it
-                            if delta.get("reasoning") or delta.get("reasoning_content"):
-                                reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content", "")
-                                accumulated_reasoning += reasoning_chunk
-                                openai_chunk = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"reasoning_content": reasoning_chunk},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n"
-
-                            # Handle content (from models that DO emit content natively)
-                            if delta.get("content"):
-                                content_chunk = delta["content"]
-                                accumulated_content += content_chunk
-                                openai_chunk = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"content": content_chunk},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n"
-
-                            # Handle finish_reason - send final chunk (only once!)
-                            if finish_reason and not has_sent_finish:
-                                has_sent_finish = True
-                                openai_chunk = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {},
-                                        "logprobs": None,
-                                        "finish_reason": finish_reason
-                                    }]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n"
-                                yield "data: [DONE]\n\n"
-                                return
-
-                    except json.JSONDecodeError:
-                        # If not valid JSON, skip
-                        pass
-
-        finally:
-            # Decode any remaining bytes
-            if byte_buffer:
-                try:
-                    line_buffer += byte_buffer.decode("utf-8")
-                except UnicodeDecodeError:
-                    pass
-
-            # Process any remaining data in line buffer
-            if line_buffer.strip():
-                line = line_buffer.strip()
                 if line.startswith("data: "):
                     line = line[6:]
-                if line != "[DONE]":
-                    try:
-                        chunk = json.loads(line)
-                        choices = chunk.get("choices", [])
-                        if choices and len(choices) > 0:
-                            delta = choices[0].get("delta", {})
-                            if delta.get("reasoning") or delta.get("reasoning_content"):
-                                reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content", "")
-                                accumulated_reasoning += reasoning_chunk
-                                openai_chunk = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"reasoning_content": reasoning_chunk},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n"
-                                # Also stream as content
-                                accumulated_content += reasoning_chunk
-                                content_evt = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"content": reasoning_chunk},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(content_evt)}\n\n"
-                            if delta.get("content"):
-                                content_chunk = delta["content"]
-                                accumulated_content += content_chunk
-                                openai_chunk = {
-                                    "id": response_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": created,
-                                    "model": chunk.get("model", "unknown"),
-                                    "choices": [{
-                                        "index": 0,
-                                        "delta": {"content": content_chunk},
-                                        "logprobs": None,
-                                        "finish_reason": None
-                                    }]
-                                }
-                                yield f"data: {json.dumps(openai_chunk)}\n\n"
-                    except:
-                        pass
+                if line == "[DONE]":
+                    continue
 
-            # Stream ended - send final chunk ONLY if we haven't sent finish_reason yet
+                try:
+                    chunk = json.loads(line)
+                    choices = chunk.get("choices", [])
+                    if choices and len(choices) > 0:
+                        delta = choices[0].get("delta", {})
+                        finish_reason = choices[0].get("finish_reason")
+
+                        if not has_sent_role:
+                            has_sent_role = True
+                            yield f"data: {json.dumps({'id': response_id, 'object': 'chat.completion.chunk', 'created': created, 'model': chunk.get('model', 'unknown'), 'choices': [{'index': 0, 'delta': {'role': 'assistant'}, 'logprobs': None, 'finish_reason': None}]})}\n\n"
+
+                        if delta.get("reasoning") or delta.get("reasoning_content"):
+                            reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content", "")
+                            accumulated_reasoning += reasoning_chunk
+                            yield f"data: {json.dumps({'id': response_id, 'object': 'chat.completion.chunk', 'created': created, 'model': chunk.get('model', 'unknown'), 'choices': [{'index': 0, 'delta': {'reasoning_content': reasoning_chunk}, 'logprobs': None, 'finish_reason': None}]})}\n\n"
+
+                        if delta.get("content"):
+                            content_chunk = delta["content"]
+                            accumulated_content += content_chunk
+                            yield f"data: {json.dumps({'id': response_id, 'object': 'chat.completion.chunk', 'created': created, 'model': chunk.get('model', 'unknown'), 'choices': [{'index': 0, 'delta': {'content': content_chunk}, 'logprobs': None, 'finish_reason': None}]})}\n\n"
+
+                        if finish_reason and not has_sent_finish:
+                            has_sent_finish = True
+                            yield f"data: {json.dumps({'id': response_id, 'object': 'chat.completion.chunk', 'created': created, 'model': chunk.get('model', 'unknown'), 'choices': [{'index': 0, 'delta': {}, 'logprobs': None, 'finish_reason': finish_reason}]})}\n\n"
+                            yield "data: [DONE]\n\n"
+                            return
+                except json.JSONDecodeError:
+                    pass
+        except Exception as e:
+            logger.exception("Stream error: %s", e)
+        finally:
             if has_sent_role and not has_sent_finish:
                 has_sent_finish = True
-                openai_chunk = {
-                    "id": response_id,
-                    "object": "chat.completion.chunk",
-                    "created": created,
-                    "model": "unknown",
-                    "choices": [{
-                        "index": 0,
-                        "delta": {},
-                        "logprobs": None,
-                        "finish_reason": "stop"
-                    }]
-                }
-                yield f"data: {json.dumps(openai_chunk)}\n\n"
+                yield f"data: {json.dumps({'id': response_id, 'object': 'chat.completion.chunk', 'created': created, 'model': 'unknown', 'choices': [{'index': 0, 'delta': {}, 'logprobs': None, 'finish_reason': 'stop'}]})}\n\n"
                 yield "data: [DONE]\n\n"
-
-            # Record token usage after streaming completes
-            final_content = accumulated_content if accumulated_content else accumulated_reasoning
-            if final_content and user_id:
-                await _record_streaming_token_usage(
-                    user_id=user_id,
-                    content=final_content,
-                )
-
-            # Cleanup: close stream and client
+            if accumulated_content and user_id:
+                await _record_streaming_token_usage(user_id=user_id, content=accumulated_content)
             if stream:
                 await stream.aclose()
             if client:

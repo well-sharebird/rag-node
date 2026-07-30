@@ -118,58 +118,58 @@
  * 输入框 - Input
  * ============================================ */
 
-.bird-input {
+.enterprise-input {
   display: block;
   width: 100%;
-  height: var(--bird-input-height-md);
-  padding: var(--bird-input-padding-y) var(--bird-input-padding-x);
+  height: var(--enterprise-input-height-md);
+  padding: var(--enterprise-input-padding-y) var(--enterprise-input-padding-x);
   font-size: var(--bird-text-base);
   font-family: var(--bird-font-sans);
   line-height: 1.5;
   color: var(--bird-text-primary);
-  background-color: var(--bird-input-bg);
-  border: 1px solid var(--bird-input-border);
-  border-radius: var(--bird-input-radius);
-  transition: var(--bird-input-transition);
+  background-color: var(--enterprise-input-bg);
+  border: 1px solid var(--enterprise-input-border);
+  border-radius: var(--enterprise-input-radius);
+  transition: var(--enterprise-input-transition);
   outline: none;
 }
 
-.bird-input::placeholder {
+.enterprise-input::placeholder {
   color: var(--bird-text-tertiary);
 }
 
-.bird-input:hover:not(:disabled):not(:focus) {
+.enterprise-input:hover:not(:disabled):not(:focus) {
   border-color: var(--bird-neutral-400);
 }
 
-.bird-input:focus {
-  border-color: var(--bird-input-focus-border);
+.enterprise-input:focus {
+  border-color: var(--enterprise-input-focus-border);
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
 }
 
-.bird-input:disabled {
+.enterprise-input:disabled {
   background-color: var(--bird-neutral-100);
   color: var(--bird-text-disabled);
   cursor: not-allowed;
 }
 
 /* 输入框尺寸 */
-.bird-input-sm {
-  height: var(--bird-input-height-sm);
+.enterprise-input-sm {
+  height: var(--enterprise-input-height-sm);
   font-size: var(--bird-text-sm);
 }
 
-.bird-input-lg {
-  height: var(--bird-input-height-lg);
+.enterprise-input-lg {
+  height: var(--enterprise-input-height-lg);
   font-size: var(--bird-text-lg);
 }
 
 /* 错误状态 */
-.bird-input-error {
+.enterprise-input-error {
   border-color: var(--bird-error);
 }
 
-.bird-input-error:focus {
+.enterprise-input-error:focus {
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.15);
 }
 

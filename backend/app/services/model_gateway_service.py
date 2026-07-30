@@ -207,6 +207,15 @@ class ModelGatewayService:
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
 
+    async def get_model_by_name(self, model_name: str) -> Optional[ModelConfig]:
+        """根据模型名称获取模型配置"""
+        query = select(ModelConfig).where(
+            ModelConfig.model_id == model_name,
+            ModelConfig.is_enabled == True
+        )
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
     async def create_provider(self, data: Dict[str, Any]) -> ModelProvider:
         """创建供应商"""
         provider = ModelProvider(**data)
@@ -230,10 +239,25 @@ class ModelGatewayService:
         return provider
 
     async def delete_provider(self, provider_id: int) -> bool:
-        """删除供应商"""
+        """删除供应商
+
+        删除前检查是否有关联的模型，如有则抛出异常
+        """
         provider = await self.get_provider_by_id(provider_id)
         if not provider:
             return False
+
+        # 检查是否有关联的模型
+        models_query = select(ModelConfig).where(ModelConfig.provider == provider.code)
+        models_result = await self.db.execute(models_query)
+        related_models = list(models_result.scalars().all())
+
+        if related_models:
+            model_names = ", ".join([m.name for m in related_models])
+            raise ValueError(
+                f"无法删除供应商 '{provider.name}'：该供应商下存在 {len(related_models)} 个模型配置（{model_names}），"
+                f"请先删除或迁移这些模型"
+            )
 
         await self.db.delete(provider)
         await self.db.commit()
@@ -851,6 +875,7 @@ class ModelGatewayService:
         stream: bool = False,
         user_id: Optional[int] = None,
         kb_id: Optional[str] = None,
+        model_type: str = "llm",
     ) -> Dict[str, Any]:
         """
         统一 LLM 调用接口
@@ -865,6 +890,7 @@ class ModelGatewayService:
             stream: 是否流式输出
             user_id: 用户 ID
             kb_id: 知识库 ID
+            model_type: 模型类型 (llm, embedding, rerank, etc.)
 
         Returns:
             非流式：{"content": str, "usage": dict, "latency_ms": float}
@@ -874,12 +900,20 @@ class ModelGatewayService:
         request_id = str(uuid.uuid4())
         start_time = time.monotonic()
 
-        # 构建 API 请求
+        # 构建 API 请求 - 统一使用供应商的 base_url
         base_url = provider.base_url.rstrip("/")
         if not base_url.endswith("/v1"):
-            api_url = f"{base_url}/v1/chat/completions"
+            base_url = f"{base_url}/v1"
+
+        # 根据模型类型选择不同的 API 端点
+        if model_type == "embedding":
+            api_url = f"{base_url}/embeddings"
+        elif model_type == "rerank":
+            api_url = f"{base_url}/rerank"
         else:
             api_url = f"{base_url}/chat/completions"
+
+        logger.info(f"模型调用 | type={model_type}, model={model_id}, url={api_url}")
 
         headers = {
             "Content-Type": "application/json",
@@ -892,26 +926,51 @@ class ModelGatewayService:
             else:
                 headers["Authorization"] = f"Bearer {provider.api_key}"
 
-        request_body = {
-            "model": model_id,
-            "messages": messages,
-            "temperature": temperature,
-            "stream": stream,
-        }
-
-        if max_tokens is not None:
-            request_body["max_tokens"] = max_tokens
+        # 根据模型类型构建不同的请求体
+        if model_type == "embedding":
+            # Embedding 请求格式
+            request_body = {
+                "model": model_id,
+                "input": messages[0].get("content", "") if messages else "",
+            }
+        elif model_type == "rerank":
+            # Rerank 请求格式
+            request_body = {
+                "model": model_id,
+                "query": messages[0].get("content", "") if messages else "",
+                "documents": messages[0].get("documents", []) if messages else [],
+            }
+        else:
+            # LLM / Chat 请求格式
+            request_body = {
+                "model": model_id,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": stream,
+            }
+            if max_tokens is not None:
+                request_body["max_tokens"] = max_tokens
 
         try:
             if stream:
-                # 流式调用
+                # Embedding 和 Rerank 模型不支持流式
+                if model_type in ("embedding", "rerank"):
+                    raise Exception(f"模型类型 '{model_type}' 不支持流式输出，请使用非流式模式")
+
+                # 流式调用 - 使用 Limits 禁用缓冲
+                limits = httpx.Limits(
+                    max_keepalive_connections=10,
+                    max_connections=10,
+                    keepalive_expiry=30.0
+                )
                 client = httpx.AsyncClient(
                     timeout=httpx.Timeout(
                         connect=30.0,
                         read=120.0,
                         write=30.0,
                         pool=10.0
-                    )
+                    ),
+                    limits=limits,
                 )
 
                 response = await client.send(
@@ -933,7 +992,7 @@ class ModelGatewayService:
                     await self.log_call(
                         provider_id=provider.id,
                         model_id=model_id,
-                        model_type="llm",
+                        model_type=model_type,
                         request_id=request_id,
                         status="error",
                         error_message=error_text.decode()[:500],
@@ -979,7 +1038,7 @@ class ModelGatewayService:
                         await self.log_call(
                             provider_id=provider.id,
                             model_id=model_id,
-                            model_type="llm",
+                            model_type=model_type,
                             request_id=request_id,
                             status="error",
                             error_message=response.text[:500],
@@ -989,58 +1048,126 @@ class ModelGatewayService:
                             kb_id=kb_id,
                         )
 
-                        raise Exception(f"LLM API error {response.status_code}: {response.text[:200]}")
+                        raise Exception(f"API error {response.status_code}: {response.text[:200]}")
 
                     data = response.json()
-                    message = data["choices"][0]["message"]
-                    content = message.get("content", "")
-                    reasoning = message.get("reasoning", "")
 
-                    # 提取 token 使用
-                    usage = data.get("usage", {})
-                    input_tokens = usage.get("prompt_tokens", 0)
-                    output_tokens = usage.get("completion_tokens", 0)
-                    total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+                    # 根据模型类型解析不同的响应格式
+                    if model_type == "embedding":
+                        # Embedding 响应格式：{"data": [{"embedding": [...], "index": 0}], "usage": {...}}
+                        embedding_data = data.get("data", [])
+                        embedding_vector = embedding_data[0].get("embedding", []) if embedding_data else []
+                        usage = data.get("usage", {})
+                        input_tokens = usage.get("prompt_tokens", 0)
 
-                    # 计算成本
-                    cost = None
-                    if provider.cost_input is not None and provider.cost_output is not None:
-                        cost = (float(provider.cost_input) * input_tokens / 1000 +
-                                float(provider.cost_output) * output_tokens / 1000)
+                        await self.log_call(
+                            provider_id=provider.id,
+                            model_id=model_id,
+                            model_type="embedding",
+                            request_id=request_id,
+                            status="success",
+                            input_tokens=input_tokens,
+                            output_tokens=0,
+                            latency_ms=latency_ms,
+                            user_id=user_id,
+                            kb_id=kb_id,
+                            request_summary={"input_length": len(messages[0].get("content", "")) if messages else 0},
+                            response_summary={"embedding_dim": len(embedding_vector)},
+                        )
 
-                    # 记录调用日志
-                    await self.log_call(
-                        provider_id=provider.id,
-                        model_id=model_id,
-                        model_type="llm",
-                        request_id=request_id,
-                        status="success",
-                        input_tokens=input_tokens,
-                        output_tokens=output_tokens,
-                        latency_ms=latency_ms,
-                        cost=cost,
-                        user_id=user_id,
-                        kb_id=kb_id,
-                        request_summary={"messages_count": len(messages), "temperature": temperature},
-                        response_summary={"content_length": len(content)},
-                    )
+                        return {
+                            "type": "complete",
+                            "embedding": embedding_vector,
+                            "usage": usage,
+                            "latency_ms": latency_ms,
+                            "request_id": request_id,
+                        }
 
-                    return {
-                        "type": "complete",
-                        "content": content,
-                        "reasoning": reasoning,
-                        "usage": usage,
-                        "latency_ms": latency_ms,
-                        "cost": cost,
-                        "request_id": request_id,
-                    }
+                    elif model_type == "rerank":
+                        # Rerank 响应格式：{"results": [{"index": 0, "score": 0.95}] 或 [{"index": 0, "relevance_score": 0.95}]}
+                        results = data.get("results", [])
+                        usage = data.get("usage", {})
+
+                        # 标准化字段名：relevance_score -> score
+                        normalized_results = []
+                        for r in results:
+                            normalized = dict(r)
+                            if "relevance_score" in r and "score" not in r:
+                                normalized["score"] = r["relevance_score"]
+                            normalized_results.append(normalized)
+
+                        await self.log_call(
+                            provider_id=provider.id,
+                            model_id=model_id,
+                            model_type="rerank",
+                            request_id=request_id,
+                            status="success",
+                            latency_ms=latency_ms,
+                            user_id=user_id,
+                            kb_id=kb_id,
+                            request_summary={"documents_count": len(messages[0].get("documents", [])) if messages else 0},
+                            response_summary={"results_count": len(normalized_results)},
+                        )
+
+                        return {
+                            "type": "complete",
+                            "results": normalized_results,
+                            "usage": usage,
+                            "latency_ms": latency_ms,
+                            "request_id": request_id,
+                        }
+
+                    else:
+                        # LLM / Chat 响应格式
+                        message = data["choices"][0]["message"]
+                        content = message.get("content") or ""  # 处理 content 为 null 的情况
+                        reasoning = message.get("reasoning", "")
+
+                        # 提取 token 使用
+                        usage = data.get("usage", {})
+                        input_tokens = usage.get("prompt_tokens", 0)
+                        output_tokens = usage.get("completion_tokens", 0)
+                        total_tokens = usage.get("total_tokens", input_tokens + output_tokens)
+
+                        # 计算成本
+                        cost = None
+                        if provider.cost_input is not None and provider.cost_output is not None:
+                            cost = (float(provider.cost_input) * input_tokens / 1000 +
+                                    float(provider.cost_output) * output_tokens / 1000)
+
+                        # 记录调用日志
+                        await self.log_call(
+                            provider_id=provider.id,
+                            model_id=model_id,
+                            model_type="llm",
+                            request_id=request_id,
+                            status="success",
+                            input_tokens=input_tokens,
+                            output_tokens=output_tokens,
+                            latency_ms=latency_ms,
+                            cost=cost,
+                            user_id=user_id,
+                            kb_id=kb_id,
+                            request_summary={"messages_count": len(messages), "temperature": temperature},
+                            response_summary={"content_length": len(content)},
+                        )
+
+                        return {
+                            "type": "complete",
+                            "content": content,
+                            "reasoning": reasoning,
+                            "usage": usage,
+                            "latency_ms": latency_ms,
+                            "cost": cost,
+                            "request_id": request_id,
+                        }
 
         except httpx.RequestError as e:
             latency_ms = int((time.monotonic() - start_time) * 1000)
             await self.log_call(
                 provider_id=provider.id,
                 model_id=model_id,
-                model_type="llm",
+                model_type=model_type,
                 request_id=request_id,
                 status="error",
                 error_message=str(e),
@@ -1056,13 +1183,13 @@ class ModelGatewayService:
         request_data: Dict[str, Any],
     ) -> AsyncIterator[str]:
         """
-        处理流式 LLM 响应，生成 SSE 格式输出
+        处理流式 LLM 响应，直接转发原始 OpenAI 格式 SSE 数据
 
         Args:
             request_data: call_llm 返回的流式响应数据
 
         Yields:
-            SSE 格式的事件字符串
+            SSE 格式的事件字符串（OpenAI 兼容格式）
         """
         stream = request_data.get("stream")
         client = request_data.get("client")
@@ -1075,64 +1202,46 @@ class ModelGatewayService:
         if not stream or not client:
             return
 
-        try:
-            content_buffer = ""
-            reasoning_buffer = ""
-            input_tokens = 0
-            output_tokens = 0
-            start_time = time.monotonic()
+        content_buffer = ""
+        reasoning_buffer = ""
+        input_tokens = 0
+        output_tokens = 0
+        start_time = time.monotonic()
 
+        try:
+            # 使用 aiter_lines 按行读取，避免 UTF-8 字符被切断
+            # 上游返回的已经是完整的 SSE 格式，直接转发，确保每个事件以 \n\n 结尾
+            done_received = False
+            chunk_count = 0
+            chunk_start_time = time.monotonic()
             async for line in stream.aiter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data.strip() == "[DONE]":
+                chunk_count += 1
+                chunk_current_time = time.monotonic()
+                chunk_elapsed_ms = int((chunk_current_time - chunk_start_time) * 1000)
+                total_elapsed_ms = int((chunk_current_time - start_time) * 1000)
+
+                if line.strip():
+                    # 打印模型原生层的流式数据返回日志
+                    logger.info(
+                        "[Stream Chunk #%d] +%dms (总计：%dms) | provider_id=%s model_id=%s | data: %.80s...",
+                        chunk_count, chunk_elapsed_ms, total_elapsed_ms,
+                        provider_id, model_id, line.strip()
+                    )
+                    yield line + '\n\n'
+
+                    if line.strip() == 'data: [DONE]':
+                        done_received = True
                         break
 
-                    try:
-                        chunk = json.loads(data)
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+            if not done_received:
+                yield 'data: [DONE]\n\n'
 
-                        # 提取内容
-                        if delta.get("content"):
-                            content = delta["content"]
-                            content_buffer += content
-                            # SSE 格式输出
-                            yield f"data: {json.dumps({'type': 'content', 'content': content})}\n\n"
-
-                        # 提取推理内容（Qwen 等模型）
-                        if delta.get("reasoning_content"):
-                            reasoning = delta["reasoning_content"]
-                            reasoning_buffer += reasoning
-                            yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
-
-                        # 提取 token 使用
-                        if chunk.get("usage"):
-                            usage = chunk["usage"]
-                            input_tokens = usage.get("prompt_tokens", 0)
-                            output_tokens = usage.get("completion_tokens", 0)
-
-                    except json.JSONDecodeError:
-                        logger.warning("Failed to parse SSE chunk: %s", data[:100])
-
-            # 完成时发送最终事件
+            # 读取完成后记录日志
             latency_ms = int((time.monotonic() - start_time) * 1000)
-
-            done_data = json.dumps({
-                'type': 'done',
-                'latency_ms': latency_ms,
-                'usage': {
-                    'prompt_tokens': input_tokens,
-                    'completion_tokens': output_tokens,
-                    'total_tokens': input_tokens + output_tokens,
-                }
-            })
-            yield f"data: {done_data}\n\n"
-
-            # 记录调用日志
             await self.log_call(
                 provider_id=provider_id,
                 model_id=model_id,
-                model_type="llm",
+                model_type=model_type,
                 request_id=request_id,
                 status="success",
                 input_tokens=input_tokens,
@@ -1146,11 +1255,19 @@ class ModelGatewayService:
 
         except Exception as e:
             logger.exception("Stream processing error: %s", e)
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            # OpenAI 格式错误响应
+            yield f"data: {json.dumps({'error': {'message': str(e)}})}\n\n"
+            yield 'data: [DONE]\n\n'
         finally:
-            # 清理资源
-            await stream.aclose()
-            await client.aclose()
+            # 清理资源 - 确保连接关闭
+            try:
+                await stream.aclose()
+            except Exception:
+                pass
+            try:
+                await client.aclose()
+            except Exception:
+                pass
 
     # ========== 熔断器管理 ==========
 
@@ -1179,6 +1296,7 @@ class ModelGatewayService:
         stream: bool = False,
         user_id: Optional[int] = None,
         kb_id: Optional[str] = None,
+        model_type: str = "llm",
         retry_config: Optional[RetryConfig] = None,
     ) -> Dict[str, Any]:
         """
@@ -1193,6 +1311,7 @@ class ModelGatewayService:
             stream: 是否流式输出
             user_id: 用户 ID
             kb_id: 知识库 ID
+            model_type: 模型类型 (llm, embedding, rerank, etc.)
             retry_config: 重试配置，None 则使用默认配置
 
         Returns:
@@ -1210,7 +1329,7 @@ class ModelGatewayService:
             await self.log_call(
                 provider_id=provider.id,
                 model_id=model_id,
-                model_type="llm",
+                model_type=model_type,
                 request_id=str(uuid.uuid4()),
                 status="error",
                 error_message="Circuit breaker open",
@@ -1220,7 +1339,28 @@ class ModelGatewayService:
             )
             raise Exception(f"Circuit breaker open for provider {provider.name}")
 
-        # 使用默认重试配置或传入的配置
+        # 流式调用不使用 retry_with_backoff（会缓冲整个响应）
+        # 直接调用 call_llm，让 StreamingResponse 逐行返回
+        if stream:
+            try:
+                result = await self.call_llm(
+                    provider=provider,
+                    model_id=model_id,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    stream=stream,
+                    user_id=user_id,
+                    kb_id=kb_id,
+                    model_type=model_type,
+                )
+                circuit_breaker.record_success()
+                return result
+            except Exception as e:
+                circuit_breaker.record_failure()
+                raise
+
+        # 非流式调用使用完整重试机制
         if retry_config is None:
             retry_config = RetryConfig(
                 max_attempts=3,
@@ -1240,6 +1380,7 @@ class ModelGatewayService:
                 stream=stream,
                 user_id=user_id,
                 kb_id=kb_id,
+                model_type=model_type,
             )
             # 成功调用，重置熔断器
             circuit_breaker.record_success()

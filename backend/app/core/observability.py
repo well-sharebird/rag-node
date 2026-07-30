@@ -6,59 +6,70 @@ Features:
 - Error rate tracking
 - Slow query detection
 - Alert rule evaluation
+
+Note: Uses @app.middleware("http") instead of BaseHTTPMiddleware to avoid
+buffering streaming responses (SSE).
 """
 from __future__ import annotations
 import logging
 import time
 import json
+import asyncio
 from datetime import datetime, timezone
 from typing import Callable
 from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import RequestResponseEndpoint
 
 logger = logging.getLogger("app.observability")
 
 
-class TracingMiddleware(BaseHTTPMiddleware):
+async def observability_middleware(request: Request, call_next: RequestResponseEndpoint) -> Response:
     """
-    Middleware that adds request tracing and metrics to every API call.
+    HTTP middleware that adds request tracing and metrics.
 
-    Collects:
-    - Request duration per endpoint
-    - Status code distribution
-    - Error rate
-    - Request count
-
-    Metrics are stored in Redis and can be scraped by Prometheus.
+    For streaming endpoints (SSE), uses raw call_next to avoid buffering.
+    For non-streaming endpoints, records full metrics.
     """
+    # Generate trace ID
+    trace_id = request.headers.get("X-Trace-ID", f"trace_{int(time.time() * 1000)}")
+    request.state.trace_id = trace_id
 
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Generate trace ID
-        trace_id = request.headers.get("X-Trace-ID", f"trace_{int(time.time() * 1000)}")
+    # Check if this is a streaming endpoint
+    is_streaming = (
+        request.url.path.endswith("/chat/completions") or
+        request.url.path.endswith("/stream") or
+        request.url.path.endswith("/sse")
+    )
 
-        start = time.monotonic()
-        status_code = 500  # Default in case of unhandled error
+    start = time.monotonic()
+    status_code = 500
 
-        try:
-            response = await call_next(request)
-            status_code = response.status_code
-            response.headers["X-Trace-ID"] = trace_id
-            response.headers["X-Response-Time"] = f"{response_time_ms:.0f}ms" if (response_time_ms := (time.monotonic() - start) * 1000) else "0ms"
-            return response
-        except Exception as e:
-            status_code = 500
-            logger.error("Unhandled error | trace_id=%s path=%s | %s", trace_id, request.url.path, e)
-            raise
-        finally:
-            elapsed = (time.monotonic() - start) * 1000
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
 
-            # Record metrics
-            await _record_request_metrics(
+        # For streaming responses, don't add response-time header as it may interfere
+        if not is_streaming:
+            response.headers["X-Response-Time"] = f"{(time.monotonic() - start) * 1000:.0f}ms"
+
+        response.headers["X-Trace-ID"] = trace_id
+        return response
+    except Exception as e:
+        status_code = 500
+        logger.error("Unhandled error | trace_id=%s path=%s | %s", trace_id, request.url.path, e)
+        raise
+    finally:
+        elapsed = (time.monotonic() - start) * 1000
+
+        # Skip metrics recording for streaming responses to avoid buffering
+        if not is_streaming:
+            # Record metrics (async, non-blocking)
+            asyncio.create_task(_record_request_metrics(
                 request=request,
                 status_code=status_code,
                 elapsed_ms=elapsed,
                 trace_id=trace_id,
-            )
+            ))
 
             # Check alert rules
             _check_alert_rules(
@@ -67,12 +78,12 @@ class TracingMiddleware(BaseHTTPMiddleware):
                 elapsed_ms=elapsed,
             )
 
-            # Log structured
-            if elapsed > 1000:  # Slow requests
-                logger.warning(
-                    "SLOW_REQUEST | trace_id=%s method=%s path=%s status=%d duration=%.0fms",
-                    trace_id, request.method, request.url.path, status_code, elapsed,
-                )
+        # Log slow requests (but not for streaming which is expected to be long)
+        if elapsed > 3000 and not is_streaming:
+            logger.warning(
+                "SLOW_REQUEST | trace_id=%s method=%s path=%s status=%d duration=%.0fms",
+                trace_id, request.method, request.url.path, status_code, elapsed,
+            )
 
 
 async def _record_request_metrics(
@@ -180,5 +191,7 @@ async def get_metrics_summary(redis) -> dict:
 
 def setup_observability(app):
     """Add observability middleware to the FastAPI app"""
-    app.add_middleware(TracingMiddleware)
+    import asyncio
+    # Use the http middleware decorator which doesn't buffer responses
+    app.middleware("http")(observability_middleware)
     logger.info("Observability middleware installed")

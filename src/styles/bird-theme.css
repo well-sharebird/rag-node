@@ -62,9 +62,9 @@
   --bird-card-border: #e5e7eb;
 
   /* 输入框背景 */
-  --bird-input-bg: #ffffff;
-  --bird-input-border: #e5e7eb;
-  --bird-input-focus-border: #7c3aed;
+  --enterprise-input-bg: #ffffff;
+  --enterprise-input-border: #e5e7eb;
+  --enterprise-input-focus-border: #7c3aed;
 
   /* ============================================
    * 文本颜色
@@ -94,7 +94,7 @@
 
   /* 组件圆角 */
   --bird-button-radius: var(--bird-radius-lg);
-  --bird-input-radius: var(--bird-radius-full);
+  --enterprise-input-radius: var(--bird-radius-full);
   --bird-card-radius: var(--bird-radius-xl);
   --bird-modal-radius: var(--bird-radius-2xl);
   --bird-dropdown-radius: var(--bird-radius-xl);
@@ -172,8 +172,8 @@
   /* 组件间距 */
   --bird-button-padding-x: var(--bird-spacing-4);
   --bird-button-padding-y: var(--bird-spacing-2);
-  --bird-input-padding-x: var(--bird-spacing-4);
-  --bird-input-padding-y: var(--bird-spacing-2);
+  --enterprise-input-padding-x: var(--bird-spacing-4);
+  --enterprise-input-padding-y: var(--bird-spacing-2);
   --bird-card-padding: var(--bird-spacing-6);
   --bird-modal-padding: var(--bird-spacing-6);
 
@@ -198,10 +198,10 @@
   --bird-button-height-lg: 36px;
   --bird-button-height-xl: 40px;
 
-  --bird-input-height-sm: 28px;
-  --bird-input-height-md: 32px;
-  --bird-input-height-lg: 36px;
-  --bird-input-height-xl: 40px;
+  --enterprise-input-height-sm: 28px;
+  --enterprise-input-height-md: 32px;
+  --enterprise-input-height-lg: 36px;
+  --enterprise-input-height-xl: 40px;
 
   /* ============================================
    * 过渡动画 - Transitions
@@ -214,7 +214,7 @@
 
   /* 组件过渡 */
   --bird-button-transition: all var(--bird-transition-fast);
-  --bird-input-transition: all var(--bird-transition-fast);
+  --enterprise-input-transition: all var(--bird-transition-fast);
   --bird-card-transition: all var(--bird-transition-normal);
   --bird-modal-transition: all var(--bird-transition-slow);
 
@@ -274,9 +274,9 @@
   --bird-sidebar-border: #262626;
   --bird-card-bg: #171717;
   --bird-card-border: #262626;
-  --bird-input-bg: #262626;
-  --bird-input-border: #404040;
-  --bird-input-focus-border: #a78bfa;
+  --enterprise-input-bg: #262626;
+  --enterprise-input-border: #404040;
+  --enterprise-input-focus-border: #a78bfa;
 
   /* 文本色 */
   --bird-text-primary: #f5f5f5;

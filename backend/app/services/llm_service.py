@@ -203,6 +203,74 @@ class Citation:
         }
 
 
+async def _get_llm_config_by_id(model_id: str | int) -> Optional[dict]:
+    """Get LLM config by specific model ID (supports both numeric ID and model_id string)"""
+    from app.core.database import async_session_factory
+    from app.models.model_config import ModelConfig
+    from sqlalchemy import select
+
+    try:
+        async with async_session_factory() as session:
+            model = None
+
+            # Try to find by numeric id first if it looks like a number
+            if isinstance(model_id, int) or (isinstance(model_id, str) and model_id.isdigit()):
+                result = await session.execute(
+                    select(ModelConfig)
+                    .where(ModelConfig.id == int(model_id))
+                    .where(ModelConfig.is_enabled == True)
+                    .limit(1)
+                )
+                model = result.scalar_one_or_none()
+
+            # If not found by numeric id, try to find by model_id string
+            if not model:
+                result = await session.execute(
+                    select(ModelConfig)
+                    .where(ModelConfig.model_id == str(model_id))
+                    .where(ModelConfig.is_enabled == True)
+                    .limit(1)
+                )
+                model = result.scalar_one_or_none()
+
+            # Also check model_gateway providers if not found in model_configs
+            if not model:
+                from app.models.model_gateway import ModelProvider
+                result = await session.execute(
+                    select(ModelProvider)
+                    .where(ModelProvider.code == str(model_id))
+                    .where(ModelProvider.is_enabled == True)
+                    .limit(1)
+                )
+                provider = result.scalar_one_or_none()
+                if provider:
+                    return {
+                        "id": provider.id,
+                        "name": provider.name,
+                        "api_url": provider.base_url,
+                        "api_key": provider.api_key or "",
+                        "model_id": provider.code,
+                        "model_type": "llm",
+                        "provider": provider.provider_type,
+                        "gateway": True,
+                    }
+
+            if model:
+                return {
+                    "id": model.id,
+                    "name": model.name,
+                    "api_url": model.api_url or "",
+                    "api_key": model.api_key or "",
+                    "model_id": model.model_id,
+                    "model_type": model.model_type,
+                    "provider": model.adapter_type,
+                    "gateway": False,
+                }
+    except Exception as e:
+        print(f"Error getting model config by id: {e}")
+    return None
+
+
 async def _get_llm_config() -> Optional[dict]:
     """Get LLM config from model_configs (legacy support)"""
     from app.core.database import async_session_factory
@@ -238,47 +306,35 @@ async def _get_llm_config_from_gateway(model_type: str = "llm") -> Optional[dict
     """Get LLM config from model gateway (new approach with routing)"""
     from app.core.database import async_session_factory
     from app.models.model_gateway import ModelProvider, ModelRoutingRule
+    from app.models.model_config import ModelConfig
     from sqlalchemy import select
 
     try:
         async with async_session_factory() as session:
-            # Get enabled routing rules for this model type
-            result = await session.execute(
-                select(ModelRoutingRule)
-                .where(ModelRoutingRule.model_type == model_type)
-                .where(ModelRoutingRule.is_enabled == True)
-                .order_by(ModelRoutingRule.priority)
+            # First try to get default model from model_configs (legacy but reliable)
+            # This is the most direct way to get the actual model ID and API config
+            default_model_result = await session.execute(
+                select(ModelConfig)
+                .where(ModelConfig.model_type == model_type)
+                .where(ModelConfig.is_enabled == True)
+                .where(ModelConfig.is_default == True)
                 .limit(1)
             )
-            rule = result.scalar_one_or_none()
+            default_model = default_model_result.scalar_one_or_none()
 
-            if rule:
-                # Get the provider for this rule
-                provider_result = await session.execute(
-                    select(ModelProvider)
-                    .where(ModelProvider.id == rule.provider_id)
-                    .where(ModelProvider.is_enabled == True)
-                    .where(ModelProvider.status == "active")
-                )
-                provider = provider_result.scalar_one_or_none()
+            if default_model and default_model.api_url:
+                return {
+                    "id": default_model.id,
+                    "name": default_model.name,
+                    "api_url": default_model.api_url,
+                    "api_key": default_model.api_key or "",
+                    "model_id": default_model.model_id,  # Use actual model_id from config
+                    "model_type": default_model.model_type,
+                    "provider": default_model.adapter_type,
+                    "gateway": False,  # Use legacy direct API call
+                }
 
-                if provider:
-                    return {
-                        "id": provider.id,
-                        "name": provider.name,
-                        "api_url": provider.base_url,
-                        "api_key": provider.api_key or "",
-                        "model_id": provider.code,  # Use provider code as model identifier
-                        "model_type": model_type,
-                        "provider": provider.provider_type,
-                        "gateway": True,
-                        "routing_rule_id": rule.id,
-                        "timeout_ms": rule.timeout_ms,
-                        "retry_enabled": rule.retry_enabled,
-                        "retry_max_attempts": rule.retry_max_attempts,
-                    }
-
-            # Fallback: Get default provider
+            # Fallback: Get default provider from gateway
             default_result = await session.execute(
                 select(ModelProvider)
                 .where(ModelProvider.is_enabled == True)
@@ -455,6 +511,7 @@ async def generate_rag_response(
     max_tokens: Optional[int] = None,  # None 表示让模型自己决定
     user_id: Optional[int] = None,
     use_rag: bool = True,
+    model_id: Optional[str] = None,  # 可选：指定使用的模型 ID
 ) -> dict:
     """
     Generate a RAG-grounded response using configured LLM.
@@ -467,6 +524,7 @@ async def generate_rag_response(
         temperature: LLM temperature
         max_tokens: Max output tokens
         use_rag: If False, use direct LLM chat without RAG context
+        model_id: Optional model ID to use (overrides default)
 
     Returns:
         {
@@ -479,10 +537,23 @@ async def generate_rag_response(
     """
     import time
 
-    # Try to get LLM config from gateway first (new approach), fallback to legacy model_config
-    llm_config = await _get_llm_config_from_gateway()
+    # 优先使用模型网关获取配置（和模型测试接口一致）
+    # 如果指定了 model_id，尝试按名称查找；否则使用默认配置
+    llm_config = None
+    if model_id:
+        # 先尝试从 model_configs 按 model_id 查找
+        llm_config = await _get_llm_config_by_id(model_id)
+        # 如果没找到，使用网关默认配置并覆盖 model_id
+        if not llm_config:
+            llm_config = await _get_llm_config_from_gateway()
+            if llm_config and model_id:
+                # 覆盖 model_id 为用户指定的值
+                llm_config["model_id"] = model_id
+
     if not llm_config:
-        llm_config = await _get_llm_config()
+        llm_config = await _get_llm_config_from_gateway()
+        if not llm_config:
+            llm_config = await _get_llm_config()
 
     if not llm_config or not llm_config.get("api_url"):
         # No LLM configured
@@ -558,10 +629,10 @@ async def generate_rag_response(
 
                 if response.status_code != 200:
                     error_text = await response.aread()
-                    logger.error("LLM API error %d: %s", response.status_code, error_text[:300])
+                    logger.error("LLM API error %d: %s | url=%s model=%s", response.status_code, error_text[:300], api_url, llm_config["model_id"])
                     await response.aclose()
                     await client.aclose()
-                    return {"answer": "LLM service error. Please try again later.", "citations": [], "chunks_used": 0}
+                    return {"answer": f"LLM service error: HTTP {response.status_code}. {error_text.decode()[:200]}", "citations": [], "chunks_used": 0}
 
                 return {
                     "stream": response,

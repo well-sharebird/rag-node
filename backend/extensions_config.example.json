@@ -1,0 +1,75 @@
+{
+  "$schema": "https://example.com/extensions-schema.json",
+  "description": "MCP 服务器和扩展配置文件",
+  "mcp_servers": {
+    "filesystem": {
+      "enabled": true,
+      "name": "Filesystem MCP Server",
+      "description": "提供文件系统访问能力",
+      "transport_type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/lafei/workspace"],
+      "env": {},
+      "tools": ["read_file", "write_file", "list_directory", "search_files"]
+    },
+    "github": {
+      "enabled": false,
+      "name": "GitHub MCP Server",
+      "description": "GitHub API 集成",
+      "transport_type": "sse",
+      "url": "https://github-mcp-server.example.com/sse",
+      "api_key_env": "GITHUB_TOKEN",
+      "tools": ["search_repos", "get_pull_request", "create_issue"]
+    },
+    "database": {
+      "enabled": false,
+      "name": "Database MCP Server",
+      "description": "数据库查询工具",
+      "transport_type": "stdio",
+      "command": "python",
+      "args": ["-m", "mcp_server_database"],
+      "connection_string_env": "DATABASE_URL",
+      "tools": ["query", "schema_inspect"]
+    },
+    "web_search": {
+      "enabled": true,
+      "name": "Web Search MCP Server",
+      "description": "网络搜索工具",
+      "transport_type": "http",
+      "url": "http://localhost:8080/mcp",
+      "tools": ["search", "get_content", "news_search"]
+    }
+  },
+  "custom_tools": {
+    "code_executor": {
+      "enabled": true,
+      "type": "python",
+      "entry_point": "app.tools.code_executor:execute_code",
+      "description": "Python 代码执行工具",
+      "sandbox": true,
+      "timeout_seconds": 30
+    },
+    "data_analyzer": {
+      "enabled": false,
+      "type": "python",
+      "entry_point": "app.tools.data_analyzer:analyze",
+      "description": "数据分析工具"
+    }
+  },
+  "middleware_config": {
+    "plan_mode": {
+      "enabled_by_default": false,
+      "auto_detect_tasks": true,
+      "max_tasks": 10
+    },
+    "logging": {
+      "level": "info",
+      "include_input": true,
+      "include_output": true
+    },
+    "rate_limit": {
+      "enabled": false,
+      "requests_per_minute": 60
+    }
+  }
+}

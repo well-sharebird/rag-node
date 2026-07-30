@@ -16,6 +16,11 @@ from app.api.v1.feedback import router as feedback_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.evaluation import router as evaluation_router
 from app.api.v1.model_gateway import router as model_gateway_router
+from app.api.v1.agents import router as agents_router
+from app.api.v1.agent_runtime import router as agent_runtime_router
+from app.api.v1.synonyms import router as synonyms_router
+from app.api.v1.desensitization import router as desensitization_router
+from app.api.v1.tracing import router as tracing_router
 from app.utils.error_handlers import register_error_handlers
 
 setup_logging(debug=settings.debug)
@@ -73,6 +78,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Settings init failed: %s", e)
 
+    # --- Initialize Default Agents ---
+    from app.services.agent_bootstrap import init_system_agents
+    try:
+        async with async_session_factory() as session:
+            await init_system_agents(session)
+        logger.info("Default agents initialized")
+    except Exception as e:
+        logger.warning("Default agents init failed: %s", e)
+
+    # --- Initialize Default Synonyms ---
+    from app.services.synonym_service import init_default_synonyms
+    try:
+        async with async_session_factory() as session:
+            await init_default_synonyms(session)
+        logger.info("Default synonyms initialized")
+    except Exception as e:
+        logger.warning("Default synonyms init failed: %s", e)
+
     # Init auth (roles, permissions, admin user) - moved to startup event
     # Auth initialization will be done via API call or manual SQL script
     logger.info("Auth system ready (use /api/v1/users/init to initialize)")
@@ -82,6 +105,17 @@ async def lifespan(app: FastAPI):
         ensure_bucket()
     except Exception as e:
         logger.warning("MinIO init failed: %s", e)
+
+    # --- Initialize Global Trace Service ---
+    from app.core.tracing import init_global_trace_service, ensure_trace_index
+    from app.core.es_client import get_es_client
+    try:
+        es_client = get_es_client()
+        init_global_trace_service(es_client)
+        await ensure_trace_index()
+        logger.info("Global trace service initialized")
+    except Exception as e:
+        logger.warning("Trace service init failed: %s", e)
 
     # --- Milvus ---
     try:
@@ -130,6 +164,11 @@ app.include_router(feedback_router, prefix=settings.api_prefix)
 app.include_router(conversations_router, prefix=settings.api_prefix)
 app.include_router(evaluation_router, prefix=settings.api_prefix)
 app.include_router(model_gateway_router, prefix=settings.api_prefix)
+app.include_router(agents_router, prefix=settings.api_prefix)
+app.include_router(agent_runtime_router, prefix=settings.api_prefix)
+app.include_router(synonyms_router, prefix=settings.api_prefix)
+app.include_router(desensitization_router, prefix=settings.api_prefix)
+app.include_router(tracing_router, prefix=settings.api_prefix)
 register_error_handlers(app)
 
 

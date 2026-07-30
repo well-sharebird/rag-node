@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kimi.com 设计系统演示</title>
+  <link rel="stylesheet" href="/src/styles/kimi-theme.css">
+  <link rel="stylesheet" href="/src/styles/kimi-components.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Microsoft YaHei', sans-serif;
+      background: var(--kimi-gray-50);
+      color: var(--kimi-black);
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    h1 {
+      font-size: 36px;
+      font-weight: 600;
+      color: var(--kimi-black);
+      margin-bottom: 12px;
+    }
+
+    .subtitle {
+      font-size: 16px;
+      color: var(--kimi-gray-500);
+    }
+
+    .section {
+      margin-bottom: 60px;
+    }
+
+    .section-title {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 24px;
+      color: var(--kimi-black);
+    }
+
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+
+    .color-swatch {
+      height: 100px;
+      border-radius: 12px;
+      display: flex;
+      align-items: flex-end;
+      padding: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .component-showcase {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 24px;
+    }
+
+    .component-card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+
+    .component-card h3 {
+      font-size: 16px;
+      font-weight: 500;
+      margin-bottom: 16px;
+      color: var(--kimi-gray-700);
+    }
+
+    .demo-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .demo-row:last-child {
+      margin-bottom: 0;
+    }
+
+    code {
+      background: var(--kimi-gray-100);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: 'SF Mono', Monaco, monospace;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--kimi-gray-700);
+      margin-bottom: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--kimi-gray-200);
+    }
+
+    th {
+      font-weight: 500;
+      color: var(--kimi-gray-600);
+      font-size: 13px;
+    }
+
+    td {
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Kimi.com 设计系统</h1>
+      <p class="subtitle">专业、现代、简洁的 UI 组件库</p>
+    </header>
+
+    <!-- 配色方案 -->
+    <section class="section">
+      <h2 class="section-title">1. 配色方案</h2>
+      
+      <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--kimi-gray-600);">主色调</h3>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: var(--kimi-black); color: white;">#1a1a1a<br>Black</div>
+        <div class="color-swatch" style="background: var(--kimi-blue); color: white;">#0066ff<br>Blue</div>
+        <div class="color-swatch" style="background: var(--kimi-white); color: var(--kimi-black); border: 1px solid var(--kimi-gray-200);">#ffffff<br>White</div>
+      </div>
+
+      <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--kimi-gray-600);">中性灰色阶</h3>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: var(--kimi-gray-50);">50</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-100);">100</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-200);">200</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-300); color: white;">300</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-400); color: white;">400</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-500); color: white;">500</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-600); color: white;">600</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-700); color: white;">700</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-800); color: white;">800</div>
+        <div class="color-swatch" style="background: var(--kimi-gray-900); color: white;">900</div>
+      </div>
+
+      <h3 style="font-size: 18px; margin-bottom: 16px; color: var(--kimi-gray-600);">功能色</h3>
+      <div class="color-grid">
+        <div class="color-swatch" style="background: var(--kimi-success); color: white;">#10b981<br>Success</div>
+        <div class="color-swatch" style="background: var(--kimi-warning); color: white;">#f59e0b<br>Warning</div>
+        <div class="color-swatch" style="background: var(--kimi-error); color: white;">#ef4444<br>Error</div>
+      </div>
+    </section>
+
+    <!-- 按钮组件 -->
+    <section class="section">
+      <h2 class="section-title">2. 按钮组件</h2>
+      <div class="component-showcase">
+        <div class="component-card">
+          <h3>主要按钮</h3>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-primary">主要按钮</button>
+            <code>kimi-btn-primary</code>
+          </div>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-primary" disabled>禁用状态</button>
+            <code>disabled</code>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>次要按钮</h3>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-secondary">次要按钮</button>
+            <code>kimi-btn-secondary</code>
+          </div>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-secondary" disabled>禁用状态</button>
+            <code>disabled</code>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>幽灵按钮</h3>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-ghost">幽灵按钮</button>
+            <code>kimi-btn-ghost</code>
+          </div>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-ghost" disabled>禁用状态</button>
+            <code>disabled</code>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>蓝色强调按钮</h3>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-blue">蓝色按钮</button>
+            <code>kimi-btn-blue</code>
+          </div>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-blue" disabled>禁用状态</button>
+            <code>disabled</code>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>按钮尺寸</h3>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-primary kimi-btn-sm">小按钮</button>
+            <code>kimi-btn-sm</code>
+          </div>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-primary">默认尺寸</button>
+            <code>default</code>
+          </div>
+          <div class="demo-row">
+            <button class="kimi-btn kimi-btn-primary kimi-btn-lg">大按钮</button>
+            <code>kimi-btn-lg</code>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 表单组件 -->
+    <section class="section">
+      <h2 class="section-title">3. 表单组件</h2>
+      <div class="component-showcase">
+        <div class="component-card">
+          <h3>输入框</h3>
+          <div class="form-group">
+            <label class="form-label">默认输入框</label>
+            <input class="kimi-input" placeholder="请输入内容..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">带边框</label>
+            <input class="kimi-input kimi-input-border" placeholder="请输入内容..." />
+          </div>
+          <div class="form-group">
+            <label class="form-label">禁用状态</label>
+            <input class="kimi-input" placeholder="禁用状态" disabled />
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>文本域</h3>
+          <div class="form-group">
+            <label class="form-label">多行文本</label>
+            <textarea class="kimi-textarea" rows="4" placeholder="请输入多行文本..."></textarea>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>复选框</h3>
+          <div class="demo-row" style="flex-direction: column; align-items: flex-start;">
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <input type="checkbox" class="kimi-checkbox" checked />
+              <span>已选中</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <input type="checkbox" class="kimi-checkbox" />
+              <span>未选中</span>
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px;">
+              <input type="checkbox" class="kimi-checkbox" disabled />
+              <span>禁用状态</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="component-card">
+          <h3>开关</h3>
+          <div class="demo-row" style="flex-direction: column; align-items: flex-start;">
+            <label class="kimi-switch" style="margin-bottom: 12px;">
+              <input type="checkbox" checked />
+              <span class="kimi-switch-slider"></span>
+            </label>
+            <label class="kimi-switch" style="margin-bottom: 12px;">
+              <input type="checkbox" />
+              <span class="kimi-switch-slider"></span>
+            </label>
+            <label class="kimi-switch">
+              <input type="checkbox" disabled />
+              <span class="kimi-switch-slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 数据展示 -->
+    <section class="section">
+      <h2 class="section-title">4. 数据展示</h2>
+      <div class="component-showcase">
+        <div class="component-card" style="grid-column: span 2;">
+          <h3>表格</h3>
+          <table class="kimi-table">
+            <thead>
+              <tr>
+                <th>姓名</th>
+                <th>邮箱</th>
+                <th>状态</th>
+                <th>角色</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>张三</td>
+                <td>zhangsan@example.com</td>
+                <td><span class="kimi-badge kimi-badge-success">正常</span></td>
+                <td>管理员</td>
+              </tr>
+              <tr>
+                <td>李四</td>
+                <td>lisi@example.com</td>
+                <td><span class="kimi-badge kimi-badge-warning">警告</span></td>
+                <td>普通用户</td>
+              </tr>
+              <tr>
+                <td>王五</td>
+                <td>wangwu@example.com</td>
+                <td><span class="kimi-badge kimi-badge-error">禁用</span></td>
+                <td>访客</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="component-card">
+          <h3>徽章</h3>
+          <div class="demo-row">
+            <span class="kimi-badge kimi-badge-primary">主要</span>
+            <code>kimi-badge-primary</code>
+          </div>
+          <div class="demo-row">
+            <span class="kimi-badge kimi-badge-success">成功</span>
+            <code>kimi-badge-success</code>
+          </div>
+          <div class="demo-row">
+            <span class="kimi-badge kimi-badge-warning">警告</span>
+            <code>kimi-badge-warning</code>
+          </div>
+          <div class="demo-row">
+            <span class="kimi-badge kimi-badge-error">错误</span>
+            <code>kimi-badge-error</code>
+          </div>
+          <div class="demo-row">
+            <span class="kimi-badge kimi-badge-gray">灰色</span>
+            <code>kimi-badge-gray</code>
+          </div>
+        </div>
+
+        <div class="component-card" style="grid-column: span 2;">
+          <h3>卡片</h3>
+          <div class="kimi-card">
+            <h3 style="font-size: 18px; margin-bottom: 8px;">卡片标题</h3>
+            <p style="color: var(--kimi-gray-600); margin-bottom: 16px;">这是一段卡片描述文本，展示卡片的详细内容。</p>
+            <div class="demo-row">
+              <button class="kimi-btn kimi-btn-primary">主要操作</button>
+              <button class="kimi-btn kimi-btn-secondary">次要操作</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 对比说明 -->
+    <section class="section">
+      <h2 class="section-title">5. 设计对比</h2>
+      <div class="component-card" style="grid-column: span 2;">
+        <table class="kimi-table">
+          <thead>
+            <tr>
+              <th>特性</th>
+              <th>Ui2 (当前)</th>
+              <th>Kimi (新)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>主色调</strong></td>
+              <td>#7c3aed 紫色</td>
+              <td>#1a1a1a 黑色 + #0066ff 蓝色</td>
+            </tr>
+            <tr>
+              <td><strong>输入框圆角</strong></td>
+              <td>9999px (完全圆角)</td>
+              <td>8px (适度圆角)</td>
+            </tr>
+            <tr>
+              <td><strong>按钮阴影</strong></td>
+              <td>明显</td>
+              <td>微妙</td>
+            </tr>
+            <tr>
+              <td><strong>对比度</strong></td>
+              <td>中等</td>
+              <td>高 (WCAG AA)</td>
+            </tr>
+            <tr>
+              <td><strong>留白</strong></td>
+              <td>紧凑</td>
+              <td>充裕</td>
+            </tr>
+            <tr>
+              <td><strong>视觉风格</strong></td>
+              <td>AI 化、鲜艳</td>
+              <td>专业、现代、简洁</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

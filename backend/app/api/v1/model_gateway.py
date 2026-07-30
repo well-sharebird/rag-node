@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.models.model_gateway import ModelProvider, ModelRoutingRule, ModelCallLog
+from app.models.model_config import ModelConfig
 from app.services.model_gateway_service import ModelGatewayService
 from app.schemas.model_gateway import (
     # Provider schemas
@@ -28,23 +29,29 @@ from app.schemas.model_gateway import (
 
 logger = logging.getLogger(__name__)
 
-from app.core.database import get_db
-from app.models.model_gateway import ModelProvider, ModelRoutingRule, ModelCallLog
-from app.services.model_gateway_service import ModelGatewayService
-from app.schemas.model_gateway import (
-    # Provider schemas
-    ModelProviderBase, ModelProviderCreate, ModelProviderUpdate, ModelProviderResponse,
-    ModelProviderListResponse,
-    # Routing schemas
-    ModelRoutingRuleBase, ModelRoutingRuleCreate, ModelRoutingRuleUpdate, ModelRoutingRuleResponse,
-    ModelRoutingRuleListResponse,
-    # Call log schemas
-    ModelCallLogResponse, ModelCallLogListResponse, ModelCallStatistics,
-    # Cache schemas
-    ModelCacheStatistics,
-)
-
 router = APIRouter(prefix="/model-gateway", tags=["model-gateway"])
+
+
+def _mask_api_key(api_key: Optional[str]) -> Optional[str]:
+    """对 API Key 做掩码，仅保留首尾少量字符，中间打码。
+
+    完整密钥不出后端；前端据此确认 key 是否存在、大致是哪个。
+    - None/空 → None（前端显示"未配置"）
+    - 长度 <= 8 → 全部打码，保留长度感知
+    - 否则 → 前 4 + •••••• + 后 4
+    """
+    if not api_key:
+        return None
+    if len(api_key) <= 8:
+        return "•" * len(api_key)
+    return f"{api_key[:4]}{'•' * 6}{api_key[-4:]}"
+
+
+def _provider_to_response(p) -> ModelProviderBase:
+    """把 ORM 供应商转为响应 Schema，并对 api_key 做掩码。"""
+    item = ModelProviderBase.model_validate(p, from_attributes=True)
+    item.api_key = _mask_api_key(p.api_key)
+    return item
 
 
 # ========== 供应商管理 ==========
@@ -63,7 +70,7 @@ async def list_providers(
         is_enabled=is_enabled,
         status=status,
     )
-    return ModelProviderListResponse(items=[ModelProviderBase.model_validate(p, from_attributes=True) for p in providers], total=len(providers))
+    return ModelProviderListResponse(items=[_provider_to_response(p) for p in providers], total=len(providers))
 
 
 @router.get("/providers/{provider_id}", response_model=ModelProviderResponse)
@@ -78,7 +85,7 @@ async def get_provider(
     if not provider:
         raise HTTPException(status_code=404, detail="供应商不存在")
 
-    return ModelProviderResponse(item=ModelProviderBase.model_validate(provider, from_attributes=True))
+    return ModelProviderResponse(item=_provider_to_response(provider))
 
 
 @router.post("/providers", response_model=ModelProviderResponse, status_code=201)
@@ -97,7 +104,7 @@ async def create_provider(
     provider_data = data.model_dump()
     provider = await service.create_provider(provider_data)
 
-    return ModelProviderResponse(item=ModelProviderBase.model_validate(provider, from_attributes=True))
+    return ModelProviderResponse(item=_provider_to_response(provider))
 
 
 @router.put("/providers/{provider_id}", response_model=ModelProviderResponse)
@@ -114,7 +121,7 @@ async def update_provider(
     if not provider:
         raise HTTPException(status_code=404, detail="供应商不存在")
 
-    return ModelProviderResponse(item=ModelProviderBase.model_validate(provider, from_attributes=True))
+    return ModelProviderResponse(item=_provider_to_response(provider))
 
 
 @router.delete("/providers/{provider_id}")
@@ -124,12 +131,14 @@ async def delete_provider(
 ):
     """删除供应商"""
     service = ModelGatewayService(db)
-    success = await service.delete_provider(provider_id)
 
-    if not success:
-        raise HTTPException(status_code=404, detail="供应商不存在")
-
-    return {"message": "供应商已删除"}
+    try:
+        success = await service.delete_provider(provider_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="供应商不存在")
+        return {"message": "供应商已删除"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/providers/{provider_id}/health")
@@ -434,6 +443,7 @@ async def chat_completions(
             stream=request.stream,
             user_id=request.user_id,
             kb_id=request.kb_id,
+            model_type=request.model_type,
         )
 
         if request.stream and result.get("type") == "streaming":
@@ -501,3 +511,154 @@ async def check_quota(
         requested_tokens=requested_tokens,
     )
     return QuotaResponse(**result)
+
+
+# ========== 模型测试接口 ==========
+
+class EmbeddingTestRequest(BaseModel):
+    """Embedding 测试请求"""
+    model_config_id: int = Field(..., description="模型配置 ID")
+    input: str = Field(..., description="输入文本")
+
+
+class EmbeddingTestResponse(BaseModel):
+    """Embedding 测试响应"""
+    embedding: list[float]
+    dimension: int
+    latency_ms: float
+    provider_name: str
+    model_id: str
+
+
+class RerankTestRequest(BaseModel):
+    """Rerank 测试请求"""
+    model_config_id: int = Field(..., description="模型配置 ID")
+    query: str = Field(..., description="查询文本")
+    documents: list[str] = Field(..., description="待排序的文档列表")
+
+
+class RerankResult(BaseModel):
+    """Rerank 结果"""
+    index: int
+    score: float
+    document: str
+
+
+class RerankTestResponse(BaseModel):
+    """Rerank 测试响应"""
+    results: list[RerankResult]
+    latency_ms: float
+    provider_name: str
+    model_id: str
+
+
+@router.post("/test/embedding", response_model=EmbeddingTestResponse)
+async def test_embedding(
+    data: EmbeddingTestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    测试 Embedding 模型
+
+    调用指定的 Embedding 模型生成向量
+    """
+    service = ModelGatewayService(db)
+
+    # 使用模型配置 ID 精确查询
+    from sqlalchemy import select
+    model_config_result = await db.execute(
+        select(ModelConfig).where(
+            ModelConfig.id == data.model_config_id,
+        )
+    )
+    model_config = model_config_result.scalar_one_or_none()
+
+    if not model_config:
+        raise HTTPException(status_code=404, detail=f"模型配置未找到：{data.model_config_id}")
+
+    # 获取供应商
+    provider = await service.get_provider_by_code(model_config.provider)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"供应商未找到：{model_config.provider}")
+
+    try:
+        result = await service.call_llm(
+            provider=provider,
+            model_id=model_config.model_id,
+            messages=[{"content": data.input}],
+            model_type="embedding",
+        )
+
+        return EmbeddingTestResponse(
+            embedding=result["embedding"],
+            dimension=len(result["embedding"]),
+            latency_ms=result.get("latency_ms", 0),
+            provider_name=provider.name,
+            model_id=model_config.model_id,
+        )
+
+    except Exception as e:
+        logger.exception("Embedding test failed")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/test/rerank", response_model=RerankTestResponse)
+async def test_rerank(
+    data: RerankTestRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    测试 Rerank 模型
+
+    对文档列表进行相关性排序
+    """
+    service = ModelGatewayService(db)
+
+    # 使用模型配置 ID 精确查询
+    from sqlalchemy import select
+    model_config_result = await db.execute(
+        select(ModelConfig).where(
+            ModelConfig.id == data.model_config_id,
+        )
+    )
+    model_config = model_config_result.scalar_one_or_none()
+
+    if not model_config:
+        raise HTTPException(status_code=404, detail=f"模型配置未找到：{data.model_config_id}")
+
+    # 获取供应商
+    provider = await service.get_provider_by_code(model_config.provider)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"供应商未找到：{model_config.provider}")
+
+    try:
+        result = await service.call_llm(
+            provider=provider,
+            model_id=model_config.model_id,
+            messages=[{
+                "content": data.query,
+                "documents": data.documents,
+            }],
+            model_type="rerank",
+        )
+
+        # 构建结果
+        rerank_results = [
+            RerankResult(
+                index=r["index"],
+                score=r["score"],
+                document=data.documents[r["index"]] if r["index"] < len(data.documents) else "",
+            )
+            for r in result["results"]
+        ]
+
+        return RerankTestResponse(
+            results=rerank_results,
+            latency_ms=result.get("latency_ms", 0),
+            provider_name=provider.name,
+            model_id=model_config.model_id,
+        )
+
+    except Exception as e:
+        logger.exception("Rerank test failed")
+        raise HTTPException(status_code=500, detail=str(e))

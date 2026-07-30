@@ -1,6 +1,5 @@
-import { ReactNode, useMemo } from 'react';
-import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package, FileText, Eye } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { ReactNode, useMemo, useState } from 'react';
+import { Database, FileUp, Search, Settings, LayoutDashboard, MessageSquare, Plug, Users, BarChart3, Activity, Blocks, Cpu, LogOut, Package, FileText, GitBranch, Bot, Shield, Languages, ActivitySquare } from 'lucide-react';
 import { useI18n } from '@/src/lib/i18n';
 
 interface User {
@@ -27,34 +26,24 @@ interface NavItem {
   hasCount?: boolean;
 }
 
-// Enterprise-grade navigation structure organized by business value:
-// - Workspace: End-user features (Dashboard, Chat)
-// - Knowledge Ops: Knowledge base lifecycle management
-// - AI Governance: Model/Provider/Key/Skill/Prompt management
-// - Operations: Monitoring, Cost, Quota, Analytics
-// - Administration: Users, Roles, Audit, System settings
 const NAV_ITEMS: NavItem[] = [
-  // ============ Workspace ============
   { id: 'dashboard', icon: LayoutDashboard, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'qa-chat', icon: MessageSquare, section: 'workspace', sectionKey: 'nav.workspace' },
-
-  // ============ Knowledge Operations ============
+  { id: 'agent-plaza', icon: Bot, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'knowledge-bases', icon: Database, section: 'knowledge', sectionKey: 'nav.knowledge' },
   { id: 'data-ingestion', icon: Plug, section: 'knowledge', sectionKey: 'nav.knowledge' },
   { id: 'retrieval-test', icon: Search, section: 'knowledge', sectionKey: 'nav.knowledge' },
-
-  // ============ AI Governance ============
   { id: 'model-management', icon: Cpu, section: 'governance', sectionKey: 'nav.governance' },
+  { id: 'model-routing', icon: GitBranch, section: 'governance', sectionKey: 'nav.governance' },
   { id: 'skill-management', icon: Package, section: 'governance', sectionKey: 'nav.governance' },
   { id: 'prompt-templates', icon: FileText, section: 'governance', sectionKey: 'nav.governance' },
-
-  // ============ Operations & Analytics ============
+  { id: 'synonym-management', icon: Languages, section: 'governance', sectionKey: 'nav.governance' },
+  { id: 'desensitization-management', icon: Shield, section: 'governance', sectionKey: 'nav.governance' },
   { id: 'monitoring', icon: Activity, section: 'operations', sectionKey: 'nav.operations' },
+  { id: 'execution-tracing', icon: ActivitySquare, section: 'operations', sectionKey: 'nav.operations' },
   { id: 'token-usage', icon: BarChart3, section: 'operations', sectionKey: 'nav.operations' },
   { id: 'quota-management', icon: Users, section: 'operations', sectionKey: 'nav.operations' },
   { id: 'evaluation', icon: Settings, section: 'operations', sectionKey: 'nav.operations' },
-
-  // ============ Administration ============
   { id: 'users-roles', icon: Users, section: 'admin', sectionKey: 'nav.admin' },
   { id: 'api-explorer', icon: Blocks, section: 'admin', sectionKey: 'nav.admin' },
   { id: 'settings', icon: Settings, section: 'admin', sectionKey: 'nav.admin' },
@@ -87,96 +76,264 @@ export function Layout({ children, activeTab, setActiveTab, currentUser, onLogou
     }, {});
   }, [t]);
 
+  const isItemActive = (itemId: string) => activeTab === itemId;
+
   return (
-    <div className="flex h-screen overflow-hidden font-sans text-[#1a1a1a] bg-[#f7f7f7]"
-         style={{ fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" }}>
-      {/* Sidebar — MiMo style: clean, minimal */}
-      <aside className="w-[240px] bg-white flex flex-col h-full shrink-0 border-r border-[#e5e5e5] overflow-y-auto">
-        {/* Logo — MiMo style */}
-        <div className="px-5 pt-6 pb-4">
-          <span className="text-lg font-semibold tracking-tight text-[#1a1a1a]">
-            KnowRAG
-          </span>
-          <span className="text-[11px] text-[#999999] ml-2">
-            {language === 'zh' ? '企业版' : 'Enterprise'}
-          </span>
+    <div style={{
+      display: 'flex',
+      height: '100vh',
+      overflow: 'hidden',
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+      color: 'var(--text-primary)',
+      backgroundColor: '#FFFFFF',
+    }}>
+      {/* Sidebar — 方案A：浅灰侧栏 #FAFBFC，内容区纯白 */}
+      <aside style={{
+        width: '200px',
+        backgroundColor: 'var(--sidebar-bg)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        flexShrink: 0,
+        borderRight: '1px solid #F0F0F0',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+      }}>
+        {/* Logo */}
+        <div style={{ padding: '20px 16px 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline' }}>
+            <span style={{
+              fontSize: '17px',
+              fontWeight: 700,
+              letterSpacing: '-0.3px',
+              color: '#1F2937',
+            }}>
+              KnowRAG
+            </span>
+            <span style={{
+              fontSize: '10px',
+              color: 'var(--text-tertiary)',
+              marginLeft: '6px',
+              fontWeight: 500,
+            }}>
+              {language === 'zh' ? '企业版' : 'Enterprise'}
+            </span>
+          </div>
         </div>
 
-        {/* Navigation — MiMo style */}
-        <nav className="flex-1 px-3 py-2 space-y-6">
+        {/* Navigation */}
+        <nav style={{ flex: 1, padding: '0 8px 8px' }}>
           {Object.entries(sections).map(([sectionKey, section]) => (
-            <div key={sectionKey}>
-              <p className="text-[11px] text-[#999999] font-medium px-3 pb-2 uppercase tracking-wide">
+            <div key={sectionKey} style={{ marginBottom: '4px' }}>
+              <p style={{
+                fontSize: '10px',
+                color: 'var(--text-tertiary)',
+                fontWeight: 600,
+                padding: '12px 12px 6px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+              }}>
                 {section.label}
               </p>
-              <ul className="space-y-1">
-                {section.items.map((item) => {
-                  const isActive = activeTab === item.id;
-                  return (
-                    <li key={item.id}>
-                      <button
-                        onClick={() => setActiveTab(item.id)}
-                        className={cn(
-                          "w-full flex items-center gap-3 text-[14px] text-left py-2.5 px-3 rounded-xl transition-all duration-200",
-                          isActive
-                            ? "bg-[#1a1a1a] text-white font-medium shadow-md"
-                            : "text-[#666666] hover:text-[#1a1a1a] hover:bg-[#f5f5f5]"
-                        )}
-                      >
-                        <item.icon className={cn("w-[18px] h-[18px]", isActive ? "text-white" : "text-[#999999]")} />
-                        {t(`nav.${item.id}`)}
-                        {item.hasCount && (
-                          <span className="ml-auto text-[11px] font-medium px-2 py-0.5 rounded-full bg-[#f0f0f0] text-[#666666]">
-                            3
-                          </span>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
+              {section.items.map((item) => {
+                const active = isItemActive(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    style={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      fontSize: '13px',
+                      textAlign: 'left',
+                      padding: '7px 12px',
+                      margin: '1px 0',
+                      borderRadius: '6px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontWeight: active ? 600 : 400,
+                      color: active ? 'var(--accent)' : 'var(--text-secondary)',
+                      backgroundColor: active ? '#FFFFFF' : 'transparent',
+                      boxShadow: active ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
+                      transition: 'all 0.15s ease',
+                      // Left border indicator for active
+                      position: 'relative' as const,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) {
+                        e.currentTarget.style.backgroundColor = 'var(--gray-50)';
+                        e.currentTarget.style.color = 'var(--text-primary)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                      }
+                    }}
+                  >
+                    {/* Left border indicator for active item */}
+                    {active && (
+                      <div style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 6,
+                        bottom: 6,
+                        width: '3px',
+                        borderRadius: '0 3px 3px 0',
+                        backgroundColor: 'var(--accent)',
+                      }} />
+                    )}
+                    <item.icon
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        flexShrink: 0,
+                        color: active ? 'var(--accent)' : 'var(--text-tertiary)',
+                      }}
+                    />
+                    {t(`nav.${item.id}`)}
+                  </button>
+                );
+              })}
             </div>
           ))}
         </nav>
 
-        {/* User footer — MiMo style */}
-        <div className="mt-auto mx-4 mb-4 pt-4 border-t border-[#e5e5e5]">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium text-white bg-[#1a1a1a]">
+        {/* User footer */}
+        <div style={{
+          padding: '12px 12px 16px',
+          marginTop: 'auto',
+          borderTop: '1px solid var(--sidebar-border)',
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            marginBottom: '10px',
+          }}>
+            {/* Avatar */}
+            <div style={{
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#FFFFFF',
+              background: 'var(--accent)',
+              flexShrink: 0,
+            }}>
               {getUserInitials()}
             </div>
-            <div className="text-xs leading-tight flex-1 min-w-0">
-              <div className="font-medium text-[#1a1a1a] truncate">{currentUser?.username || 'User'}</div>
-              <div className="text-[#999999] text-[11px]">{getUserRole()}</div>
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              fontSize: '12px',
+            }}>
+              <div style={{
+                fontWeight: 500,
+                color: 'var(--text-primary)',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {currentUser?.username || 'User'}
+              </div>
+              <div style={{ color: 'var(--text-tertiary)', fontSize: '11px' }}>
+                {getUserRole()}
+              </div>
             </div>
             {onLogout && (
               <button
                 onClick={onLogout}
-                className="p-2 rounded-lg hover:bg-[#f5f5f5] text-[#999999] hover:text-[#ff5252] transition-colors"
                 title={language === 'zh' ? '退出登录' : 'Logout'}
+                style={{
+                  padding: '4px',
+                  borderRadius: '6px',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--text-tertiary)',
+                  display: 'flex',
+                  transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = 'var(--error-bg)';
+                  e.currentTarget.style.color = 'var(--error)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.color = 'var(--text-tertiary)';
+                }}
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut style={{ width: '14px', height: '14px' }} />
               </button>
             )}
           </div>
+
+          {/* Language toggle */}
           <button
             onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
-            className="w-full flex items-center justify-center gap-0 rounded-xl border border-[#e5e5e5] text-[12px] py-1.5 hover:bg-[#f5f5f5] transition-colors"
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              borderRadius: '6px',
+              border: '1px solid var(--sidebar-border)',
+              fontSize: '11px',
+              padding: '5px 0',
+              backgroundColor: 'transparent',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+              color: 'var(--text-secondary)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--gray-50)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
           >
-            <span className={cn("px-3 py-1 rounded-lg transition-all",
-              language === 'zh' ? "bg-[#1a1a1a] text-white font-medium" : "text-[#666666]")}>
+            <span style={{
+              padding: '2px 10px',
+              borderRadius: '4px',
+              fontWeight: language === 'zh' ? 600 : 400,
+              color: language === 'zh' ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor: language === 'zh' ? 'var(--accent-light)' : 'transparent',
+              transition: 'all 0.15s ease',
+            }}>
               中文
             </span>
-            <span className={cn("px-3 py-1 rounded-lg transition-all",
-              language === 'en' ? "bg-[#1a1a1a] text-white font-medium" : "text-[#666666]")}>
+            <span style={{
+              padding: '2px 10px',
+              borderRadius: '4px',
+              fontWeight: language === 'en' ? 600 : 400,
+              color: language === 'en' ? 'var(--accent)' : 'var(--text-secondary)',
+              backgroundColor: language === 'en' ? 'var(--accent-light)' : 'transparent',
+              transition: 'all 0.15s ease',
+            }}>
               EN
             </span>
           </button>
         </div>
       </aside>
 
-      {/* Main content area — MiMo style */}
-      <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#f7f7f7]">
+      {/* Main content area */}
+      <main style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        backgroundColor: '#FFFFFF',
+      }}>
         {children}
       </main>
     </div>

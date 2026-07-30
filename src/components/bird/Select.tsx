@@ -17,7 +17,7 @@ export const Select: React.FC<SelectProps> = ({
     <div className="relative">
       <select
         className={cn(
-          'bird-input pr-10',
+          'enterprise-input pr-10',
           className
         )}
         {...props}

@@ -15,7 +15,7 @@ export function ApiExplorerView() {
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       <header className="h-[52px] px-5 bg-white flex items-center shrink-0" style={{ borderBottom: '0.5px solid #e2e1dd' }}>
         <div className="flex items-baseline gap-3">
-          <h1 className="text-[15px] font-medium text-[#1a1a1a]">{t('api.title')}</h1>
+          <h1 className="text-[15px] font-medium text-[var(--text-primary)]">{t('api.title')}</h1>
           <span className="text-[11px] text-[#9b9b9b] hidden sm:inline">{t('api.desc')}</span>
         </div>
       </header>

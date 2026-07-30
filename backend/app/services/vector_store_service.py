@@ -14,18 +14,36 @@ def insert_chunks(
     embeddings: list[list[float]],
     chunks: list[Chunk],
 ) -> int:
+    """
+    插入向量块到 Milvus
+
+    注意：Milvus dynamic field 有 65536 字节限制，需要严格控制字段长度
+    """
     data = []
     for i, (emb, chunk) in enumerate(zip(embeddings, chunks)):
         ct = getattr(chunk, 'content_type', 'text')
+
+        # 严格控制字段长度，避免超过 Milvus dynamic field 限制 (65536 bytes)
+        # 预留 1000 字节安全余量
+        text_max_len = 50000
+
+        # 截断文本
+        text = chunk.text[:text_max_len] if len(chunk.text) > text_max_len else chunk.text
+
+        # 截断 metadata 字段
+        chapter = chunk.metadata.get("chapter", "")
+        if len(chapter) > 200:
+            chapter = chapter[:200]
+
         row = {
             "chunk_id": f"{doc_id}_{i}",
             "doc_id": doc_id,
             "kb_id": kb_id,
             "vector": emb,
-            "text": chunk.text[:65535],
+            "text": text,
             "page": chunk.metadata.get("page", 0),
-            "chapter": chunk.metadata.get("chapter", "")[:512],
-            "doc_name": doc_name[:500],
+            "chapter": chapter,
+            "doc_name": doc_name[:200],
             "content_type": ct,
         }
         data.append(row)

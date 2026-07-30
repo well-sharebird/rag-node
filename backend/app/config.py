@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     # ============================================================
     es_host: str = Field(default="localhost", validation_alias="ES_HOST")
     es_port: int = Field(default=9200, validation_alias="ES_PORT")
+    es_user: str = Field(default="", validation_alias="ES_USER")
+    es_password: str = Field(default="", validation_alias="ES_PASSWORD")
+    es_scheme: str = Field(default="http", validation_alias="ES_SCHEME")
     es_index_prefix: str = Field(default="rag", validation_alias="ES_INDEX_PREFIX")
 
     # ============================================================

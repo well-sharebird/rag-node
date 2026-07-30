@@ -535,3 +535,48 @@ class LockService:
             }
 
         raise ValueError(f"No version found for skill: {skill_name}")
+
+
+# ============================================================
+# SkillRegistry (Sync version for Agent Runtime)
+# ============================================================
+
+class SkillRegistry:
+    """
+    同步版本的 Skill 注册表，用于 Agent Runtime
+
+    提供简单的工具获取接口
+    """
+
+    def __init__(self, db):
+        self.db = db
+
+    def get_tool(self, skill_id: str):
+        """
+        根据 skill ID 获取工具
+
+        TODO: 实现完整的工具加载逻辑
+        目前返回 None，后续可扩展支持：
+        - 从 Skill 配置加载 Python 函数
+        - MCP 工具
+        - API 工具
+        """
+        # 临时实现：返回 None
+        # 后续可根据 skill_id 查询数据库，加载对应的工具函数
+        logger.debug("get_tool called for skill_id=%s (not implemented yet)", skill_id)
+        return None
+
+    def list_available_skills(self) -> list[dict]:
+        """列出可用的 Skill"""
+        from app.models.skill import Skill
+        result = self.db.execute(select(Skill).where(Skill.status == "active"))
+        skills = result.scalars().all()
+        return [
+            {
+                "id": str(s.id),
+                "name": s.name,
+                "description": s.description,
+                "category": s.category,
+            }
+            for s in skills
+        ]
