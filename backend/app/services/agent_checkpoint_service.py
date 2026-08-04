@@ -92,6 +92,7 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
             checkpoint=checkpoint_data,
             metadata=metadata,
             pending_writes=pending_writes,
+            config=config,
         )
 
     def put(
@@ -210,6 +211,7 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
                 checkpoint=memory.content.get("checkpoint", {}),
                 metadata=memory.content.get("metadata", {}),
                 pending_writes=memory.content.get("pending_writes", []),
+                config=config,
             )
 
     def delete(self, config: dict) -> bool:

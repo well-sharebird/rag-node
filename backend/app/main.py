@@ -11,7 +11,7 @@ from app.core.minio_client import ensure_bucket
 from app.core.rag_config import reload_from_db
 from app.api.v1.router import router as v1_router
 from app.api.v1.auth import router as auth_router
-from app.api.v1.chat import router as chat_router
+# from app.api.v1.chat import router as chat_router  # [已废弃] 已移除，使用 agents 端点替代
 from app.api.v1.feedback import router as feedback_router
 from app.api.v1.conversations import router as conversations_router
 from app.api.v1.evaluation import router as evaluation_router
@@ -21,6 +21,7 @@ from app.api.v1.agent_runtime import router as agent_runtime_router
 from app.api.v1.synonyms import router as synonyms_router
 from app.api.v1.desensitization import router as desensitization_router
 from app.api.v1.tracing import router as tracing_router
+from app.api.v1.admin import router as admin_router
 from app.utils.error_handlers import register_error_handlers
 
 setup_logging(debug=settings.debug)
@@ -131,10 +132,30 @@ async def lifespan(app: FastAPI):
     logger.info("Health summary | postgres=%s milvus=%s", db_ok, milvus_ok)
     logger.info("=" * 60)
 
+    # --- Model Health Monitor ---
+    from app.services.model_health_monitor import start_monitor, stop_monitor
+    await start_monitor(
+        db_session_factory=async_session_factory,
+        check_interval_seconds=settings.model_health_check_interval,
+        check_timeout_ms=settings.model_health_check_timeout,
+        max_concurrent_checks=settings.model_health_check_concurrency,
+    )
+    logger.info(
+        "Model health monitor started | interval=%ds timeout=%dms concurrency=%d",
+        settings.model_health_check_interval,
+        settings.model_health_check_timeout,
+        settings.model_health_check_concurrency,
+    )
+
     yield
 
     # --- Shutdown ---
     logger.info("Shutting down...")
+
+    # Stop model health monitor
+    await stop_monitor()
+    logger.info("Model health monitor stopped")
+
     close_milvus_client()
     await close_redis()
 
@@ -158,17 +179,18 @@ from app.core.observability import setup_observability
 setup_observability(app)
 
 app.include_router(auth_router, prefix=settings.api_prefix)
-app.include_router(chat_router, prefix=settings.api_prefix)
+# app.include_router(chat_router, prefix=settings.api_prefix)  # [已废弃] 已移除
 app.include_router(v1_router, prefix=settings.api_prefix)
 app.include_router(feedback_router, prefix=settings.api_prefix)
 app.include_router(conversations_router, prefix=settings.api_prefix)
 app.include_router(evaluation_router, prefix=settings.api_prefix)
 app.include_router(model_gateway_router, prefix=settings.api_prefix)
 app.include_router(agents_router, prefix=settings.api_prefix)
-app.include_router(agent_runtime_router, prefix=settings.api_prefix)
+app.include_router(agent_runtime_router, prefix=settings.api_prefix)  # 仅包含 /{agent_id}/memory/* 端点
 app.include_router(synonyms_router, prefix=settings.api_prefix)
 app.include_router(desensitization_router, prefix=settings.api_prefix)
 app.include_router(tracing_router, prefix=settings.api_prefix)
+app.include_router(admin_router, prefix=settings.api_prefix)
 register_error_handlers(app)
 
 

@@ -86,13 +86,13 @@ def create_create_agent_tool(db: AsyncSession, user_id: int, tenant_id: str):
     return create_agent
 
 
-def create_execute_agent_tool(db: AsyncSession, user_id: int):
+def create_execute_agent_tool(db: AsyncSession, user_id: int, kb_ids: Optional[list[str]] = None, top_k: int = 5, enable_rerank: bool = False, model_name: Optional[str] = None):
     """
     创建 execute_agent 工具
     允许 Meta Agent 调用现有智能体完成任务
     """
     from langchain_core.tools import tool
-    from app.services.agent_orchestration_service import AgentOrchestrationService
+    from app.services.agent_service import AgentService, AgentExecuteRequest, ExecutionMode
     from app.services.model_gateway_service import ModelGatewayService
     from app.services.skill_registry import RegistryService as SkillRegistryService
 
@@ -119,18 +119,25 @@ def create_execute_agent_tool(db: AsyncSession, user_id: int):
         try:
             model_gateway = ModelGatewayService(db)
             skill_registry = SkillRegistryService(db)
-            orchestration = AgentOrchestrationService(db, model_gateway, skill_registry)
+            agent_service = AgentService(db, model_gateway, skill_registry)
 
-            result = await orchestration.execute_agent(
-                agent_id=agent_id,
-                user_id=user_id,
+            request = AgentExecuteRequest(
                 query=query,
-                runtime_config={}
+                user_id=user_id,
+                tenant_id="default",
+                agent_id=agent_id,
+                kb_ids=kb_ids,
+                top_k=top_k,
+                enable_rerank=enable_rerank,
+                model_name=model_name,
+                execution_mode=ExecutionMode.SINGLE,
             )
 
-            logger.info(f"[MetaAgent] Executed agent {agent_id}, response length: {len(result.get('response', ''))}")
+            result = await agent_service.execute(request)
 
-            return result.get('response', 'No response from agent')
+            logger.info(f"[MetaAgent] Executed agent {agent_id}, response length: {len(result.response)}")
+
+            return result.response
 
         except Exception as e:
             logger.exception(f"[MetaAgent] Failed to execute agent: {e}")

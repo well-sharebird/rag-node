@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { login as loginApi, getMe, type UserResponse } from '@/lib/api-client';
+import { login as loginApi, getMe, getUserMenus, getUserPermissions, type UserResponse, type MenuData } from '@/lib/api-client';
 
 interface User {
   id: number;
@@ -13,10 +13,13 @@ interface User {
 interface AuthContextType {
   user: User | null;
   token: string | null;
+  menus: MenuData[] | null;
+  permissions: string[] | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   isLoading: boolean;
+  refreshMenus: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,7 +38,24 @@ function apiUserToLocal(user: UserResponse): User {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [menus, setMenus] = useState<MenuData[] | null>(null);
+  const [permissions, setPermissions] = useState<string[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const fetchMenusAndPermissions = async () => {
+    try {
+      const [menusData, permsData] = await Promise.all([
+        getUserMenus().catch(() => ({ items: [], total: 0 })),
+        getUserPermissions().catch(() => ({ permissions: [], roles: [] })),
+      ]);
+      setMenus(menusData.items || []);
+      setPermissions(permsData.permissions || []);
+    } catch (e) {
+      console.error('Failed to fetch menus/permissions:', e);
+      setMenus([]);
+      setPermissions([]);
+    }
+  };
 
   useEffect(() => {
     // Load token from localStorage on mount
@@ -53,10 +73,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const data = await getMe();
       setUser(apiUserToLocal(data));
+      // Fetch menus and permissions after user is loaded
+      await fetchMenusAndPermissions();
     } catch (e) {
       localStorage.removeItem('auth_token');
       setToken(null);
       setUser(null);
+      setMenus(null);
+      setPermissions(null);
     } finally {
       setIsLoading(false);
     }
@@ -70,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(apiUserToLocal(data.user));
       }
       localStorage.setItem('auth_token', data.access_token);
+      // Fetch menus and permissions after login
+      await fetchMenusAndPermissions();
     } catch (e: any) {
       throw new Error(e.message || 'Login failed');
     }
@@ -78,7 +104,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = () => {
     setToken(null);
     setUser(null);
+    setMenus(null);
+    setPermissions(null);
     localStorage.removeItem('auth_token');
+  };
+
+  const refreshMenus = async () => {
+    await fetchMenusAndPermissions();
   };
 
   return (
@@ -86,10 +118,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         token,
+        menus,
+        permissions,
         login,
         logout,
         isAuthenticated: !!token,
         isLoading,
+        refreshMenus,
       }}
     >
       {children}

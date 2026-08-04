@@ -77,6 +77,112 @@ async def list_users(
     )
 
 
+# ============== Role Management (must be before /{user_id} to avoid conflicts) ==============
+
+@router.get("/roles", response_model=RoleListResponse)
+async def list_roles(
+    current_user: User = Depends(require_role("Admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List all roles (Admin only).
+    """
+    result = await db.execute(select(Role).order_by(Role.name))
+    roles = result.unique().scalars().all()
+
+    return RoleListResponse(
+        items=[RoleResponse.model_validate(r) for r in roles]
+    )
+
+
+@router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
+async def create_role(
+    request: Request,
+    role_name: str,
+    description: Optional[str] = None,
+    current_user: User = Depends(require_role("Admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create a new role (Admin only).
+    """
+    # Check if role exists
+    result = await db.execute(select(Role).where(Role.name == role_name))
+    if result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Role already exists",
+        )
+
+    role = Role(
+        name=role_name,
+        description=description,
+        is_system=False,
+    )
+
+    db.add(role)
+    await db.commit()
+    await db.refresh(role)
+
+    # Log audit
+    await _log_audit(
+        request=request,
+        current_user=current_user,
+        action="role.create",
+        resource_type="role",
+        resource_id=role_name,
+        status_code=201,
+        db=db,
+    )
+
+    return RoleResponse.model_validate(role)
+
+
+@router.delete("/roles/{role_id}")
+async def delete_role(
+    request: Request,
+    role_id: int,
+    current_user: User = Depends(require_role("Admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Delete a role (Admin only). System roles cannot be deleted.
+    """
+    result = await db.execute(select(Role).where(Role.id == role_id))
+    role = result.scalar_one_or_none()
+
+    if not role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Role not found",
+        )
+
+    if role.is_system:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete system roles",
+        )
+
+    await db.delete(role)
+    await db.commit()
+
+    # Log audit
+    await _log_audit(
+        request=request,
+        current_user=current_user,
+        action="role.delete",
+        resource_type="role",
+        resource_id=str(role_id),
+        status_code=200,
+        db=db,
+    )
+
+    return {"message": f"Role '{role.name}' deleted successfully"}
+
+
+# ============== User Management ==============
+
+
 @router.get("/{user_id}", response_model=UserResponse)
 async def get_user(
     user_id: int,
@@ -86,8 +192,12 @@ async def get_user(
     """
     Get user details by ID (Admin only).
     """
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == user_id)
+    )
+    user = result.unique().scalar_one_or_none()
 
     if not user:
         raise HTTPException(
@@ -95,7 +205,20 @@ async def get_user(
             detail="User not found",
         )
 
-    return UserResponse.model_validate(user)
+    # 构造用户响应，包含角色信息
+    user_dict = {
+        "id": user.id,
+        "email": user.email,
+        "username": user.username,
+        "full_name": user.full_name,
+        "is_active": user.is_active,
+        "is_superuser": user.is_superuser,
+        "tenant_id": user.tenant_id,
+        "created_at": user.created_at,
+        "last_login_at": user.last_login_at,
+        "roles": [{"id": r.id, "name": r.name, "description": r.description, "is_system": r.is_system} for r in user.roles],
+    }
+    return user_dict
 
 
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
@@ -137,11 +260,26 @@ async def create_user(
         roles_result = await db.execute(
             select(Role).where(Role.id.in_(user_data.role_ids))
         )
-        user.roles = roles_result.scalars().all()
+        roles = roles_result.unique().scalars().all()
+        user.roles = roles
 
     db.add(user)
     await db.commit()
     await db.refresh(user)
+
+    # 显式加载角色
+    if user_data.role_ids:
+        await db.execute(select(Role).where(Role.id.in_(user_data.role_ids)))
+        await db.refresh(user, attribute_names=['roles'])
+
+    # 重新加载用户及其角色
+    await db.refresh(user)
+    result = await db.execute(
+        select(User)
+        .where(User.id == user.id)
+        .options(selectinload(User.roles))
+    )
+    user = result.unique().scalar_one()
 
     # Log audit
     await _log_audit(
@@ -256,45 +394,47 @@ async def assign_user_roles(
     """
     Assign roles to a user (Admin only).
     """
-    # Get user
-    user_result = await db.execute(select(User).where(User.id == user_id))
-    user = user_result.scalar_one_or_none()
+    from app.core.database import get_sync_db
+    from sqlalchemy.orm import Session
 
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+    # 使用同步 session 避免 selectinload 污染
+    sync_db: Session = next(get_sync_db())
+    try:
+        # Get user
+        user = sync_db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
 
-    # Get roles
-    roles_result = await db.execute(
-        select(Role).where(Role.id.in_(role_data.role_ids))
-    )
-    roles = roles_result.scalars().all()
+        # Get roles
+        roles = sync_db.query(Role).filter(Role.id.in_(role_data.role_ids)).all()
+        if len(roles) != len(role_data.role_ids):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="One or more roles not found",
+            )
 
-    if len(roles) != len(role_data.role_ids):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="One or more roles not found",
-        )
+        # 清除现有角色并分配新角色
+        user.roles = roles
+        sync_db.commit()
 
-    user.roles = roles
-    await db.commit()
-    await db.refresh(user)
-
-    # Log audit
-    await _log_audit(
-        request=request,
-        current_user=current_user,
-        action="user.assign_roles",
-        resource_type="user",
-        resource_id=str(user_id),
-        details=f"Assigned roles: {role_data.role_ids}",
-        status_code=200,
-        db=db,
-    )
-
-    return UserResponse.model_validate(user)
+        # 返回用户信息
+        sync_db.refresh(user)
+        result = {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "full_name": user.full_name,
+            "is_active": user.is_active,
+            "is_superuser": user.is_superuser,
+            "roles": [{"id": r.id, "name": r.name, "description": r.description, "is_system": r.is_system} for r in roles],
+            "created_at": user.created_at,
+        }
+        return result
+    finally:
+        sync_db.close()
 
 
 @router.get("/{user_id}/roles", response_model=List[RoleResponse])
@@ -316,88 +456,6 @@ async def get_user_roles(
         )
 
     return [RoleResponse.model_validate(r) for r in user.roles]
-
-
-# ============== Role Management ==============
-
-
-@router.get("/roles", response_model=RoleListResponse)
-async def list_roles(
-    current_user: User = Depends(require_role("Admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    List all roles (Admin only).
-    """
-    result = await db.execute(select(Role).order_by(Role.name))
-    roles = result.scalars().all()
-
-    return RoleListResponse(
-        items=[RoleResponse.model_validate(r) for r in roles]
-    )
-
-
-@router.post("/roles", response_model=RoleResponse, status_code=status.HTTP_201_CREATED)
-async def create_role(
-    request: Request,
-    role_name: str,
-    description: Optional[str] = None,
-    current_user: User = Depends(require_role("Admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Create a new role (Admin only).
-    """
-    # Check if role exists
-    result = await db.execute(select(Role).where(Role.name == role_name))
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Role already exists",
-        )
-
-    role = Role(
-        name=role_name,
-        description=description,
-        is_system=False,
-    )
-
-    db.add(role)
-    await db.commit()
-    await db.refresh(role)
-
-    return RoleResponse.model_validate(role)
-
-
-@router.delete("/roles/{role_id}")
-async def delete_role(
-    request: Request,
-    role_id: int,
-    current_user: User = Depends(require_role("Admin")),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Delete a role (Admin only). System roles cannot be deleted.
-    """
-    result = await db.execute(select(Role).where(Role.id == role_id))
-    role = result.scalar_one_or_none()
-
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Role not found",
-        )
-
-    if role.is_system:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot delete system roles",
-        )
-
-    await db.delete(role)
-    await db.commit()
-
-    return {"message": f"Role '{role.name}' deleted successfully"}
 
 
 async def _log_audit(

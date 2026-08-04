@@ -86,8 +86,6 @@ export interface ModelConfigFormData {
   adapter_type: string;
   provider: string;
   description: string;
-  api_url: string;
-  api_key: string;
   is_enabled: boolean;
   is_default: boolean;
   embedding_dim?: number;
@@ -129,26 +127,12 @@ export function ModelConfigForm({
     loadProviders();
   }, []);
 
-  const needsApiFields = ['api', 'ollama', 'vllm'].includes(formData.adapter_type);
   const isEmbedding = formData.model_type === 'embedding';
   const needsAdvancedParams = ['llm', 'vision', 'text_to_speech'].includes(formData.model_type);
 
-  // Handle provider change - auto-fill API settings
+  // Handle provider change
   const handleProviderChange = (providerCode: string) => {
-    const defaults = PROVIDER_DEFAULTS[providerCode];
     const updates: Partial<ModelConfigFormData> = { provider: providerCode };
-
-    // Try to find matching provider from gateway
-    const gatewayProvider = providers.find(p => p.code === providerCode);
-    if (gatewayProvider) {
-      updates.api_url = gatewayProvider.base_url;
-      if (gatewayProvider.api_key) {
-        updates.api_key = gatewayProvider.api_key;
-      }
-    } else if (defaults?.base_url) {
-      updates.api_url = defaults.base_url;
-    }
-
     onChange(updates);
   };
 
@@ -289,49 +273,13 @@ export function ModelConfigForm({
         </div>
       </div>
 
-      {/* 连接设置 - 参考图风格 */}
-      {needsApiFields && (
-        <div className="rounded-3xl bg-[#f8f9fa] p-5">
-          <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-4">连接设置</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-[12px] font-medium text-[#666666]">
-                API URL <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                value={formData.api_url}
-                onChange={(e) => updateField('api_url', e.target.value)}
-                placeholder="https://api.example.com"
-                className={cn(
-                  "rounded-full h-11 border border-[#e0e0e0] bg-white px-4 text-[14px]",
-                  errors.api_url && "border-red-500"
-                )}
-              />
-              {errors.api_url && <p className="text-xs text-red-500 ml-2">{errors.api_url}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-[12px] font-medium text-[#666666]">
-                API Key <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                value={formData.api_key}
-                onChange={(e) => updateField('api_key', e.target.value)}
-                type="password"
-                placeholder={isEdit ? "输入新的 API Key，留空表示保持不变" : "sk-..."}
-                className={cn(
-                  "rounded-full h-11 border border-[#e0e0e0] bg-white px-4 text-[14px]",
-                  errors.api_key && "border-red-500"
-                )}
-              />
-              {errors.api_key && <p className="text-xs text-red-500 ml-2">{errors.api_key}</p>}
-              {isEdit && formData.api_key && (
-                <p className="text-xs text-[var(--text-tertiary)] ml-2">当前：{maskApiKey(formData.api_key)}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 连接设置提示 - API 配置在供应商管理中统一设置 */}
+      <div className="rounded-3xl bg-[#f0f7ff] p-5 border border-[#d0e3f7]">
+        <h3 className="text-[15px] font-semibold text-[var(--text-primary)] mb-2">连接设置</h3>
+        <p className="text-[13px] text-[var(--text-tertiary)]">
+          API URL 和 API Key 在 <strong>供应商管理</strong> 中统一配置，模型将继承所属供应商的连接设置。
+        </p>
+      </div>
 
       {/* 高级参数 - 参考图风格 */}
       {needsAdvancedParams && (
@@ -425,9 +373,4 @@ export function ModelConfigForm({
       </div>
     </div>
   );
-}
-
-function maskApiKey(key: string): string {
-  if (!key || key.length <= 8) return '***';
-  return key.substring(0, 4) + '•'.repeat(key.length - 8) + key.substring(key.length - 4);
 }

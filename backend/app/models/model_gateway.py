@@ -55,7 +55,6 @@ class ModelProvider(Base):
 
     # 状态
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default="active")
     # active, inactive, error, rate_limited
 
@@ -241,8 +240,8 @@ class ModelCallLog(Base):
     provider = relationship("ModelProvider", back_populates="call_logs")
 
     __table_args__ = (
-        Index('idx_call_provider_created', 'provider_id', 'created_at'),
-        Index('idx_call_user_created', 'user_id', 'created_at'),
+        Index('idx_mcl_provider_created', 'provider_id', 'created_at'),
+        Index('idx_mcl_user_created', 'user_id', 'created_at'),
     )
 
     def __repr__(self):

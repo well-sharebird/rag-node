@@ -74,8 +74,6 @@ async def create_model(
         adapter_type=data.adapter_type,
         provider=data.provider,
         description=data.description,
-        api_url=data.api_url,
-        api_key=data.api_key,
         max_tokens=data.max_tokens,
         temperature=data.temperature,
         top_p=data.top_p,
@@ -176,17 +174,25 @@ async def test_model_connection(
     if not model:
         return {"success": False, "message": "Model not found", "latency_ms": None}
 
+    # Get provider config for API-based models
+    provider = None
+    if model.adapter_type in ("api", "ollama", "vllm"):
+        provider_result = await db.execute(
+            select(ModelProvider).where(ModelProvider.code == model.provider)
+        )
+        provider = provider_result.scalar_one_or_none()
+
     start_time = time.time()
     result = {"success": False, "message": "", "latency_ms": None}
 
     try:
         # Test based on adapter type
         if model.adapter_type == "api":
-            result = await _test_api_connection(model, test_input)
+            result = await _test_api_connection(model, provider, test_input)
         elif model.adapter_type == "ollama":
-            result = await _test_ollama_connection(model, test_input)
+            result = await _test_ollama_connection(model, provider, test_input)
         elif model.adapter_type == "vllm":
-            result = await _test_vllm_connection(model, test_input)
+            result = await _test_vllm_connection(model, provider, test_input)
         else:
             result = {"success": True, "message": f"Adapter {model.adapter_type} configured", "latency_ms": None}
 
@@ -205,7 +211,7 @@ async def test_model_connection(
                 last_tested_at=datetime.utcnow(),
             )
         )
-        await db.flush()
+        await db.commit()
 
     except Exception as e:
         result = {"success": False, "message": str(e), "latency_ms": None}
@@ -217,24 +223,32 @@ async def test_model_connection(
                 last_tested_at=datetime.utcnow(),
             )
         )
-        await db.flush()
+        await db.commit()
 
     return result
 
 
-async def _test_api_connection(model: ModelConfig, test_input: str | None = None) -> dict:
+async def _test_api_connection(
+    model: ModelConfig,
+    provider: ModelProvider | None,
+    test_input: str | None = None,
+) -> dict:
     """Test API-based model connection"""
     import httpx
 
-    if not model.api_url:
+    # Get API config from provider
+    if not provider:
+        return {"success": False, "message": "Provider not found"}
+
+    base_url = provider.base_url.rstrip('/')
+    api_key = provider.api_key
+
+    if not base_url:
         return {"success": False, "message": "API URL not configured"}
 
     try:
         async with httpx.AsyncClient(timeout=model.timeout_ms / 1000) as client:
-            headers = {"Authorization": f"Bearer {model.api_key}"} if model.api_key else {}
-
-            # Normalize base_url - remove trailing slashes
-            base_url = model.api_url.rstrip('/')
+            headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
             if model.model_type == "embedding":
                 # Test embedding endpoint - try /embeddings or /v1/embeddings
@@ -373,11 +387,19 @@ async def _test_api_connection(model: ModelConfig, test_input: str | None = None
         return {"success": False, "message": f"Error: {str(e)}"}
 
 
-async def _test_ollama_connection(model: ModelConfig, test_input: str | None = None) -> dict:
+async def _test_ollama_connection(
+    model: ModelConfig,
+    provider: ModelProvider | None,
+    test_input: str | None = None,
+) -> dict:
     """Test Ollama connection"""
     import httpx
 
-    base_url = model.api_url or "http://localhost:11434"
+    # Get base_url from provider, fallback to localhost
+    if provider and provider.base_url:
+        base_url = provider.base_url.rstrip('/')
+    else:
+        base_url = "http://localhost:11434"
 
     try:
         async with httpx.AsyncClient(timeout=model.timeout_ms / 1000) as client:
@@ -415,9 +437,13 @@ async def _test_ollama_connection(model: ModelConfig, test_input: str | None = N
         return {"success": False, "message": f"Connection failed: {e}"}
 
 
-async def _test_vllm_connection(model: ModelConfig, test_input: str | None = None) -> dict:
+async def _test_vllm_connection(
+    model: ModelConfig,
+    provider: ModelProvider | None,
+    test_input: str | None = None,
+) -> dict:
     """Test vLLM connection (OpenAI-compatible API)"""
-    return await _test_api_connection(model, test_input)
+    return await _test_api_connection(model, provider, test_input)
 
 
 

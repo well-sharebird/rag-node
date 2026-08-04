@@ -7,7 +7,7 @@ Create Date: 2026-07-22
 """
 from alembic import op
 import sqlalchemy as sa
-
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '002'
@@ -17,14 +17,22 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Add retrieval config columns to knowledge_bases table
-    op.add_column('knowledge_bases', sa.Column('top_k', sa.Integer(), nullable=True))
-    op.add_column('knowledge_bases', sa.Column('min_score', sa.Float(), nullable=True))
-    op.add_column('knowledge_bases', sa.Column('enable_rerank', sa.Boolean(), nullable=True))
+    # Create knowledge_bases table if not exists (moved from later migration)
+    op.create_table('knowledge_bases',
+        sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column('name', sa.String(length=255), nullable=False),
+        sa.Column('description', sa.Text(), nullable=True),
+        sa.Column('owner', sa.String(length=255), nullable=True),
+        sa.Column('top_k', sa.Integer(), nullable=True),
+        sa.Column('min_score', sa.Float(), nullable=True),
+        sa.Column('enable_rerank', sa.Boolean(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('NOW()'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('NOW()'), nullable=False),
+        sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index('idx_kb_name', 'knowledge_bases', ['name'], unique=False)
 
 
 def downgrade() -> None:
-    # Remove retrieval config columns
-    op.drop_column('knowledge_bases', 'enable_rerank')
-    op.drop_column('knowledge_bases', 'min_score')
-    op.drop_column('knowledge_bases', 'top_k')
+    op.drop_index('idx_kb_name', table_name='knowledge_bases')
+    op.drop_table('knowledge_bases')

@@ -6,9 +6,11 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 import hashlib
 
-from app.core.database import get_db
+from app.core.database import get_db, get_sync_db
+from sqlalchemy.orm import Session
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -24,6 +26,8 @@ from app.core.auth import (
     log_audit,
 )
 from app.models.user import User, APIKey, Role, AuditLog
+from app.models.department import UserDepartment
+from app.models.menu import Menu
 from app.schemas.auth import (
     LoginRequest,
     TokenResponse,
@@ -48,13 +52,15 @@ async def login(
     """
     Authenticate user and return JWT tokens.
     """
-    # Find user by email or username
+    # Find user by email or username with roles preloaded
     result = await db.execute(
-        select(User).where(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(
             (User.email == login_data.username) | (User.username == login_data.username)
         )
     )
-    user = result.scalar_one_or_none()
+    user = result.unique().scalar_one_or_none()
 
     if not user or not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
@@ -93,11 +99,33 @@ async def login(
         db=db,
     )
 
+    # 重新查询用户以获取角色（避免 lazy loading）
+    result = await db.execute(
+        select(User)
+        .options(selectinload(User.roles))
+        .where(User.id == user.id)
+    )
+    user_with_roles = result.unique().scalar_one()
+
+    # 构造用户响应，包含角色信息
+    user_dict = {
+        "id": user_with_roles.id,
+        "email": user_with_roles.email,
+        "username": user_with_roles.username,
+        "full_name": user_with_roles.full_name,
+        "is_active": user_with_roles.is_active,
+        "is_superuser": user_with_roles.is_superuser,
+        "tenant_id": user_with_roles.tenant_id,
+        "created_at": user_with_roles.created_at,
+        "last_login_at": user_with_roles.last_login_at,
+        "roles": [{"id": r.id, "name": r.name, "description": r.description, "is_system": r.is_system} for r in user_with_roles.roles],
+    }
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
-        user=UserResponse.model_validate(user),
+        user=user_dict,
     )
 
 
@@ -204,6 +232,80 @@ async def get_me(
     Get current user profile.
     """
     return UserResponse.model_validate(current_user)
+
+
+@router.get("/me/menus")
+async def get_current_user_menus(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_sync_db),
+):
+    """
+    获取当前用户有权限的菜单树
+    """
+    from app.services.menu_service import MenuService
+
+    service = MenuService(db)
+
+    # 超级管理员返回所有菜单（检查 is_superuser 字段或 super_admin 角色）
+    if current_user.is_superuser or current_user.has_role('super_admin'):
+        tree = service.get_menu_tree()
+        return {"items": tree, "total": len(tree)}
+
+    # 普通用户返回有权限的菜单
+    tree = service.get_user_menu_tree(current_user.id)
+    return {"items": tree, "total": len(tree)}
+
+
+@router.get("/me/permissions")
+async def get_current_user_permissions(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    获取当前用户的所有权限
+    """
+    permissions = set()
+    for role in current_user.roles:
+        for perm in role.permissions:
+            permissions.add(perm.name)
+
+    return {
+        "permissions": list(permissions),
+        "roles": [role.name for role in current_user.roles],
+    }
+
+
+@router.get("/me/departments")
+async def get_current_user_departments(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取当前用户所属的部门
+    """
+    from sqlalchemy.orm import selectinload
+
+    result = await db.execute(
+        select(UserDepartment)
+        .where(UserDepartment.user_id == current_user.id)
+        .options(selectinload(UserDepartment.department))
+        .order_by(UserDepartment.is_primary.desc())
+    )
+    user_depts = result.scalars().all()
+
+    return {
+        "items": [
+            {
+                "id": ud.id,
+                "department_id": ud.department_id,
+                "department_name": ud.department.name,
+                "dept_role": ud.dept_role,
+                "is_primary": ud.is_primary,
+                "joined_at": ud.joined_at,
+            }
+            for ud in user_depts
+        ],
+        "primary_department": user_depts[0].department if user_depts and user_depts[0].is_primary else None,
+    }
 
 
 @router.post("/api-keys", response_model=APIKeyResponse)

@@ -25,7 +25,6 @@ class ModelProviderBase(BaseModel):
     api_key: Optional[str] = Field(None, description="API Key", max_length=1000)
     config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="额外配置")
     is_enabled: bool = Field(default=True, description="是否启用")
-    is_default: bool = Field(default=False, description="是否默认")
     status: str = Field(default="active", description="状态", max_length=20)
     health_status: Optional[str] = Field(None, description="健康状态")
     last_health_check: Optional[datetime] = Field(None, description="最后健康检查时间")
@@ -55,7 +54,6 @@ class ModelProviderCreate(BaseModel):
     api_key: Optional[str] = Field(None, description="API Key", max_length=1000)
     config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="额外配置")
     is_enabled: bool = Field(default=True, description="是否启用")
-    is_default: bool = Field(default=False, description="是否默认")
     status: str = Field(default="active", description="状态", max_length=20)
     rate_limit_enabled: bool = Field(default=False, description="是否启用速率限制")
     rate_limit_requests: Optional[int] = Field(None, description="每分钟请求数限制")
@@ -79,7 +77,6 @@ class ModelProviderUpdate(BaseModel):
     api_key: Optional[str] = Field(None, max_length=1000)
     config: Optional[Dict[str, Any]] = None
     is_enabled: Optional[bool] = None
-    is_default: Optional[bool] = None
     status: Optional[str] = Field(None, max_length=20)
     rate_limit_enabled: Optional[bool] = None
     rate_limit_requests: Optional[int] = None

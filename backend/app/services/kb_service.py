@@ -89,7 +89,7 @@ async def update_knowledge_base(db: AsyncSession, kb_id: str, data: KBUpdateRequ
     update_data = data.model_dump(exclude_unset=True)
     if update_data:
         await db.execute(update(KnowledgeBase).where(KnowledgeBase.id == kb_id).values(**update_data))
-        await db.flush()
+        await db.commit()
         await db.refresh(kb)
         logger.info("Knowledge base updated | id=%s fields=%s", kb_id, list(update_data.keys()))
     return kb

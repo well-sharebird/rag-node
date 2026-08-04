@@ -52,6 +52,11 @@ class UserResponse(BaseModel):
     tenant_id: Optional[str] = None
     created_at: datetime
     last_login_at: Optional[datetime] = None
+    roles: List["RoleResponse"] = []
+
+
+# Import RoleResponse to avoid circular import - must be at end
+from app.schemas.user import RoleResponse
 
 
 # =============================================================================

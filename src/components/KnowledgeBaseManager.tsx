@@ -204,7 +204,7 @@ export function KnowledgeBaseManager() {
     setEditDescription(kb.description || '');
     setEditTopK(kb.top_k);
     setEditMinScore(kb.min_score);
-    setEditEnableRerank(kb.enable_rerank || false);
+    setEditEnableRerank(kb.enable_rerank ?? false);
     setIsEditOpen(true);
   };
 

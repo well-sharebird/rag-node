@@ -1,0 +1,82 @@
+{
+  "mcpServers": {
+    "rag-platform": {
+      "enabled": true,
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "python",
+        "-m",
+        "app.mcp.server"
+      ],
+      "env": {},
+      "description": "RAG Platform MCP Server - 提供知识库管理、模型管理、提示词工程、智能体广场等工具",
+      "tools": {
+        "knowledge_base": {
+          "enabled": true,
+          "tools": [
+            "list_knowledge_bases",
+            "get_knowledge_base",
+            "create_knowledge_base",
+            "update_knowledge_base",
+            "delete_knowledge_base",
+            "search_knowledge_base"
+          ]
+        },
+        "model_management": {
+          "enabled": true,
+          "tools": [
+            "list_models",
+            "get_model",
+            "create_model",
+            "update_model",
+            "delete_model",
+            "test_model",
+            "get_default_model"
+          ]
+        },
+        "prompt_engineering": {
+          "enabled": true,
+          "tools": [
+            "list_prompt_templates",
+            "get_prompt_template",
+            "create_prompt_template",
+            "update_prompt_template",
+            "render_prompt",
+            "create_prompt_version",
+            "release_prompt_version",
+            "run_prompt_evaluation"
+          ]
+        },
+        "agent_hub": {
+          "enabled": true,
+          "tools": [
+            "list_agents",
+            "list_public_agents",
+            "get_agent",
+            "create_agent",
+            "update_agent",
+            "delete_agent",
+            "execute_agent",
+            "publish_agent"
+          ]
+        }
+      }
+    }
+  },
+  "skills": {
+    "knowledge-base-manager": {
+      "enabled": true
+    },
+    "model-manager": {
+      "enabled": true
+    },
+    "prompt-engineering": {
+      "enabled": true
+    },
+    "agent-hub": {
+      "enabled": true
+    }
+  }
+}

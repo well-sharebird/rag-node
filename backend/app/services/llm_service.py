@@ -334,12 +334,12 @@ async def _get_llm_config_from_gateway(model_type: str = "llm") -> Optional[dict
                     "gateway": False,  # Use legacy direct API call
                 }
 
-            # Fallback: Get default provider from gateway
+            # Fallback: Get first enabled provider from gateway
             default_result = await session.execute(
                 select(ModelProvider)
                 .where(ModelProvider.is_enabled == True)
-                .where(ModelProvider.is_default == True)
                 .where(ModelProvider.status == "active")
+                .order_by(ModelProvider.id)
                 .limit(1)
             )
             provider = default_result.scalar_one_or_none()

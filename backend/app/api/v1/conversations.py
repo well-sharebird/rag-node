@@ -2,6 +2,7 @@
 Conversations API - 对话历史管理
 """
 import logging
+import json
 from fastapi import APIRouter, Query, HTTPException, Depends
 from typing import Optional, List
 
@@ -176,3 +177,37 @@ async def search_conversations(
         ],
         "total": len(items),
     }
+
+
+@router.post("/{conv_id}/messages")
+async def add_message_to_conversation(
+    db: DBSession,
+    conv_id: str,
+    data: dict,
+):
+    """添加消息到对话"""
+    try:
+        message = await conversation_service.add_message(
+            db=db,
+            conv_id=conv_id,
+            role=data.get("role", "user"),
+            content=data.get("content", ""),
+            sources=data.get("sources"),
+            token_count=data.get("token_count"),
+            latency_ms=data.get("latency_ms"),
+            model_used=data.get("model_used"),
+        )
+        return {
+            "id": message.id,
+            "conversation_id": message.conversation_id,
+            "role": message.role,
+            "content": message.content,
+            "sources": json.loads(message.sources) if message.sources else None,
+            "message_index": message.message_index,
+            "created_at": message.created_at.isoformat() if message.created_at else None,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to add message: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

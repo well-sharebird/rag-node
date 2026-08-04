@@ -100,9 +100,12 @@ class AgentListItem(BaseModel):
 
 
 # ============== Agent Runtime Schemas ==============
+# 已删除：AgentRunRequest, AgentRunResponse, AgentStreamEvent
+# 原因：/run 和 /run/stream 接口已删除，这些 Schema 不再使用
+# 保留：ModelConfig - 内部服务使用（agent_service 等）
 
 class ModelConfig(BaseModel):
-    """运行时模型配置（由用户选择传递）"""
+    """运行时模型配置（内部服务使用）"""
     provider: str = Field(..., description="模型供应商代码，如 anthropic, openai")
     model: str = Field(..., description="模型名称，如 claude-3-5-sonnet")
     temperature: Optional[float] = Field(0.7, ge=0, le=2)
@@ -110,35 +113,6 @@ class ModelConfig(BaseModel):
     top_p: Optional[float] = Field(1.0, ge=0, le=1)
     api_key: Optional[str] = Field(None, description="API Key（可选，从数据库获取）")
     base_url: Optional[str] = Field(None, description="API 基础 URL（可选，从数据库获取）")
-
-
-class AgentRunRequest(BaseModel):
-    """Agent 运行请求"""
-    agent_id: str
-    query: str
-    model: ModelConfig  # 运行时由用户选择模型
-    session_id: Optional[str] = None  # 会话 ID，用于多轮对话
-    stream: bool = False
-
-
-class AgentRunResponse(BaseModel):
-    """Agent 运行响应"""
-    run_id: str
-    agent_id: str
-    response: str
-    model_used: str
-    input_tokens: int
-    output_tokens: int
-    latency_ms: int
-    session_id: Optional[str]
-
-
-class AgentStreamEvent(BaseModel):
-    """Agent 流式事件"""
-    type: str  # token | done | error
-    content: Optional[str] = None
-    run_id: Optional[str] = None
-    error: Optional[str] = None
 
 
 # ============== Original Chat Schemas ==============

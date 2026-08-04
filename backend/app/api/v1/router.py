@@ -15,6 +15,15 @@ from app.api.v1.prometheus import router as prometheus_router
 from app.api.v1.token_usage import router as token_usage_router
 from app.api.v1.skills import router as skills_router
 from app.api.v1.prompts import router as prompts_router
+from app.api.v1.conversation_history import router as conversation_history_router
+from app.api.v1.auth import router as auth_router
+from app.api.v1.admin import router as admin_router
+from app.api.v1.agents import router as agents_router
+
+# ============================================================
+# 注意：chat.py 已废弃，不再使用
+# 所有问答请求统一使用 /api/v1/agents/{agent_id}/execute/stream
+# ============================================================
 
 router = APIRouter()
 router.include_router(dashboard_router)
@@ -31,3 +40,7 @@ router.include_router(prometheus_router)
 router.include_router(token_usage_router)
 router.include_router(skills_router)
 router.include_router(prompts_router)
+router.include_router(conversation_history_router)
+router.include_router(auth_router)
+router.include_router(admin_router)
+router.include_router(agents_router)

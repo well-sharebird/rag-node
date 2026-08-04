@@ -324,8 +324,8 @@ class AgentCallLog(Base):
     user = relationship("User", backref="agent_call_logs")
 
     __table_args__ = (
-        Index('idx_call_agent_created', 'agent_id', 'created_at'),
-        Index('idx_call_user_created', 'user_id', 'created_at'),
+        Index('idx_acl_agent_created', 'agent_id', 'created_at'),
+        Index('idx_acl_user_created', 'user_id', 'created_at'),
     )
 
     def __repr__(self):

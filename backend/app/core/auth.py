@@ -74,7 +74,7 @@ async def get_current_user(
     result = await db.execute(
         select(User).options(selectinload(User.roles)).where(User.id == int(user_id))
     )
-    user = result.scalar_one_or_none()
+    user = result.unique().scalar_one_or_none()
 
     if user is None or not user.is_active:
         raise credentials_exception
@@ -199,16 +199,42 @@ def require_role(role_name: str):
     """
     Dependency factory that requires a specific role.
     Usage: Depends(require_role("Admin"))
+    Supports multiple role names (case-insensitive) for compatibility.
     """
     async def role_checker(
         current_user: Annotated[User, Depends(get_current_user)],
     ) -> User:
-        if not current_user.has_role(role_name):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Missing required role: {role_name}",
-            )
-        return current_user
+        # Superusers always have access
+        if current_user.is_superuser:
+            return current_user
+
+        # Check if user has super_admin role (equivalent to superuser)
+        if current_user.has_role("super_admin"):
+            return current_user
+
+        # Check if user has the required role (case-insensitive)
+        if current_user.has_role(role_name):
+            return current_user
+
+        # Check for equivalent roles (case variations)
+        role_mappings = {
+            "Admin": ["admin", "Admin"],
+            "admin": ["Admin", "admin"],
+            "Editor": ["editor", "Editor"],
+            "editor": ["Editor", "editor"],
+            "Viewer": ["viewer", "Viewer"],
+            "viewer": ["Viewer", "viewer"],
+        }
+
+        equivalent_roles = role_mappings.get(role_name, [role_name])
+        for role in current_user.roles:
+            if role.name in equivalent_roles:
+                return current_user
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Missing required role: {role_name}",
+        )
     return role_checker
 
 

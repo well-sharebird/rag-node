@@ -145,5 +145,12 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = Field(default="localhost:9092", validation_alias="KAFKA_BOOTSTRAP_SERVERS")
     kafka_consumer_group: str = Field(default="rag-consumer", validation_alias="KAFKA_CONSUMER_GROUP")
 
+    # ============================================================
+    # Model Health Monitor
+    # ============================================================
+    model_health_check_interval: int = Field(default=300, validation_alias="MODEL_HEALTH_CHECK_INTERVAL")  # 5 分钟
+    model_health_check_timeout: int = Field(default=10000, validation_alias="MODEL_HEALTH_CHECK_TIMEOUT")  # 10 秒
+    model_health_check_concurrency: int = Field(default=5, validation_alias="MODEL_HEALTH_CHECK_CONCURRENCY")
+
 
 settings = Settings()

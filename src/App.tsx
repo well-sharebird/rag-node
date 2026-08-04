@@ -17,6 +17,9 @@ import { SkillManagement } from './pages/SkillManagement';
 import { ModelManagement } from './pages/ModelManagement';
 import { ModelRoutingView } from './pages/ModelRoutingView';
 import { UserManagement } from './pages/UserManagement';
+import { RoleManagement } from './pages/RoleManagement';
+import { DepartmentManagement } from './pages/DepartmentManagement';
+import { MenuManagement } from './pages/MenuManagement';
 import { EvaluationPage } from './pages/EvaluationPage';
 import { TokenUsageAnalysis } from './pages/TokenUsageAnalysis';
 import { QuotaManagement } from './pages/QuotaManagement';
@@ -31,6 +34,7 @@ import { AgentChat } from './pages/AgentChat';
 import { SynonymManagement } from './components/SynonymManagement';
 import { DesensitizationManagement } from './components/DesensitizationManagement';
 import { ExecutionTracingView } from './components/ExecutionTracingView';
+import { ConversationHistory } from './pages/ConversationHistory';
 
 function PlaceholderView({ title, description }: { title: string, description: string }) {
   return (
@@ -52,14 +56,63 @@ function PlaceholderView({ title, description }: { title: string, description: s
 }
 
 function MainAppContent() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('m-12'); // 默认仪表盘
   const [selectedPromptTemplate, setSelectedPromptTemplate] = useState<string | null>(null);
   const { t } = useI18n();
-  const { isAuthenticated, isLoading, logout, user } = useAuth();
+  const { isAuthenticated, isLoading, logout, user, menus } = useAuth();
+
+  // 动态菜单 ID 到前端组件的映射 (菜单 ID 来自后端)
+  const MENU_COMPONENT_MAP: Record<string, string> = {
+    // 系统管理
+    'm-2': 'users-roles',          // 用户管理
+    'm-3': 'role-management',      // 角色管理
+    'm-4': 'department-management',// 部门管理
+    'm-5': 'menu-management',      // 菜单管理
+    'm-6': 'dashboard',            // 数据看板
+    // 工作台
+    'm-12': 'dashboard',       // 仪表盘
+    // AI 对话
+    'm-13': 'qa-chat',         // AI 助手
+    'm-14': 'agent-plaza',     // 智能体广场
+    'm-15': 'agent-chat',      // 智能体对话
+    'm-16': 'conversation-history', // 会话历史
+    // 知识库
+    'm-17': 'knowledge-bases', // 知识库
+    'm-18': 'data-ingestion',  // 数据摄取
+    'm-19': 'retrieval-test',  // 检索测试
+    // AI 资源治理
+    'm-20': 'model-management', // 模型管理
+    'm-21': 'skill-management', // 技能仓库
+    'm-22': 'prompt-templates', // 提示词工程
+    'm-23': 'synonym-management', // 同义词管理
+    'm-24': 'desensitization-management', // 数据脱敏
+    // 运营分析
+    'm-25': 'monitoring',      // 系统监控
+    'm-26': 'execution-tracing', // 执行追踪
+    'm-27': 'token-usage',     // Token 使用
+    'm-28': 'quota-management', // 配额管理
+    'm-29': 'evaluation',      // 质量评估
+    'm-30': 'api-explorer',    // API 接口
+    'm-31': 'settings',        // 系统设置
+  };
 
   const renderContent = () => {
+    // 处理动态菜单 ID 映射
+    const mappedTab = MENU_COMPONENT_MAP[activeTab] || activeTab;
+
+    // 处理菜单路径点击（从 Layout 传递的 path）
+    if (activeTab?.startsWith?.('/')) {
+      // 如果是后端菜单路径，查找对应的映射
+      const menuIdMatch = activeTab.match(/m-(\d+)/);
+      if (menuIdMatch) {
+        const menuId = `m-${menuIdMatch[1]}`;
+        const componentId = MENU_COMPONENT_MAP[menuId] || 'dashboard';
+        return renderComponent(componentId);
+      }
+    }
+
     // Prompt Engineering views
-    if (activeTab === 'prompt-templates') {
+    if (mappedTab === 'prompt-templates') {
       if (selectedPromptTemplate) {
         return (
           <PromptTemplateDetail
@@ -77,11 +130,11 @@ function MainAppContent() {
       );
     }
 
-    switch (activeTab) {
+    switch (mappedTab) {
       case 'dashboard':
         return <DashboardView onNavigate={setActiveTab} />;
       case 'qa-chat':
-        return <QAChatView />; // QAChatView 已有 MarkdownRenderer 支持 Bird 风格
+        return <QAChatView />;
       case 'agent-plaza':
         return <AgentPlaza onNavigate={(tab, agentId) => {
           if (tab === 'agent-chat') {
@@ -112,6 +165,12 @@ function MainAppContent() {
         return <ModelRoutingView />;
       case 'users-roles':
         return <UserManagement />;
+      case 'role-management':
+        return <RoleManagement />;
+      case 'department-management':
+        return <DepartmentManagement />;
+      case 'menu-management':
+        return <MenuManagement />;
       case 'evaluation':
         return <EvaluationPage />;
       case 'token-usage':
@@ -128,6 +187,8 @@ function MainAppContent() {
         return <DesensitizationManagement />;
       case 'execution-tracing':
         return <ExecutionTracingView />;
+      case 'conversation-history':
+        return <ConversationHistory />;
       default:
         return <DashboardView onNavigate={setActiveTab} />;
     }
@@ -150,6 +211,7 @@ function MainAppContent() {
       activeTab={activeTab}
       setActiveTab={setActiveTab}
       currentUser={user}
+      menus={menus}
       onLogout={logout}
     >
       {renderContent()}

@@ -1,7 +1,8 @@
 import logging
-from typing import AsyncGenerator
-from sqlalchemy import exc as sqlalchemy_exc, text
+from typing import AsyncGenerator, Generator
+from sqlalchemy import exc as sqlalchemy_exc, text, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session, sessionmaker
 from app.config import settings
 
 logger = logging.getLogger("app.database")
@@ -21,6 +22,21 @@ async_session_factory = async_sessionmaker(
     autocommit=False
 )
 
+# Sync engine for operations that require synchronous session
+sync_engine = create_engine(
+    settings.database_url.replace("+asyncpg", ""),
+    echo=False,
+    pool_pre_ping=True,
+)
+
+sync_session_factory = sessionmaker(
+    bind=sync_engine,
+    class_=Session,
+    expire_on_commit=False,
+    autoflush=False,
+    autocommit=False
+)
+
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency: yields a database session with auto-commit/rollback."""
@@ -34,6 +50,23 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
+
+
+def get_sync_db() -> Generator[Session, None, None]:
+    """FastAPI dependency: yields a synchronous database session."""
+    session = sync_session_factory()
+    try:
+        yield session
+        session.commit()
+    except sqlalchemy_exc.SQLAlchemyError:
+        logger.exception("Database error, rolling back")
+        session.rollback()
+        raise
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 async def close_db():

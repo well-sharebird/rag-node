@@ -20,10 +20,6 @@ class ModelConfig(Base):
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Connection settings
-    api_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    api_key: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-
     # Model parameters (stored as JSON for flexibility)
     max_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     temperature: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

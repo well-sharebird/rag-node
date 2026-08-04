@@ -202,3 +202,120 @@ async def search_conversations(
 
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+
+async def create_or_update_conversation_from_agent(
+    db: AsyncSession,
+    user_id: int,
+    session_id: str,
+    agent_id: Optional[str] = None,
+    title: Optional[str] = None,
+    messages: Optional[List[dict]] = None,
+    kb_ids: Optional[List[str]] = None,
+) -> Conversation:
+    """
+    从 Agent 执行结果创建或更新会话
+
+    用于 Agent 执行后自动保存会话历史
+
+    Args:
+        db: 数据库会话
+        user_id: 用户 ID
+        session_id: 会话 ID（用于标识同一轮对话）
+        agent_id: Agent ID
+        title: 会话标题（可选，默认用第一条消息生成）
+        messages: 消息列表 [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+        kb_ids: 绑定的知识库 ID 列表
+
+    Returns:
+        Conversation: 创建或更新的会话记录
+    """
+    from sqlalchemy import select
+
+    # 尝试查找已存在的会话（通过 session_id 关联）
+    # 这里使用 metadata_json 存储 session_id
+    existing = await db.execute(
+        select(Conversation)
+        .where(Conversation.user_id == user_id)
+        .where(Conversation.is_active == True)
+        .order_by(Conversation.created_at.desc())
+        .limit(100)
+    )
+    conversations = existing.scalars().all()
+
+    # 查找匹配的 session_id
+    target_conv = None
+    for conv in conversations:
+        if conv.metadata_json:
+            import json
+            try:
+                metadata = json.loads(conv.metadata_json)
+                if metadata.get("session_id") == session_id:
+                    target_conv = conv
+                    break
+            except:
+                pass
+
+    if target_conv:
+        # 更新现有会话
+        if messages:
+            # 添加新消息
+            for msg in messages:
+                conversation_message = ConversationMessage(
+                    conversation_id=target_conv.id,
+                    role=msg.get("role", "user"),
+                    content=msg.get("content", ""),
+                    message_index=target_conv.message_count + 1,
+                )
+                db.add(conversation_message)
+                target_conv.message_count += 1
+            target_conv.last_message_at = datetime.utcnow()
+
+        # 更新标题（如果提供了新标题且当前标题为空或为默认值）
+        if title and (not target_conv.title or target_conv.title == "新对话"):
+            target_conv.title = title
+
+        await db.commit()
+        await db.refresh(target_conv)
+        logger.info("Conversation updated | id=%s user=%s", target_conv.id, user_id)
+        return target_conv
+    else:
+        # 创建新会话
+        conv_title = title or "新对话"
+        if messages and messages[0].get("role") == "user":
+            # 用用户问题前 50 字作为标题
+            first_msg = messages[0].get("content", "")[:50]
+            if first_msg:
+                conv_title = first_msg
+
+        conversation = Conversation(
+            user_id=user_id,
+            title=conv_title,
+            kb_ids=json.dumps(kb_ids) if kb_ids else None,
+            is_active=True,
+            is_archived=False,
+            message_count=0,
+            metadata_json=json.dumps({"session_id": session_id, "agent_id": agent_id}) if agent_id or session_id else None,
+        )
+
+        db.add(conversation)
+        await db.flush()  # 获取生成的 ID
+
+        # 添加消息
+        if messages:
+            for idx, msg in enumerate(messages):
+                conversation_message = ConversationMessage(
+                    conversation_id=conversation.id,
+                    role=msg.get("role", "user"),
+                    content=msg.get("content", ""),
+                    message_index=idx + 1,
+                )
+                db.add(conversation_message)
+            conversation.message_count = len(messages)
+            conversation.last_message_at = datetime.utcnow()
+
+        await db.commit()
+        await db.refresh(conversation)
+
+        logger.info("Conversation created | id=%s user=%s", conversation.id, user_id)
+        return conversation

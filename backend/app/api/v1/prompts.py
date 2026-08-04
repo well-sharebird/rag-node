@@ -13,10 +13,17 @@ from typing import Annotated, List
 
 # Helper for multiple role checking
 def require_any_role(*role_names: str):
-    """Require any of the specified roles"""
+    """Require any of the specified roles. Superusers and super_admin always have access."""
     async def role_checker(
         current_user: Annotated[User, Depends(get_current_user)],
     ) -> User:
+        # Superusers always have access
+        if current_user.is_superuser:
+            return current_user
+        # super_admin role always has access
+        if current_user.has_role("super_admin"):
+            return current_user
+        # Check if user has any of the required roles
         user_roles = {r.name for r in current_user.roles}
         if not any(role in user_roles for role in role_names):
             raise HTTPException(

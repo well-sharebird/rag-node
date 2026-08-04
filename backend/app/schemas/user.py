@@ -119,3 +119,33 @@ class PermissionCreate(BaseModel):
 class RolePermissionAssignRequest(BaseModel):
     """Assign permissions to role request"""
     permission_ids: List[int] = Field(..., min_length=1)
+
+
+class RoleMenuAssignRequest(BaseModel):
+    """Assign menus to role request"""
+    menu_ids: List[int] = Field(..., min_length=1)
+
+
+class RoleCreate(BaseModel):
+    """Role creation request"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = None
+    tenant_id: Optional[str] = None
+
+
+class RoleUpdate(BaseModel):
+    """Role update request"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    menu_ids: Optional[List[int]] = None
+    permission_ids: Optional[List[int]] = None
+
+
+class RoleDetailResponse(RoleResponse):
+    """Role detail response with permissions and menus"""
+    permissions: List[PermissionResponse] = []
+    menus: List["MenuResponse"] = []
+
+
+# Import MenuResponse to avoid circular import
+from app.schemas.menu import MenuResponse

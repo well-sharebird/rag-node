@@ -74,10 +74,6 @@ class ModelConfigBase(BaseModel):
     provider: str = Field(..., description="Model provider code")
     description: Optional[str] = Field(None, max_length=500)
 
-    # Connection settings
-    api_url: Optional[str] = Field(None, max_length=500)
-    api_key: Optional[str] = Field(None, max_length=500)
-
     # Model parameters
     max_tokens: Optional[int] = Field(None, ge=1)
     temperature: Optional[float] = Field(None, ge=0, le=2)
@@ -117,10 +113,6 @@ class ModelConfigResponse(BaseModel):
     adapter_type: str
     provider: str
     description: Optional[str] = None
-
-    # Connection settings
-    api_url: Optional[str] = None
-    api_key: Optional[str] = None
 
     # Model parameters
     max_tokens: Optional[int] = None
@@ -166,8 +158,6 @@ class ModelConfigResponse(BaseModel):
             "adapter_type": obj.adapter_type,
             "provider": obj.provider,
             "description": obj.description,
-            "api_url": obj.api_url,
-            "api_key": obj.api_key,
             "max_tokens": obj.max_tokens,
             "temperature": obj.temperature,
             "top_p": obj.top_p,
@@ -197,8 +187,6 @@ class ModelConfigCreate(BaseModel):
     adapter_type: str = Field(..., description="Adapter type (api, ollama, vllm, etc.)")
     provider: str = Field(..., description="Model provider code")
     description: Optional[str] = Field(None, max_length=500)
-    api_url: Optional[str] = Field(None, max_length=500)
-    api_key: Optional[str] = Field(None, max_length=500)
     max_tokens: Optional[int] = Field(None, ge=1)
     temperature: Optional[float] = Field(None, ge=0, le=2)
     top_p: Optional[float] = Field(None, ge=0, le=1)
@@ -222,8 +210,6 @@ class ModelConfigUpdate(BaseModel):
     adapter_type: Optional[str] = None  # Accept string instead of Enum for easier updates
     provider: Optional[str] = None
     description: Optional[str] = None
-    api_url: Optional[str] = None
-    api_key: Optional[str] = None  # Empty string means "don't change"
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None

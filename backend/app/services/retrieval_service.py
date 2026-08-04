@@ -29,13 +29,14 @@ async def _resolve_embedding_params(db: AsyncSession) -> dict | None:
 
     model = await resolve_embedding_config(db)
     if model:
-        return model_config_to_embedding_params(model)
+        return await model_config_to_embedding_params(db, model)
 
     logger.warning("No embedding model configured in model_configs")
     return None
 
 
 async def _rerank_results(
+    db: AsyncSession,
     query: str,
     hits: list[dict],
     top_n: int = 3,
@@ -46,54 +47,60 @@ async def _rerank_results(
     Returns original hits if no rerank model is available.
     """
     from app.core.database import async_session_factory
-    from app.services.model_config_service import resolve_rerank_config
+    from app.services.model_config_service import resolve_rerank_config, get_provider_config
     import httpx
 
     try:
-        async with async_session_factory() as session:
-            model = await resolve_rerank_config(session)
+        model = await resolve_rerank_config(db)
 
-            if not model or not model.is_enabled:
-                return hits[:top_n]
-
-            if model.adapter_type == "api" and model.api_url:
-                base_url = model.api_url.rstrip('/')
-                if base_url.endswith('/v1'):
-                    rerank_url = f"{base_url}/rerank"
-                else:
-                    rerank_url = f"{base_url}/v1/rerank"
-
-                documents = [h["content"][:1000] for h in hits]
-                async with httpx.AsyncClient(timeout=30) as client:
-                    headers = {}
-                    if model.api_key:
-                        headers["Authorization"] = f"Bearer {model.api_key}"
-                    response = await client.post(
-                        rerank_url,
-                        json={
-                            "model": model.model_id,
-                            "query": query,
-                            "documents": documents,
-                            "top_n": top_n,
-                        },
-                        headers=headers,
-                    )
-                    if response.status_code == 200:
-                        data = response.json()
-                        results = data.get("results", [])
-                        reordered = []
-                        for r in results:
-                            idx = r.get("index", 0)
-                            if idx < len(hits):
-                                hits[idx]["score"] = r.get("relevance_score", hits[idx]["score"])
-                                reordered.append(hits[idx])
-                        logger.info("Reranked results from %d to %d", len(hits), len(reordered))
-                        return reordered[:top_n]
-                    else:
-                        logger.warning("Rerank API returned %d: %s", response.status_code, response.text[:200])
-                        return hits[:top_n]
-
+        if not model or not model.is_enabled:
             return hits[:top_n]
+
+        # Get provider config for base_url and api_key
+        provider_config = await get_provider_config(db, model.provider)
+        base_url = provider_config["base_url"] if provider_config else ""
+        api_key = provider_config["api_key"] if provider_config else ""
+
+        if not base_url:
+            logger.warning("Rerank model has no base_url configured")
+            return hits[:top_n]
+
+        # Build rerank URL
+        base_url = base_url.rstrip('/')
+        if base_url.endswith('/v1'):
+            rerank_url = f"{base_url}/rerank"
+        else:
+            rerank_url = f"{base_url}/v1/rerank"
+
+        documents = [h["content"][:1000] for h in hits]
+        async with httpx.AsyncClient(timeout=30) as client:
+            headers = {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            response = await client.post(
+                rerank_url,
+                json={
+                    "model": model.model_id,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": top_n,
+                },
+                headers=headers,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                results = data.get("results", [])
+                reordered = []
+                for r in results:
+                    idx = r.get("index", 0)
+                    if idx < len(hits):
+                        hits[idx]["score"] = r.get("relevance_score", hits[idx]["score"])
+                        reordered.append(hits[idx])
+                logger.info("Reranked results from %d to %d", len(hits), len(reordered))
+                return reordered[:top_n]
+            else:
+                logger.warning("Rerank API returned %d: %s", response.status_code, response.text[:200])
+                return hits[:top_n]
 
     except Exception as e:
         logger.warning("Rerank failed, using original results: %s", e)
@@ -161,7 +168,7 @@ async def search_chunks(db: AsyncSession, redis: aioredis.Redis, milvus, data: S
 
     # Rerank if configured and enabled
     if enable_rerank and len(hits) > 1:
-        hits = await _rerank_results(data.query, hits, top_n=rerank_top_n)
+        hits = await _rerank_results(db, data.query, hits, top_n=rerank_top_n)
 
     # Apply user's min_score filter to final (reranked) results
     hits = [h for h in hits if h.get("score", h.get("distance", 0)) >= min_score]

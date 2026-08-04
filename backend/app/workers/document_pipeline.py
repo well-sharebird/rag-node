@@ -67,7 +67,7 @@ async def resolve_embedding_params() -> dict:
             model = await resolve_embedding_config(session)
             if model:
                 logger.info("Using default embedding model: %s", model.name)
-                return _model_to_params(model)
+                return await _model_to_params(model, session)
 
             # Try any enabled embedding model
             result = await session.execute(
@@ -87,7 +87,7 @@ async def resolve_embedding_params() -> dict:
                     .values(is_default=True)
                 )
                 await session.commit()
-                return _model_to_params(model)
+                return await _model_to_params(model, session)
 
     except Exception as e:
         logger.warning("Failed to resolve embedding from model_configs: %s", e)
@@ -98,13 +98,24 @@ async def resolve_embedding_params() -> dict:
     )
 
 
-def _model_to_params(model) -> dict:
+async def _model_to_params(model, session) -> dict:
     """Convert ModelConfig to embedding service parameters."""
+    from app.services.model_config_service import get_provider_config
+
+    # Get provider config (base_url, api_key)
+    provider_config = await get_provider_config(session, model.provider)
+
+    api_url = ""
+    api_key = ""
+    if provider_config:
+        api_url = provider_config.get("base_url", "")
+        api_key = provider_config.get("api_key", "")
+
     return {
         "provider": model.adapter_type,
         "model_name": model.model_id,
-        "api_url": model.api_url or "",
-        "api_key": model.api_key or "",
+        "api_url": api_url,
+        "api_key": api_key,
         "dim": model.embedding_dim or 1024,
         "dimension": model.embedding_dim or 1024,  # Alias for compatibility
     }

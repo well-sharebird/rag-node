@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KnowRAG 3D 架构图</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { overflow:hidden; background:#0d1117; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  #container { width:100vw; height:100vh; }
+  #hint {
+    position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:100;
+    color:rgba(255,255,255,.28); font-size:11px; pointer-events:none;
+    letter-spacing:1px;
+  }
+</style>
+</head>
+<body>
+<div id="container"></div>
+<div id="hint">🖱 拖拽旋转 &nbsp;|&nbsp; 滚轮缩放 &nbsp;|&nbsp; 右键平移</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://esm.sh/three@0.160.0",
+    "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ── 场景 ── */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+
+/* ── 相机 ── */
+const camera = new THREE.PerspectiveCamera(40, innerWidth/innerHeight, 0.1, 80);
+camera.position.set(9, 2, 14);
+camera.lookAt(0, 0, 0);
+
+/* ── 渲染器 ── */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+document.getElementById('container').appendChild(renderer.domElement);
+
+/* ── 操控 ── */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.25;
+controls.minDistance = 7;
+controls.maxDistance = 30;
+controls.maxPolarAngle = Math.PI * 0.65;
+controls.target.set(0, 0, 0);
+controls.update();
+
+/* ── 灯光 ── */
+scene.add(new THREE.AmbientLight(0x222833, 1.0));
+const key = new THREE.DirectionalLight(0xffffff, 0.7);
+key.position.set(6, 14, 8);
+key.castShadow = true;
+key.shadow.mapSize.set(1024, 1024);
+key.shadow.camera.near = 0.5; key.shadow.camera.far = 50;
+key.shadow.camera.left = -18; key.shadow.camera.right = 18;
+key.shadow.camera.top = 18; key.shadow.camera.bottom = -18;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x8899bb, 0.25);
+fill.position.set(-4, 2, -4);
+scene.add(fill);
+
+/* ── 底部网格 ── */
+const gridGeo = new THREE.PlaneGeometry(50, 50);
+const gridMat = new THREE.MeshBasicMaterial({ color: 0x1a2030, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+const grid = new THREE.Mesh(gridGeo, gridMat);
+grid.rotation.x = -Math.PI / 2;
+grid.position.y = -5.6;
+scene.add(grid);
+
+/* GridHelper 浅灰线 */
+const gh = new THREE.GridHelper(50, 40, 0x1e2a3a, 0x141c26);
+gh.position.y = -5.55;
+scene.add(gh);
+
+/* ── 标签工厂 ── */
+function label(text, color, w, h) {
+  w = w || 1024; h = h || 200;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+
+  /* 深色圆角背景 */
+  const r = 20;
+  ctx.fillStyle = 'rgba(13,17,23,0.9)';
+  ctx.beginPath();
+  ctx.moveTo(r, 0); ctx.lineTo(w - r, 0);
+  ctx.quadraticCurveTo(w, 0, w, r);
+  ctx.lineTo(w, h - r);
+  ctx.quadraticCurveTo(w, h, w - r, h);
+  ctx.lineTo(r, h);
+  ctx.quadraticCurveTo(0, h, 0, h - r);
+  ctx.lineTo(0, r);
+  ctx.quadraticCurveTo(0, 0, r, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  /* 文字 */
+  ctx.fillStyle = color || '#ffffff';
+  ctx.font = 'bold 52px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, w / 2, h / 2);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false }));
+}
+
+function smallLabel(t, c) { return label(t, c, 700, 150); }
+
+/* ── 层级定义 ── */
+const layers = [
+  { y: 3.8, color: '#58a6ff', dark: '#1a3a5c', name: '表现层',     items: ['React 19', 'Vite 6', 'Tailwind v4', 'shadcn/ui'] },
+  { y: 1.9, color: '#a371f7', dark: '#2d1d5c', name: '应用与编排',  items: ['FastAPI', 'Agent 引擎', '模型网关', 'LangGraph'] },
+  { y: 0.0, color: '#3fb950', dark: '#1a3a1a', name: '服务与处理',  items: ['RAG 引擎', 'LLM 服务', 'Embedding', '文档解析'] },
+  { y:-1.9, color: '#d29922', dark: '#3d2a0a', name: '数据与存储',  items: ['PostgreSQL', 'Milvus', 'Redis', 'Neo4j', 'Kafka'] },
+  { y:-3.8, color: '#f85149', dark: '#3d1a1a', name: '外部 LLM',   items: ['Gemini', 'OpenAI', 'Claude', 'Ollama'] },
+];
+
+/* ── 构建层级 ── */
+const layerY = [];
+layers.forEach((l, idx) => {
+  layerY.push(l.y);
+  const col = new THREE.Color(l.color);
+  const dk = new THREE.Color(l.dark);
+
+  /* 平台 */
+  const pg = new THREE.BoxGeometry(11, 0.2, 4.5);
+  const pm = new THREE.MeshStandardMaterial({
+    color: dk, roughness: 0.25, metalness: 0.4,
+    transparent: true, opacity: 0.7,
+    emissive: dk, emissiveIntensity: 0.15
+  });
+  const plat = new THREE.Mesh(pg, pm);
+  plat.position.y = l.y;
+  plat.receiveShadow = true;
+  scene.add(plat);
+
+  /* 边框 */
+  const eg = new THREE.EdgesGeometry(pg);
+  const em = new THREE.LineBasicMaterial({ color: col, transparent: true, opacity: 0.55 });
+  const el = new THREE.LineSegments(eg, em);
+  el.position.y = l.y;
+  scene.add(el);
+
+  /* 层级标题 */
+  const tl = label(l.name, l.color, 900, 170);
+  tl.position.set(-7.3, l.y + 0.1, 0);
+  tl.scale.set(3.2, 0.6, 1);
+  scene.add(tl);
+
+  /* 组件盒子 */
+  const n = l.items.length, span = 8.5, sp = span / n;
+  for (let i = 0; i < n; i++) {
+    const x = -4.25 + sp * (i + 0.5);
+    const bg = new THREE.BoxGeometry(1.3, 0.55, 1.3);
+    /* 实心底色盒子 */
+    const bm = new THREE.MeshStandardMaterial({
+      color: col, roughness: 0.3, metalness: 0.3,
+      transparent: true, opacity: 0.55,
+      emissive: col, emissiveIntensity: 0.15
+    });
+    const box = new THREE.Mesh(bg, bm);
+    box.position.set(x, l.y + 0.42, 0);
+    box.castShadow = true;
+    scene.add(box);
+
+    /* 组件名 */
+    const il = smallLabel(l.items[i], '#ffffff');
+    il.position.set(x, l.y + 0.95, 0);
+    il.scale.set(1.8, 0.38, 1);
+    scene.add(il);
+  }
+});
+
+/* ── 数据流转柱（核心视觉，不花哨但清晰） ── */
+// 透明外管 + 内部流动光点
+const flowColumns = [
+  { x: -3.0, z: 0.5 },
+  { x: 0, z: 0.8 },
+  { x: 3.0, z: 0.5 },
+  { x: -1.8, z: -1.0 },
+  { x: 1.8, z: -1.0 },
+];
+
+const flowGroup = new THREE.Group();
+const flowPoints = []; // 内部流动光点
+
+flowColumns.forEach(col => {
+  /* 外管 — 半透明浅灰管线 */
+  const tubeH = 8.0;
+  const tubeGeo = new THREE.CylinderGeometry(0.09, 0.09, tubeH, 12, 1, true);
+  const tubeMat = new THREE.MeshStandardMaterial({
+    color: 0x334466, roughness: 0.3, metalness: 0.5,
+    transparent: true, opacity: 0.5,
+    side: THREE.DoubleSide
+  });
+  const tube = new THREE.Mesh(tubeGeo, tubeMat);
+  tube.position.set(col.x, 0, col.z);
+  flowGroup.add(tube);
+
+  /* 顶底环（标示管道入口 / 出口） */
+  [3.8, -3.8].forEach(ty => {
+    const ringGeo = new THREE.TorusGeometry(0.15, 0.04, 8, 24);
+    const ringMat = new THREE.MeshStandardMaterial({
+      color: 0x4F7BE5, roughness: 0.2, metalness: 0.9,
+      emissive: 0x4F7BE5, emissiveIntensity: 0.4
+    });
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.set(col.x, ty, col.z);
+    ring.rotation.x = Math.PI / 2;
+    flowGroup.add(ring);
+  });
+
+  /* 内部流动光点 */
+  for (let i = 0; i < 8; i++) {
+    const sg = new THREE.SphereGeometry(0.07, 8, 8);
+    const sm = new THREE.MeshStandardMaterial({
+      color: 0x4F7BE5, roughness: 0.1, metalness: 0.9,
+      emissive: 0x4F7BE5, emissiveIntensity: 0.9
+    });
+    const s = new THREE.Mesh(sg, sm);
+    s.position.set(col.x, 3.8 - Math.random() * 8, col.z);
+    s.userData = { x: col.x, z: col.z, speed: 0.015 + Math.random() * 0.03 };
+    flowGroup.add(s);
+    flowPoints.push(s);
+  }
+});
+
+scene.add(flowGroup);
+
+/* ── 层间连接节点（每层边缘的发光小球，标明数据进出点） ── */
+layers.forEach((l, idx) => {
+  flowColumns.forEach(col => {
+    const ng = new THREE.SphereGeometry(0.12, 10, 10);
+    const nm = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(l.color), roughness: 0.1, metalness: 0.8,
+      emissive: new THREE.Color(l.color), emissiveIntensity: 0.5
+    });
+    const node = new THREE.Mesh(ng, nm);
+    node.position.set(col.x, l.y, col.z);
+    scene.add(node);
+  });
+});
+
+/* ── 主标题 ── */
+const mainT = label('KnowRAG 企业 RAG 平台 · 系统架构', '#4F7BE5', 1600, 220);
+mainT.position.set(0, 5.5, 0);
+mainT.scale.set(5.8, 0.8, 1);
+scene.add(mainT);
+
+/* ── 可观测性侧栏 ── */
+const obsColor = '#8b9ab8';
+const obsX = 7.8;
+const obsItems = ['Prometheus', 'Grafana', '审计日志', '性能监控'];
+
+/* 侧栏底板 */
+const obg = new THREE.BoxGeometry(1.6, 7.0, 2.0);
+const obm = new THREE.MeshStandardMaterial({
+  color: 0x1a2530, roughness: 0.3, metalness: 0.4,
+  transparent: true, opacity: 0.7
+});
+const obox = new THREE.Mesh(obg, obm);
+obox.position.set(obsX, 0, 0);
+scene.add(obox);
+
+const oeg = new THREE.EdgesGeometry(obg);
+const oem = new THREE.LineBasicMaterial({ color: obsColor, transparent: true, opacity: 0.35 });
+const oel = new THREE.LineSegments(oeg, oem);
+oel.position.copy(obox.position);
+scene.add(oel);
+
+const oT = label('可观测性', obsColor, 650, 140);
+oT.position.set(obsX, 4.1, 0);
+oT.scale.set(2.4, 0.5, 1);
+scene.add(oT);
+
+obsItems.forEach((item, i) => {
+  const oy = 2.4 - i * 1.8;
+  const bg = new THREE.BoxGeometry(1.1, 0.5, 1.1);
+  const bm = new THREE.MeshStandardMaterial({
+    color: 0x263040, roughness: 0.3, metalness: 0.3,
+    transparent: true, opacity: 0.7
+  });
+  const b = new THREE.Mesh(bg, bm);
+  b.position.set(obsX, oy, 0);
+  scene.add(b);
+  const il = smallLabel(item, '#ccd6ff');
+  il.position.set(obsX, oy + 0.5, 0);
+  il.scale.set(1.5, 0.32, 1);
+  scene.add(il);
+});
+
+/* ── 动画 ── */
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+
+  flowPoints.forEach(p => {
+    p.position.y -= p.userData.speed;
+    if (p.position.y < -4.0) p.position.y = 4.0;
+  });
+
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>

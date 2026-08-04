@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { fetchApi } from '@/lib/api-client';
 import { getApiUrl } from '@/src/lib/env';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
-import { cn } from '@/lib/utils';
+import { cn, formatRelativeTime } from '@/lib/utils';
 import {
   Cpu, Plus, Search, Trash2, Loader2, Server, RefreshCw, Edit,
   MessageSquare, Zap, Terminal, AlertCircle, Settings,
@@ -36,7 +36,6 @@ interface ModelProvider {
   api_key_name?: string;
   api_key?: string;  // 后端返回的掩码值（如 sk-D••••••yjlg），仅用于展示
   is_enabled: boolean;
-  is_default: boolean;
   status: string;
   health_status?: string;
   created_at: string;
@@ -1119,14 +1118,22 @@ export function ModelManagement() {
                         </span>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className={cn(
-                            "w-2 h-2 rounded-full",
-                            model.status === 'active' ? 'bg-green-500' : 'bg-red-500'
-                          )} />
-                          <span className="text-[13px] text-[var(--text-secondary)]">
-                            {model.status}
-                          </span>
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full",
+                              model.status === 'active' ? 'bg-green-500' :
+                              model.status === 'error' ? 'bg-red-500' : 'bg-gray-400'
+                            )} />
+                            <span className="text-[13px] text-[var(--text-secondary)]">
+                              {model.status}
+                            </span>
+                          </div>
+                          {model.last_tested_at && (
+                            <span className="text-[10px] text-[var(--text-tertiary)] ml-4">
+                              检测于 {formatRelativeTime(model.last_tested_at)}
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4">

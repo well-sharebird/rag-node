@@ -36,6 +36,9 @@ class User(Base):
     is_superuser: Mapped[bool] = mapped_column(Boolean, default=False)
     tenant_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
 
+    # 主部门 ID
+    primary_dept_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
+
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -47,6 +50,8 @@ class User(Base):
     audit_logs = relationship("AuditLog", back_populates="user")
     token_usages = relationship("TokenUsage", back_populates="user")
     quota = relationship("UserQuota", back_populates="user", uselist=False)
+    primary_department = relationship("Department", foreign_keys=[primary_dept_id], back_populates="primary_members")
+    dept_memberships = relationship("UserDepartment", back_populates="user", cascade="all, delete-orphan")
 
     def has_role(self, role_name: str) -> bool:
         """Check if user has a specific role"""
@@ -71,7 +76,8 @@ class Role(Base):
 
     # Relationships
     users = relationship("User", secondary=user_roles, back_populates="roles")
-    permissions = relationship("Permission", secondary=role_permissions, back_populates="roles")
+    permissions = relationship("Permission", secondary=role_permissions, back_populates="roles", lazy="joined")
+    menus = relationship("Menu", secondary="role_menus", back_populates="roles")
 
 
 class Permission(Base):

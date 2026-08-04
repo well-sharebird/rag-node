@@ -4,12 +4,12 @@ import { useAppContext } from '@/lib/app-context';
 import { useAuth } from '@/src/lib/auth-context';
 import { useI18n } from '@/src/lib/i18n';
 import { toast } from 'sonner';
-import { Send, Bot, User, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, ChevronDown, ChevronRight, AtSign, Check, Cpu, ChevronUp } from 'lucide-react';
+import { Send, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, AtSign, Check, Cpu, ChevronUp, ChevronDown } from 'lucide-react';
 import { SourcePanel } from './SourcePanel';
 import { cn } from '@/lib/utils';
-import { MarkdownRenderer } from './MarkdownRenderer';
-import { submitFeedback } from '@/lib/api-client';
+import { submitFeedback, createConversation, addMessageToConversation } from '@/lib/api-client';
 import { getApiUrl } from '@/src/lib/env';
+import { ChatMessageList, type ChatMessage as ChatMessageType } from './ChatMessageList';
 
 interface Citation {
   index: number;
@@ -98,15 +98,18 @@ export function QAChatView() {
   const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [allCitations, setAllCitations] = useState<Citation[]>([]);
 
+  // Session management state
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [isSavingMessage, setIsSavingMessage] = useState(false);
+
   // Model selection state
   const [availableModels, setAvailableModels] = useState<ModelConfig[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string>(''); // 存储模型的 model_id 字符串
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
-  // Agent state - 用于 QAChat 的 AI 助手 Agent
-  const [aiAssistantAgentId, setAiAssistantAgentId] = useState<string>('');
-  const [isLoadingAgent, setIsLoadingAgent] = useState(false);
+  // 注意：AI 助手使用 Meta Agent 接口 (/api/v1/agents/meta/execute/stream)
+  // 不需要预先加载 agent_id，直接在请求时调用即可
 
   // @ mention selector state
   const [showKbSelector, setShowKbSelector] = useState(false);
@@ -135,8 +138,7 @@ export function QAChatView() {
         setAvailableModels(llmModels);
         // Set default model (first one or previously selected) - store model_id string
         if (llmModels.length > 0 && !selectedModelId) {
-          const defaultModel = llmModels.find((m: ModelConfig) => m.is_enabled && m.is_default) || llmModels[0];
-          setSelectedModelId(defaultModel.model_id); // 使用 model_id 字符串而不是数字 id
+          setSelectedModelId(llmModels[0].model_id); // 使用 model_id 字符串
         }
       } catch (e: any) {
         console.error('Failed to load models:', e);
@@ -145,36 +147,6 @@ export function QAChatView() {
       }
     };
     loadModels();
-  }, [token]);
-
-  // Load AI Assistant Agent ID - 使用"智能体助手"，它有创建智能体的能力
-  useEffect(() => {
-    const loadAiAssistant = async () => {
-      setIsLoadingAgent(true);
-      try {
-        // 获取所有 Agent，查找智能体助手
-        const data = await fetch(getApiUrl('/api/v1/agents'), {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-          },
-        }).then(res => res.json());
-        const agents = Array.isArray(data) ? data : [];
-        // 优先使用"智能体助手"，它有创建智能体的工具
-        const agent = agents.find((a: any) => a.name === '智能体助手') ||
-                      agents.find((a: any) => a.name === 'AI 助手');
-        if (agent) {
-          setAiAssistantAgentId(agent.id);
-          console.log('Assistant Agent loaded:', agent.id, agent.name);
-        } else {
-          console.warn('Assistant Agent not found, will use direct LLM call');
-        }
-      } catch (e: any) {
-        console.error('Failed to load Assistant Agent:', e);
-      } finally {
-        setIsLoadingAgent(false);
-      }
-    };
-    loadAiAssistant();
   }, [token]);
 
   // Close KB selector on Escape
@@ -198,10 +170,63 @@ export function QAChatView() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showModelSelector]);
 
+  // 每次进入 AI 助手页面都创建新会话（即使刷新页面也创建新的）
+  useEffect(() => {
+    // 不检查 currentSessionId，每次都创建新的
+    createNewSession();
+  }, []);
+
+  // Create new session
+  const createNewSession = async () => {
+    try {
+      const newSession = await createConversation({ title: '新对话' });
+      setCurrentSessionId(newSession.id);
+      setMessages([]);
+      setAllCitations([]);
+    } catch (e: any) {
+      console.error('Failed to create session:', e);
+    }
+  };
+
+  // Save message to current session
+  const saveMessageToSession = async (role: string, content: string, sources?: any[], modelUsed?: string, latencyMs?: number) => {
+    if (!currentSessionId || isSavingMessage) {
+      console.log('Skip saving: currentSessionId=', currentSessionId, 'isSavingMessage=', isSavingMessage);
+      return;
+    }
+    try {
+      setIsSavingMessage(true);
+      console.log('Saving message to session', currentSessionId, role, content.substring(0, 50));
+      await addMessageToConversation(currentSessionId, {
+        role,
+        content,
+        sources,
+        model_used: modelUsed,
+        latency_ms: latencyMs,
+      });
+      console.log('Message saved successfully');
+    } catch (e: any) {
+      console.error('Failed to save message to session:', e);
+    } finally {
+      setIsSavingMessage(false);
+    }
+  };
+
   const handleSend = async () => {
     if (!input.trim()) {
       return;
     }
+
+    // 等待会话创建完成
+    if (!currentSessionId) {
+      console.log('Waiting for session to be created...');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      if (!currentSessionId) {
+        toast.error('会话创建中，请稍后');
+        return;
+      }
+    }
+
     const query = input.trim();
     setInput('');
 
@@ -232,50 +257,28 @@ export function QAChatView() {
       // 确保模型名称正确传递 - 使用 model_id 而不是 name
       const modelName = availableModels.find(m => m.model_id === selectedModelId)?.model_id || availableModels[0]?.model_id;
 
-      // 使用 Agent 接口进行问答，如果没有 AI 助手 Agent，则回退到直接 LLM 调用
-      let res: Response;
-      if (aiAssistantAgentId) {
-        // 使用 Agent 接口
-        const requestBody: any = {
-          query,
-          kb_ids: useRAG ? selectedKbs : undefined,
-          top_k: 5,
-          enable_rerank: useRAG,
-        };
-        // 只在有选择模型时传递 model_name，让 Agent 使用默认配置
-        if (modelName) {
-          requestBody.model_name = modelName;
-        }
-
-        res = await fetch(getApiUrl(`/api/v1/agents/${aiAssistantAgentId}/execute/stream`), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify(requestBody),
-          signal: abortControllerRef.current.signal,
-        });
-      } else {
-        // 回退到直接 LLM 调用
-        res = await fetch(getApiUrl('/api/v1/chat/completions'), {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            query,
-            kb_ids: useRAG ? selectedKbs : [],
-            top_k: 5,
-            enable_rerank: useRAG,
-            enable_expansion: useRAG,
-            stream: true,
-            model_id: modelName,
-          }),
-          signal: abortControllerRef.current.signal,
-        });
+      // 使用 Meta Agent 接口进行问答（系统内置的 AI 助手入口，不需要 agent_id）
+      const requestBody: any = {
+        query,
+        kb_ids: useRAG ? selectedKbs : undefined,
+        top_k: 5,
+        enable_rerank: useRAG,
+      };
+      // 只在有选择模型时传递 model_name，让 Agent 使用默认配置
+      if (modelName) {
+        requestBody.model_name = modelName;
       }
+
+      // 使用 Meta Agent 接口：/api/v1/agents/meta/execute/stream
+      const res = await fetch(getApiUrl('/api/v1/agents/meta/execute/stream'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+        signal: abortControllerRef.current.signal,
+      });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -305,6 +308,8 @@ export function QAChatView() {
           if (line.startsWith('data: ')) {
             const data = line.slice(6);
             if (data === '[DONE]') continue;
+            // Skip debug lines - they use a different format
+            if (data.startsWith('[DEBUG:')) continue;
 
             try {
               const parsed = JSON.parse(data);
@@ -330,6 +335,15 @@ export function QAChatView() {
                     : msg
                 ));
                 setLoading(false);
+
+                // Save messages to session after streaming completes
+                if (currentSessionId) {
+                  // Save user message and assistant message in parallel
+                  Promise.all([
+                    saveMessageToSession('user', query),
+                    saveMessageToSession('assistant', accumulatedContent, sources, modelName),
+                  ]).catch(err => console.error('Failed to save messages:', err));
+                }
                 continue;
               }
 
@@ -350,6 +364,12 @@ export function QAChatView() {
                   setLoading(false);
                 }
                 setLoading(false);
+                continue;
+              }
+
+              // Handle complete event (Meta Agent 执行完成)
+              if (parsed.type === 'complete') {
+                // 只是标记完成，不改变 UI
                 continue;
               }
 
@@ -691,151 +711,68 @@ export function QAChatView() {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-5 bg-white">
-        {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: '#eeedfe' }}>
-              <Bot className="w-6 h-6" style={{ color: '#534ab7' }} />
-            </div>
-            <p className="font-medium text-[var(--text-secondary)] text-sm">{t('qa.empty.title')}</p>
-            <p className="text-[13px] text-[#9b9b9b] text-center max-w-sm">
-              {selectedKbs.length > 0
-                ? `已选择 ${selectedKbs.length} 个知识库，开始提问吧。`
-                : '未选择知识库，将使用 LLM 直接回答。选择知识库可启用 RAG 检索增强模式。'}
-            </p>
-          </div>
-        ) : (
-          <div className="max-w-3xl mx-auto space-y-4">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : ''}`}>
-                {msg.role === 'assistant' && (
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1" style={{ background: '#eeedfe' }}>
-                    <Bot className="w-3.5 h-3.5" style={{ color: '#534ab7' }} />
-                  </div>
-                )}
-                <div className="max-w-[80%]">
-                  <div
-                    className="rounded-xl px-4 py-2.5 text-[13px] leading-relaxed"
-                    style={
-                      msg.role === 'user'
-                        ? { background: '#534ab7', color: '#fff' }
-                        : { background: '#fff', border: '0.5px solid #e2e1dd' }
-                    }
-                  >
-                    {/* Reasoning / Thinking Process Toggle */}
-                    {msg.role === 'assistant' && msg.reasoning && (
-                      <div className="mb-2">
-                        <button
-                          onClick={() => {
-                            setMessages(prev => prev.map(m =>
-                              m.messageId === msg.messageId
-                                ? { ...m, showReasoning: !m.showReasoning }
-                                : m
-                            ));
-                          }}
-                          className="flex items-center gap-1.5 text-[11px] font-medium mb-1.5 hover:opacity-70 transition-opacity"
-                          style={{ color: '#9b6bff' }}
-                        >
-                          <Brain className="w-3.5 h-3.5" />
-                          {t('qa.reasoning')}
-                          {msg.showReasoning !== false ? (
-                            <ChevronDown className="w-3 h-3" />
-                          ) : (
-                            <ChevronRight className="w-3 h-3" />
-                          )}
-                        </button>
-                        {msg.showReasoning !== false && (
-                          <div
-                            className="rounded-lg px-3 py-2 text-[12px] leading-relaxed italic overflow-auto max-h-48"
-                            style={{
-                              background: '#f8f7ff',
-                              borderLeft: '2px solid #9b6bff',
-                              color: '#6b5b8a',
-                              whiteSpace: 'pre-wrap',
-                            }}
-                          >
-                            {msg.reasoning}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {/* Answer content */}
-                    <MarkdownRenderer content={msg.content} />
-                    {msg.sources && msg.sources.length > 0 && (
-                      <div className="mt-2 pt-2 flex flex-wrap gap-1.5" style={{ borderTop: '0.5px solid #e2e1dd' }}>
-                        {msg.sources.map((s, j) => (
-                          <button
-                            key={j}
-                            onClick={() => {
-                              setSelectedCitation(s);
-                              setSourcePanelOpen(true);
-                            }}
-                            className="text-[11px] px-1.5 py-0.5 rounded cursor-pointer hover:opacity-80 transition-opacity"
-                            style={{ background: '#eeedfe', color: '#534ab7' }}
-                            title={t('qa.viewSource')}
-                          >
-                            [{s.index}] {s.doc_name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {/* Feedback buttons for assistant messages */}
-                  {msg.role === 'assistant' && !msg.isStreaming && (
-                    <div className="flex items-center gap-2 mt-2 ml-1">
-                      {showFeedback === msg.messageId ? (
-                        <>
-                          <button
-                            onClick={() => handleFeedback(msg.messageId!, 'thumbs_up')}
-                            className="text-[11px] px-2 py-1 rounded hover:bg-green-50 text-green-600 flex items-center gap-1"
-                          >
-                            <ThumbsUp className="w-3 h-3" />
-                            {t('feedback.helpful')}
-                          </button>
-                          <button
-                            onClick={() => handleFeedback(msg.messageId!, 'thumbs_down', 'other')}
-                            className="text-[11px] px-2 py-1 rounded hover:bg-red-50 text-red-600 flex items-center gap-1"
-                          >
-                            <ThumbsDown className="w-3 h-3" />
-                            {t('feedback.notHelpful')}
-                          </button>
-                          <button
-                            onClick={() => setShowFeedback(null)}
-                            className="text-[11px] px-2 py-1 rounded hover:bg-gray-100 text-gray-500"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        </>
-                      ) : (
-                        <span className="text-[11px] text-gray-400">{t('qa.feedbackPrompt')}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {msg.role === 'user' && (
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-1" style={{ background: '#f1f0ed' }}>
-                    <User className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                  </div>
-                )}
-              </div>
-            ))}
-            {loading && (
-              <div className="flex items-center gap-2 text-[13px] text-[#9b9b9b] ml-10">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                {t('qa.loading')}
+      <ChatMessageList
+        messages={messages.map((m): ChatMessageType => ({
+          id: m.messageId,
+          role: m.role,
+          content: m.content,
+          reasoning: m.reasoning,
+          showReasoning: m.showReasoning,
+          sources: m.sources,
+          isStreaming: m.isStreaming,
+        }))}
+        loading={loading}
+        onReasoningToggle={(messageId) => {
+          setMessages(prev => prev.map(m =>
+            m.messageId === messageId
+              ? { ...m, showReasoning: m.showReasoning === false }
+              : m
+          ));
+        }}
+        onSourceClick={(sources) => {
+          if (sources && sources.length > 0) {
+            setSelectedCitation(sources[0]);
+            setSourcePanelOpen(true);
+          }
+        }}
+        emptyState={{
+          title: t('qa.empty.title'),
+          description: selectedKbs.length > 0
+            ? `已选择 ${selectedKbs.length} 个知识库，开始提问吧。`
+            : '未选择知识库，将使用 LLM 直接回答。选择知识库可启用 RAG 检索增强模式。',
+        }}
+      />
+
+      {/* Feedback bar - shown after assistant response */}
+      {messages.some(m => m.role === 'assistant' && !m.isStreaming) && (
+        <div className="px-5 py-3 bg-white border-t border-gray-100">
+          <div className="max-w-3xl mx-auto">
+            {messages.filter(m => m.role === 'assistant' && !m.isStreaming).slice(-1)[0] && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">{t('qa.feedbackPrompt')}</span>
                 <button
-                  onClick={handleStop}
-                  className="ml-2 text-[11px] px-2 py-0.5 rounded border hover:bg-gray-50"
-                  style={{ borderColor: '#e2e1dd' }}
+                  onClick={() => {
+                    const lastMsg = messages.filter(m => m.role === 'assistant' && !m.isStreaming).slice(-1)[0];
+                    if (lastMsg) handleFeedback(lastMsg.messageId!, 'thumbs_up');
+                  }}
+                  className="p-1.5 rounded hover:bg-green-50 text-green-600"
                 >
-                  {t('qa.stop')}
+                  <ThumbsUp className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => {
+                    const lastMsg = messages.filter(m => m.role === 'assistant' && !m.isStreaming).slice(-1)[0];
+                    if (lastMsg) handleFeedback(lastMsg.messageId!, 'thumbs_down', 'other');
+                  }}
+                  className="p-1.5 rounded hover:bg-red-50 text-red-600"
+                >
+                  <ThumbsDown className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Input */}
       <div className="p-4 bg-white shrink-0" style={{ borderTop: '0.5px solid #e2e1dd' }}>

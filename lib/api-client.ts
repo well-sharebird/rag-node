@@ -366,6 +366,13 @@ export const createRole = async (name: string, description?: string) => {
   });
 };
 
+export const updateRole = async (id: number, data: { name?: string; description?: string }) => {
+  return fetchApi(`/api/v1/users/roles/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
+
 export const deleteRole = async (id: number) => {
   return fetchApi(`/api/v1/users/roles/${id}`, { method: 'DELETE' });
 };
@@ -608,6 +615,191 @@ export const getMe = async () => {
   return fetchApi<UserResponse>('/api/v1/auth/me');
 };
 
+export interface MenuData {
+  id: number;
+  name: string;
+  name_i18n?: string;
+  menu_type: string;
+  path: string;
+  component?: string;
+  redirect?: string;
+  icon?: string;
+  order: number;
+  parent_id?: number;
+  level: number;
+  tree_path: string;
+  permission?: string;
+  is_visible: boolean;
+  is_hidden: boolean;
+  is_external: boolean;
+  external_url?: string;
+  keep_alive: boolean;
+  is_active: boolean;
+  children?: MenuData[];
+}
+
+export interface MenuTreeResponse {
+  items: MenuData[];
+  total: number;
+}
+
+export interface UserPermissionsResponse {
+  permissions: string[];
+  roles: string[];
+}
+
+export interface UserDepartmentsResponse {
+  items: any[];
+  primary_department: any | null;
+}
+
+export const getUserMenus = async () => {
+  return fetchApi<MenuTreeResponse>('/api/v1/auth/me/menus');
+};
+
+export const getUserPermissions = async () => {
+  return fetchApi<UserPermissionsResponse>('/api/v1/auth/me/permissions');
+};
+
+export const getUserDepartments = async () => {
+  return fetchApi<UserDepartmentsResponse>('/api/v1/auth/me/departments');
+};
+
+// ============================================================
+// Admin - Department Management
+// ============================================================
+
+export const fetchDepartments = async () => {
+  return fetchApi<DepartmentListResponse>('/api/v1/admin/departments');
+};
+
+export const fetchDepartmentTree = async () => {
+  return fetchApi<DepartmentTreeResponse>('/api/v1/admin/departments/tree');
+};
+
+export const createDepartment = async (data: { name: string; description?: string; parent_id?: number }) => {
+  return fetchApi('/api/v1/admin/departments', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateDepartment = async (deptId: number, data: { name?: string; description?: string; parent_id?: number }) => {
+  return fetchApi(`/api/v1/admin/departments/${deptId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteDepartment = async (deptId: number) => {
+  return fetchApi(`/api/v1/admin/departments/${deptId}`, { method: 'DELETE' });
+};
+
+export const getDepartmentUsers = async (deptId: number) => {
+  return fetchApi(`/api/v1/admin/departments/${deptId}/users`);
+};
+
+export const addUserToDepartment = async (deptId: number, userId: number, dept_role?: string, is_primary?: boolean) => {
+  return fetchApi(`/api/v1/admin/departments/${deptId}/users`, {
+    method: 'POST',
+    body: JSON.stringify({ user_id: userId, dept_role, is_primary }),
+  });
+};
+
+export const removeUserFromDepartment = async (deptId: number, userId: number) => {
+  return fetchApi(`/api/v1/admin/departments/${deptId}/users/${userId}`, { method: 'DELETE' });
+};
+
+export interface DepartmentData {
+  id: number;
+  name: string;
+  code: string;
+  description?: string;
+  parent_id?: number;
+  level: number;
+  tree_path?: string;
+  dept_type?: string;
+  sort_order?: number;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  children?: DepartmentData[];
+}
+
+export interface DepartmentListResponse {
+  items: DepartmentData[];
+  total: number;
+}
+
+export interface DepartmentTreeResponse {
+  items: DepartmentData[];
+  total: number;
+}
+
+// ============================================================
+// Admin - Menu Management
+// ============================================================
+
+export const fetchMenus = async () => {
+  return fetchApi<MenuListResponse>('/api/v1/admin/menus');
+};
+
+export const fetchMenuTree = async () => {
+  return fetchApi<MenuTreeResponse>('/api/v1/admin/menus/tree');
+};
+
+export const createMenu = async (data: {
+  name: string;
+  name_i18n?: string;
+  menu_type: string;  // 'menu' | 'sub_menu' | 'button'
+  path: string;
+  component?: string;
+  icon?: string;
+  order?: number;
+  parent_id?: number;
+  permission?: string;
+  is_visible?: boolean;
+  is_active?: boolean;
+}) => {
+  return fetchApi('/api/v1/admin/menus', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+};
+
+export const updateMenu = async (menuId: number, data: {
+  name?: string;
+  name_i18n?: string;
+  path?: string;
+  component?: string;
+  icon?: string;
+  order?: number;
+  permission?: string;
+  is_visible?: boolean;
+  is_active?: boolean;
+}) => {
+  return fetchApi(`/api/v1/admin/menus/${menuId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+};
+
+export const deleteMenu = async (menuId: number) => {
+  return fetchApi(`/api/v1/admin/menus/${menuId}`, { method: 'DELETE' });
+};
+
+export const assignMenusToRole = async (roleId: number, menuIds: number[]) => {
+  return fetchApi(`/api/v1/admin/roles/${roleId}/menus`, {
+    method: 'PUT',
+    body: JSON.stringify({ menu_ids: menuIds }),
+  });
+};
+
+export interface MenuListResponse {
+  items: MenuData[];
+  total: number;
+}
+
 export const createApiKey = async (data: { name: string; expires_days?: number }) => {
   return fetchApi<APIKeyResponse>('/api/v1/auth/api-keys', {
     method: 'POST',
@@ -735,7 +927,7 @@ export const processFeedback = async (feedback_id: number) => {
 // ============================================================
 
 export interface ConversationResponse {
-  id: number;
+  id: string;
   user_id?: string;
   title: string;
   kb_ids?: string[];
@@ -777,23 +969,33 @@ export const listConversations = async (params?: { user_id?: string; limit?: num
   return fetchApi<ConversationListResponse>(`/api/v1/conversations${qs ? `?${qs}` : ''}`);
 };
 
-export const getConversation = async (conv_id: number) => {
-  return fetchApi<ConversationResponse>(`/api/v1/conversations/${conv_id}`);
-};
-
-export const updateConversation = async (conv_id: number, data: ConversationUpdate) => {
+export const updateConversation = async (conv_id: string, data: ConversationUpdate) => {
   return fetchApi<ConversationResponse>(`/api/v1/conversations/${conv_id}`, {
     method: 'PUT',
     body: JSON.stringify(data),
   });
 };
 
-export const deleteConversation = async (conv_id: number) => {
+export const deleteConversation = async (conv_id: string) => {
   return fetchApi<void>(`/api/v1/conversations/${conv_id}`, { method: 'DELETE' });
 };
 
 export const searchConversations = async (query: string) => {
   return fetchApi(`/api/v1/conversations/search/${encodeURIComponent(query)}`);
+};
+
+export const getConversation = async (conv_id: string) => {
+  return fetchApi(`/api/v1/conversations/${conv_id}`);
+};
+
+export const addMessageToConversation = async (
+  conv_id: string,
+  data: { role: string; content: string; sources?: any[]; model_used?: string; latency_ms?: number }
+) => {
+  return fetchApi(`/api/v1/conversations/${conv_id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
 };
 
 // ============================================================
@@ -1085,6 +1287,101 @@ export const getMetricsHealth = async () => {
 
 export const getMetricsSummary = async () => {
   return fetchApi<MetricsSummaryResponse>('/api/v1/metrics/summary');
+};
+
+// ============================================================
+// Conversation History APIs
+// ============================================================
+
+export interface ConversationHistoryItem {
+  thread_id: string;
+  agent_id: string | null;
+  agent_name: string | null;
+  message_count: number;
+  last_message_at: string;
+  source: 'hot' | 'archive';
+  archive_tier?: 'warm' | 'cold';
+  summary?: string;
+}
+
+export interface ConversationHistoryResponse {
+  items: ConversationHistoryItem[];
+  total: number;
+}
+
+export const fetchConversationHistory = async (params?: {
+  limit?: number;
+  offset?: number;
+  agent_id?: string;
+}) => {
+  const qs = new URLSearchParams();
+  if (params?.limit) qs.append('limit', String(params.limit));
+  if (params?.offset) qs.append('offset', String(params.offset));
+  if (params?.agent_id) qs.append('agent_id', params.agent_id);
+  const query = qs.toString();
+  return fetchApi<ConversationHistoryResponse>(`/api/v1/conversation-history${query ? `?${query}` : ''}`);
+};
+
+export interface ChatMessageDetail {
+  role: string;
+  content: string;
+  timestamp?: string;
+  [key: string]: unknown;
+}
+
+export const fetchThreadMessages = async (threadId: string) => {
+  return fetchApi<{ messages: ChatMessageDetail[]; source: string; archive_tier?: string }>(
+    `/api/v1/conversation-history/${threadId}/messages`
+  );
+};
+
+export const restoreArchive = async (archiveId: string) => {
+  return fetchApi<{ message: string; thread_id: string }>(
+    `/api/v1/conversation-history/archive/${archiveId}/restore`,
+    { method: 'POST' }
+  );
+};
+
+export const fetchArchiveDetail = async (archiveId: string) => {
+  return fetchApi<{
+    id: string;
+    thread_id: string;
+    agent_id: string;
+    agent_name: string;
+    archive_tier: string;
+    message_count: number;
+    archive_size_bytes: number;
+    date_range_start: string;
+    date_range_end: string;
+    summary: string;
+    last_message_at: string;
+    archived_at: string;
+    is_restored: boolean;
+  }>(`/api/v1/conversation-history/archive/${archiveId}`);
+};
+
+export const deleteArchive = async (archiveId: string) => {
+  return fetchApi<{ message: string }>(
+    `/api/v1/conversation-history/archive/${archiveId}`,
+    { method: 'DELETE' }
+  );
+};
+
+export const runArchiveJob = async () => {
+  return fetchApi<{ message: string; result: Record<string, number> }>(
+    '/api/v1/conversation-history/archive/run',
+    { method: 'POST' }
+  );
+};
+
+// 会话历史统计
+export const getConversationHistoryStats = async (agent_id?: string) => {
+  const qs = agent_id ? `?agent_id=${encodeURIComponent(agent_id)}` : '';
+  return fetchApi<{
+    last_7d: number;
+    last_30d: number;
+    months: Record<string, number>;
+  }>(`/api/v1/conversation-history/stats${qs}`);
 };
 
 export const getMetricsJson = async () => {

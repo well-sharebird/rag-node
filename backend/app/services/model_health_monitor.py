@@ -6,14 +6,20 @@
 """
 import asyncio
 import logging
+import time
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.models.model_config import ModelConfig
-from app.services.model_service import test_model_connection
+from app.models.model_gateway import ModelProvider
+from app.services.model_service import (
+    _test_api_connection,
+    _test_ollama_connection,
+    _test_vllm_connection,
+)
 
 logger = logging.getLogger("app.services.model_health_monitor")
 
@@ -87,7 +93,9 @@ class ModelHealthMonitor:
             await asyncio.sleep(self.check_interval)
 
     async def _check_all_models(self, session: AsyncSession):
-        """检测所有启用的模型"""
+        """检测所有启用的模型 - 每个模型使用独立 session"""
+        from app.core.database import async_session_factory
+
         # 只检测启用的模型
         result = await session.execute(
             select(ModelConfig).where(ModelConfig.is_enabled == True)
@@ -101,12 +109,14 @@ class ModelHealthMonitor:
         self._stats["total_checks"] += len(models)
         logger.info("Checking %d enabled models", len(models))
 
-        # 并发控制
+        # 并发控制 - 每个模型使用独立 session
         semaphore = asyncio.Semaphore(self.max_concurrent)
 
         async def check_with_semaphore(model):
             async with semaphore:
-                await self._check_single_model(session, model)
+                # 为每个模型创建独立 session 避免事务冲突
+                async with async_session_factory() as model_session:
+                    await self._check_single_model(model_session, model)
 
         tasks = [check_with_semaphore(model) for model in models]
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -116,18 +126,44 @@ class ModelHealthMonitor:
         session: AsyncSession,
         model: ModelConfig
     ):
-        """检测单个模型"""
-        import time
-        start = time.time()
+        """检测单个模型 - 从供应商获取配置并测试"""
+        start_time = time.time()
+        result: Dict[str, Any] = {"success": False, "message": "", "latency_ms": None}
 
         try:
-            result = await test_model_connection(
-                session,
-                model.id,
-                test_input=None  # 使用默认测试输入
+            # 查询供应商配置
+            provider_result = await session.execute(
+                select(ModelProvider).where(ModelProvider.code == model.provider)
             )
+            provider = provider_result.scalar_one_or_none()
 
-            if result.get("success"):
+            # 根据适配器类型测试连接
+            if model.adapter_type == "api":
+                result = await _test_api_connection(model, provider, test_input=None)
+            elif model.adapter_type == "ollama":
+                result = await _test_ollama_connection(model, provider, test_input=None)
+            elif model.adapter_type == "vllm":
+                result = await _test_vllm_connection(model, provider, test_input=None)
+            else:
+                result = {"success": True, "message": f"Adapter {model.adapter_type} configured", "latency_ms": None}
+
+            # 更新延迟
+            if result.get("latency_ms"):
+                result["latency_ms"] = round(result["latency_ms"], 2)
+
+            # 更新数据库状态
+            new_status = "active" if result["success"] else "error"
+            await session.execute(
+                update(ModelConfig)
+                .where(ModelConfig.id == model.id)
+                .values(
+                    status=new_status,
+                    last_tested_at=datetime.utcnow(),
+                )
+            )
+            await session.commit()
+
+            if result["success"]:
                 self._stats["successful_checks"] += 1
                 logger.debug(
                     "Model healthy | id=%d name=%s latency=%dms",
@@ -146,12 +182,30 @@ class ModelHealthMonitor:
                 "Model check timeout | id=%d name=%s timeout=%dms",
                 model.id, model.name, self.check_timeout_ms
             )
+            await session.execute(
+                update(ModelConfig)
+                .where(ModelConfig.id == model.id)
+                .values(
+                    status="error",
+                    last_tested_at=datetime.utcnow(),
+                )
+            )
+            await session.commit()
         except Exception as e:
             self._stats["failed_checks"] += 1
             logger.error(
                 "Model check error | id=%d name=%s error=%s",
                 model.id, model.name, str(e)
             )
+            await session.execute(
+                update(ModelConfig)
+                .where(ModelConfig.id == model.id)
+                .values(
+                    status="error",
+                    last_tested_at=datetime.utcnow(),
+                )
+            )
+            await session.commit()
 
 
 # 全局单例

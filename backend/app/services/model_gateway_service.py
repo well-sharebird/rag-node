@@ -524,14 +524,46 @@ class ModelGatewayService:
         return providers[-1]
 
     async def _get_default_provider(self) -> Optional[ModelProvider]:
-        """获取默认供应商"""
+        """获取第一个启用的供应商"""
         query = select(ModelProvider).where(
             ModelProvider.is_enabled == True,
-            ModelProvider.is_default == True,
             ModelProvider.status == "active"
-        )
+        ).order_by(ModelProvider.id).limit(1)
         result = await self.db.execute(query)
         return result.scalar_one_or_none()
+
+    @staticmethod
+    def _extract_answer_from_reasoning(reasoning_text: str) -> str:
+        """
+        从 reasoning 文本中提取实际回答（用于 Qwen 等模型）
+
+        Qwen 格式："Thinking Process:\n\n1. ...\n2. ...\n\n*Draft:*\n[实际回答]"
+        """
+        import re
+
+        # 查找标记思考结束和实际回答开始的模式
+        patterns = [
+            r"\*Draft:\*\s*\n",           # *Draft:*
+            r"\*\*Final Answer\*\*:\s*\n", # **Final Answer**:
+            r"\n\n(?:Based on|According to|In summary|综上|因此|所以 | 答案 | 回答 | 你好 | 您好)[:：]?\s*\n",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, reasoning_text, re.IGNORECASE)
+            if match:
+                answer = reasoning_text[match.end():].strip()
+                if answer and len(answer) > 10:
+                    return answer
+
+        # 如果没有找到明确分隔符，返回最后一段
+        paragraphs = reasoning_text.split('\n\n')
+        if len(paragraphs) > 1:
+            last_para = paragraphs[-1].strip()
+            if last_para and len(last_para) > 10:
+                return last_para
+
+        # 否则返回原文
+        return reasoning_text
 
     async def get_provider_with_failover(
         self,
@@ -1122,6 +1154,11 @@ class ModelGatewayService:
                         message = data["choices"][0]["message"]
                         content = message.get("content") or ""  # 处理 content 为 null 的情况
                         reasoning = message.get("reasoning", "")
+
+                        # 如果 content 为空但 reasoning 有值，从 reasoning 中提取答案
+                        # Qwen 模型格式："Thinking Process:\n\n1. ...\n2. ...\n\n[实际回答]"
+                        if not content and reasoning:
+                            content = self._extract_answer_from_reasoning(reasoning)
 
                         # 提取 token 使用
                         usage = data.get("usage", {})

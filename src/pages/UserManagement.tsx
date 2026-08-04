@@ -2,25 +2,39 @@ import { useState, useEffect, ReactElement } from 'react';
 import React from 'react';
 import { useI18n } from '@/src/lib/i18n';
 import { useAuth } from '@/src/lib/auth-context';
-import { Button, Card, CardHeader, CardBody, CardTitle, CardDescription, Input, Badge, Switch, Modal } from '@/src/components/enterprise';
+import { Button, Card, CardHeader, CardBody, CardTitle, CardDescription, Input, Badge, Switch, Modal, Table, TableHeader, TableBody, TableRow, TableCell } from '@/src/components/enterprise';
 import { Select } from '@/src/components/enterprise/Select';
 import { toast } from 'sonner';
 import {
   Users, UserPlus, Search, RefreshCw, Trash2, Settings, Loader2,
-  CheckCircle2, XCircle, Shield, Key, Mail, User, Calendar
+  CheckCircle2, XCircle, Shield, Key, Mail, User, Calendar, Building2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   UserData, RoleData, UserCreate, fetchUsers, fetchRoles, createUser, updateUser, deleteUser, assignUserRoles,
-  createRole, deleteRole
+  createRole, deleteRole, fetchDepartments, DepartmentData,
+  addUserToDepartment
 } from '@/lib/api-client';
 
 const ROLE_BADGE_COLORS: Record<string, string> = {
   Admin: 'enterprise-badge-error',
   Editor: 'enterprise-badge-primary',
   Viewer: 'enterprise-badge-success',
-  Developer: 'bg-gray-100 text-gray-700 border-gray-200',
+  Developer: 'enterprise-badge-secondary',
 };
+
+const AVATAR_COLORS = [
+  { bg: '#EEF2FB', icon: '#4F7BE5' },
+  { bg: '#E8F5F1', icon: '#0F8A6B' },
+  { bg: '#F4ECFB', icon: '#7B3FBF' },
+  { bg: '#FEF1E7', icon: '#C75D1F' },
+  { bg: '#EAF3FE', icon: '#1E73C2' },
+  { bg: '#FCEEF1', icon: '#B23A5C' },
+];
+
+function getAvatarColor(id: number) {
+  return AVATAR_COLORS[id % AVATAR_COLORS.length];
+}
 
 const ROLE_ICONS: Record<string, any> = {
   Admin: Shield,
@@ -45,11 +59,15 @@ export function UserManagement() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isRolesOpen, setIsRolesOpen] = useState(false);
+  const [isDepartmentsOpen, setIsDepartmentsOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
   const [filterRole, setFilterRole] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [departments, setDepartments] = useState<DepartmentData[]>([]);
+  const [selectedDepartmentIds, setSelectedDepartmentIds] = useState<number[]>([]);
 
-  const isAdmin = user?.roles?.some(r => r.name === 'Admin');
+  // 检查是否为管理员（支持 Admin 和 super_admin 角色）
+  const isAdmin = user?.roles?.some(r => r.name === 'Admin' || r.name === 'super_admin');
 
   const [formData, setFormData] = useState<Partial<UserCreate>>({
     email: '',
@@ -81,11 +99,27 @@ export function UserManagement() {
   const loadRoles = async () => {
     try {
       const data = await fetchRoles();
-      setRoles(data.items || []);
+      console.log('Roles loaded:', data);
+      const items = Array.isArray(data.items) ? data.items : [];
+      setRoles(items);
     } catch (e: any) {
       console.error('Failed to load roles:', e);
+      setRoles([]);
     }
   };
+
+  const loadDepartments = async () => {
+    try {
+      const data = await fetchDepartments();
+      console.log('Departments loaded:', data);
+      const items = Array.isArray(data.items) ? data.items : [];
+      setDepartments(items);
+    } catch (e: any) {
+      console.error('Failed to load departments:', e);
+      setDepartments([]);
+    }
+  };
+
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -100,6 +134,7 @@ export function UserManagement() {
     }
     loadUsers();
     loadRoles();
+    loadDepartments();
   }, [isAuthenticated, isAdmin]);
 
   useEffect(() => {
@@ -169,6 +204,22 @@ export function UserManagement() {
     }
   };
 
+  const handleAssignDepartments = async () => {
+    if (!selectedUser) return;
+    try {
+      // 先移除用户所有部门，再添加新部门
+      for (const deptId of selectedDepartmentIds) {
+        await addUserToDepartment(deptId, selectedUser.id, undefined, selectedDepartmentIds[0] === deptId);
+      }
+      toast.success('部门分配成功');
+      setIsDepartmentsOpen(false);
+      loadUsers();
+    } catch (e: any) {
+      console.error('Failed to assign departments:', e);
+      toast.error(`分配部门失败：${e.message}`);
+    }
+  };
+
   const openEditDialog = (user: UserData) => {
     setSelectedUser(user);
     setFormData({
@@ -184,6 +235,13 @@ export function UserManagement() {
     setSelectedUser(user);
     setSelectedRoleIds(user.roles.map(r => r.id));
     setIsRolesOpen(true);
+  };
+
+  const openDepartmentsDialog = (user: UserData) => {
+    console.log('Opening departments dialog for user:', user.username, 'departments count:', departments.length);
+    setSelectedUser(user);
+    setSelectedDepartmentIds([]);
+    setIsDepartmentsOpen(true);
   };
 
   if (!isAuthenticated) {
@@ -223,12 +281,19 @@ export function UserManagement() {
   }
 
   return (
-    <div className="p-6 space-y-6 bg-white min-h-screen">
+    <div className="p-6 space-y-5 bg-white min-h-screen">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-semibold text-[var(--text-primary)]">用户管理</h1>
-          <p className="text-[var(--text-secondary)] mt-1">管理系统用户和角色权限</p>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-[var(--accent-light)] flex items-center justify-center">
+            <Users className="w-5 h-5 text-[var(--accent)]" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold text-[var(--text-primary)]">用户管理</h1>
+            <p className="text-sm text-[var(--text-secondary)] mt-0.5">
+              共 {users.length} 位用户 · 管理系统用户和角色权限
+            </p>
+          </div>
         </div>
         <Button onClick={() => setIsCreateOpen(true)} icon={<UserPlus className="w-4 h-4" />}>
           创建用户
@@ -236,116 +301,161 @@ export function UserManagement() {
       </div>
 
       {/* Filters */}
-      <Card>
-        <CardBody>
-          <div className="flex gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
-              <Input
-                placeholder="搜索用户名、邮箱或姓名..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Select value={filterRole} onValueChange={setFilterRole} className="w-[200px]">
-              <option value="all">所有角色</option>
-              {roles.map((role) => (
-                <option key={role.id} value={role.name}>{role.name}</option>
-              ))}
-            </Select>
-            <Button variant="secondary" onClick={loadUsers} icon={<RefreshCw className="w-4 h-4" />}>
-              刷新
-            </Button>
-          </div>
-        </CardBody>
-      </Card>
-
-      {/* Users List */}
-      <div className="grid gap-4">
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-[var(--text-tertiary)]" />
-          </div>
-        ) : users.length === 0 ? (
-          <Card>
-            <CardBody className="py-12 text-center">
-              <Users className="w-12 h-12 mx-auto mb-4 opacity-50 text-[var(--text-tertiary)]" />
-              <p className="text-[var(--text-secondary)]">暂无用户</p>
-            </CardBody>
-          </Card>
-        ) : (
-          users.map((user) => (
-            <Card key={user.id} className="hover:shadow-md transition-shadow">
-              <CardBody>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-[var(--accent-light)] flex items-center justify-center">
-                      <User className="w-6 h-6 text-[var(--primary)]" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-medium text-[var(--text-primary)]">{user.username}</h3>
-                        {!user.isActive && (
-                          <Badge variant="neutral">已禁用</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 text-sm text-[var(--text-secondary)]">
-                        <span className="flex items-center gap-1">
-                          <Mail className="w-3 h-3" />
-                          {user.email}
-                        </span>
-                        {user.fullName && (
-                          <span>{user.fullName}</span>
-                        )}
-                        {user.lastLoginAt && (
-                          <span className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            最后登录：{new Date(user.lastLoginAt).toLocaleDateString('zh-CN')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="flex gap-1">
-                      {user.roles.map((role) => (
-                        <Badge
-                          key={role.id}
-                          className={cn(getRoleBadgeClass(role.name), 'text-xs')}
-                        >
-                          {React.createElement(getRoleIcon(role.name), { className: "w-3 h-3" })}
-                          <span className="ml-1">{role.name}</span>
-                        </Badge>
-                      ))}
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openRolesDialog(user)}
-                        icon={<Shield className="w-4 h-4" />}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openEditDialog(user)}
-                        icon={<Settings className="w-4 h-4" />}
-                      />
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDeleteUser(user)}
-                        icon={<Trash2 className="w-4 h-4" />}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
-          ))
-        )}
+      <div className="flex gap-3 items-center">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-tertiary)]" />
+          <Input
+            placeholder="搜索用户名、邮箱或姓名..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <Select
+          value={filterRole}
+          onChange={(e) => setFilterRole(e.target.value)}
+          className="w-[180px]"
+        >
+          <option value="all">所有角色</option>
+          {roles.map((role) => (
+            <option key={role.id} value={role.name}>{role.name}</option>
+          ))}
+        </Select>
+        <Button variant="secondary" onClick={loadUsers} icon={<RefreshCw className="w-4 h-4" />}>
+          刷新
+        </Button>
       </div>
+
+      {/* Users Table */}
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="w-8 h-8 animate-spin text-[var(--text-tertiary)]" />
+        </div>
+      ) : users.length === 0 ? (
+        <Card>
+          <CardBody className="py-16 text-center">
+            <Users className="w-12 h-12 mx-auto mb-4 opacity-50 text-[var(--text-tertiary)]" />
+            <p className="text-[var(--text-secondary)] mb-4">暂无用户</p>
+            <Button variant="secondary" onClick={() => setIsCreateOpen(true)} icon={<UserPlus className="w-4 h-4" />}>
+              创建第一个用户
+            </Button>
+          </CardBody>
+        </Card>
+      ) : (
+        <Card>
+          <Table hover>
+            <TableHeader>
+              <TableRow>
+                <TableCell variant="header" className="text-left py-3 px-4 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">用户</TableCell>
+                <TableCell variant="header" className="text-left py-3 px-4 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">角色</TableCell>
+                <TableCell variant="header" className="text-left py-3 px-4 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">状态</TableCell>
+                <TableCell variant="header" className="text-left py-3 px-4 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">创建时间</TableCell>
+                <TableCell variant="header" className="text-right py-3 px-4 text-xs font-medium text-[var(--text-tertiary)] uppercase tracking-wider">操作</TableCell>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {users.map((user) => {
+                const ac = getAvatarColor(user.id);
+                return (
+                  <TableRow key={user.id}>
+                    {/* User cell: avatar + name + email */}
+                    <TableCell className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: ac.bg }}
+                        >
+                          <User className="w-4 h-4" style={{ color: ac.icon }} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-[var(--text-primary)] text-sm">{user.username}</span>
+                            {user.fullName && (
+                              <span className="text-xs text-[var(--text-tertiary)]">({user.fullName})</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)] mt-0.5">
+                            <Mail className="w-3 h-3" />
+                            <span className="truncate">{user.email}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    {/* Roles */}
+                    <TableCell className="py-3 px-4">
+                      <div className="flex gap-1 flex-wrap">
+                        {user.roles.map((role) => (
+                          <Badge
+                            key={role.id}
+                            variant={
+                              role.name === 'Admin' ? 'error' :
+                              role.name === 'Editor' ? 'primary' :
+                              role.name === 'Viewer' ? 'success' : 'neutral'
+                            }
+                            size="sm"
+                          >
+                            {React.createElement(getRoleIcon(role.name), { className: "w-3 h-3 mr-0.5" })}
+                            {role.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    {/* Status */}
+                    <TableCell className="py-3 px-4">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="w-2 h-2 rounded-full"
+                          style={{ backgroundColor: user.isActive ? 'var(--success)' : 'var(--text-tertiary)' }}
+                        />
+                        <span className="text-sm text-[var(--text-secondary)]">
+                          {user.isActive ? '启用' : '已禁用'}
+                        </span>
+                      </span>
+                    </TableCell>
+                    {/* Created */}
+                    <TableCell className="py-3 px-4 text-sm text-[var(--text-secondary)]">
+                      {user.createdAt ? new Date(user.createdAt).toLocaleDateString('zh-CN') : '-'}
+                    </TableCell>
+                    {/* Actions */}
+                    <TableCell className="py-3 px-4">
+                      <div className="flex gap-1 justify-end">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openDepartmentsDialog(user)}
+                          title="分配部门"
+                          icon={<Building2 className="w-4 h-4" />}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openRolesDialog(user)}
+                          title="分配角色"
+                          icon={<Shield className="w-4 h-4" />}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEditDialog(user)}
+                          title="编辑用户"
+                          icon={<Settings className="w-4 h-4" />}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteUser(user)}
+                          title="删除用户"
+                          icon={<Trash2 className="w-4 h-4" />}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
 
       {/* Create User Modal */}
       <Modal
@@ -507,6 +617,74 @@ export function UserManagement() {
               </CardBody>
             </Card>
           ))}
+        </div>
+      </Modal>
+
+      {/* Assign Departments Modal */}
+      <Modal
+        open={isDepartmentsOpen}
+        onOpenChange={setIsDepartmentsOpen}
+        title="分配部门"
+        description={<>为用户 <strong className="text-[var(--text-primary)]">{selectedUser?.username}</strong> 分配部门</>}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setIsDepartmentsOpen(false)}>取消</Button>
+            <Button onClick={handleAssignDepartments}>保存</Button>
+          </>
+        }
+      >
+        <div className="space-y-3 py-4">
+          {departments.length === 0 ? (
+            <div className="text-center py-8 text-[var(--text-secondary)]">
+              暂无部门数据
+            </div>
+          ) : (
+            departments.map((dept) => (
+              <Card
+                key={dept.id}
+                className={cn(
+                  "cursor-pointer transition-all",
+                  selectedDepartmentIds.includes(dept.id)
+                    ? "border-[var(--primary)] bg-[var(--accent-light)]"
+                    : "hover:bg-[var(--bg-primary)]"
+                )}
+                onClick={() => {
+                  setSelectedDepartmentIds(
+                    selectedDepartmentIds.includes(dept.id)
+                      ? selectedDepartmentIds.filter(id => id !== dept.id)
+                      : [...selectedDepartmentIds, dept.id]
+                  );
+                }}
+              >
+                <CardBody>
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedDepartmentIds.includes(dept.id)}
+                      onChange={() => {
+                        setSelectedDepartmentIds(
+                          selectedDepartmentIds.includes(dept.id)
+                            ? selectedDepartmentIds.filter(id => id !== dept.id)
+                            : [...selectedDepartmentIds, dept.id]
+                        );
+                      }}
+                      className="enterprise-checkbox mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-[var(--text-primary)]">{dept.name}</span>
+                      </div>
+                      {dept.description && (
+                        <p className="text-sm text-[var(--text-secondary)] mt-1">
+                          {dept.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
+            ))
+          )}
         </div>
       </Modal>
     </div>

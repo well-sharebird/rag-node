@@ -144,30 +144,46 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
         # 本地 Qwen 模型，使用 OpenAI 兼容接口
         from langchain_openai import ChatOpenAI
 
-        # 确保 api_url 不以 /v1 结尾，避免重复
+        # 确保 api_url 以 /v1 结尾（ChatOpenAI 内部不再添加）
         if api_url:
             api_url = api_url.rstrip("/")
-            if api_url.endswith("/v1"):
-                api_url = api_url[:-3]
+            if not api_url.endswith("/v1"):
+                api_url = f"{api_url}/v1"
+
+        # 本地模型 API Key 处理：not_required 或空都视为不需要 key
+        effective_api_key = None if (api_key and api_key.lower() in ["not_required", "not-needed", "none", ""]) else api_key
+
         return ChatOpenAI(
             model=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
-            base_url=f"{api_url}/v1" if api_url else None,
-            api_key=api_key or "not-needed",
+            base_url=api_url,
+            api_key=effective_api_key or "not-required",
+            streaming=True,  # 启用流式输出
         )
 
     else:
         # 默认使用 OpenAI 兼容接口
         from langchain_openai import ChatOpenAI
+
+        # 确保 api_url 以 /v1 结尾
+        if api_url:
+            api_url = api_url.rstrip("/")
+            if not api_url.endswith("/v1"):
+                api_url = f"{api_url}/v1"
+
+        # 通用 API Key 处理
+        effective_api_key = None if (api_key and api_key.lower() in ["not_required", "not-needed", "none", ""]) else api_key
+
         return ChatOpenAI(
             model=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
-            base_url=f"{api_url}/v1" if api_url else None,
-            api_key=api_key or "not-needed",
+            base_url=api_url,
+            api_key=effective_api_key or "not-required",
+            streaming=True,  # 启用流式输出
         )
 
 

@@ -5,6 +5,7 @@ from app.models.knowledge_base import KnowledgeBase
 from app.models.system_setting import SystemSetting
 from app.models.model_config import ModelConfig
 from app.models.data_source import DataSource, SyncJob, SyncedItem
+from app.models.menu import Menu, role_menus  # Import before user.py (Role references role_menus)
 from app.models.user import User, Role, Permission, APIKey, AuditLog
 from app.models.token_usage import TokenUsage, UserQuota
 from app.models.model_gateway import ModelProvider, ModelRoutingRule, ModelCallLog, ModelCache
@@ -22,8 +23,13 @@ from app.models.agent import (
     AgentMemory,
     AgentCallLog,
 )
+from app.models.conversation_archive import (
+    ConversationArchive,
+    ConversationArchiveConfig,
+)
 from app.models.synonym import Synonym
 from app.models.desensitization_config import DesensitizationConfig
+from app.models.department import Department, UserDepartment
 
 __all__ = [
     "Base",
@@ -55,6 +61,12 @@ __all__ = [
     "AgentVersion",
     "AgentMemory",
     "AgentCallLog",
+    "ConversationArchive",
+    "ConversationArchiveConfig",
+    "Department",
+    "UserDepartment",
+    "Menu",
+    "role_menus",
     "Synonym",
     "DesensitizationConfig",
 ]
