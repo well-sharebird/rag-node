@@ -17,9 +17,9 @@ sys.path.insert(0, '.')
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, delete
 
-from app.models.agent import AgentConfig, AgentMemory
-from app.models.user import User
-from app.services.agent_memory_service import AgentMemoryService
+from packages.agent.models.agent import AgentConfig, AgentMemory
+from packages.core.system.models.user import User
+from packages.agent.services.agent_memory_service import AgentMemoryService
 
 DATABASE_URL = "postgresql+asyncpg://postgres:postgres123@100.4.14.19:5432/rag_db"
 

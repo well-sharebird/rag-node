@@ -22,7 +22,7 @@ class MockModelGateway:
     """模拟模型网关"""
 
     async def get_model_by_name(self, name: str):
-        from app.schemas.chat import ModelConfig
+        from packages.agent.schemas.chat import ModelConfig
         return ModelConfig(
             provider="local_qwen",
             model="qwen3.5-397b-a17b",

@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.v1.conversation_history import (
+from packages.agent.api.conversation_history import (
     list_conversation_history,
     get_thread_messages,
     restore_archive,
@@ -21,9 +21,9 @@ from app.api.v1.conversation_history import (
     ConversationHistoryItem,
     ConversationHistoryResponse,
 )
-from app.services.conversation_archive_service import ConversationArchiveService
-from app.models.conversation_archive import ConversationArchive, ConversationArchiveConfig
-from app.models.user import User
+from packages.agent.services.conversation_archive_service import ConversationArchiveService
+from packages.agent.models.conversation_archive import ConversationArchive, ConversationArchiveConfig
+from packages.core.system.models.user import User
 
 
 class TestConversationHistoryAPI:

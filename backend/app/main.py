@@ -3,26 +3,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import settings
-from app.core.logging_config import setup_logging
-from app.core.milvus_client import get_milvus_client, close_milvus_client, check_milvus_health
-from app.core.redis_client import close_redis
-from app.core.minio_client import ensure_bucket
-from app.core.rag_config import reload_from_db
+from packages.core.config import settings
+from packages.core.logging_config import setup_logging
+from packages.core.infra.milvus_client import get_milvus_client, close_milvus_client, check_milvus_health
+from packages.core.infra.redis_client import close_redis
+from packages.core.infra.minio_client import ensure_bucket
+from packages.rag.config import reload_from_db
 from app.api.v1.router import router as v1_router
-from app.api.v1.auth import router as auth_router
-# from app.api.v1.chat import router as chat_router  # [已废弃] 已移除，使用 agents 端点替代
-from app.api.v1.feedback import router as feedback_router
-from app.api.v1.conversations import router as conversations_router
-from app.api.v1.evaluation import router as evaluation_router
-from app.api.v1.model_gateway import router as model_gateway_router
-from app.api.v1.agents import router as agents_router
-from app.api.v1.agent_runtime import router as agent_runtime_router
-from app.api.v1.synonyms import router as synonyms_router
-from app.api.v1.desensitization import router as desensitization_router
-from app.api.v1.tracing import router as tracing_router
-from app.api.v1.admin import router as admin_router
-from app.utils.error_handlers import register_error_handlers
+from packages.core.error_handlers import register_error_handlers
 
 setup_logging(debug=settings.debug)
 logger = logging.getLogger("app")
@@ -34,12 +22,12 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up")
 
     # --- Database ---
-    from app.core.database import engine
-    from app.models.base import Base
+    from packages.core.database import engine
+    from packages.core.base_model import Base
     # Ensure all models are registered for table creation
-    from app.models.feedback import Feedback
-    from app.models.conversation import Conversation, ConversationMessage
-    from app.models.evaluation import GoldenSample, EvaluationRun
+    from packages.agent.models.feedback import Feedback
+    from packages.agent.models.conversation import Conversation, ConversationMessage
+    from packages.rag.models.evaluation import GoldenSample, EvaluationRun
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     logger.info("Database tables ensured | url=%s", settings.database_url[:30])
@@ -49,22 +37,22 @@ async def lifespan(app: FastAPI):
     logger.info("RAG config loaded from system_settings")
 
     # --- Initialize FileTypeRouter from settings ---
-    from app.services.file_type_router import init_router_from_settings
+    from packages.rag.services.file_type_router import init_router_from_settings
     try:
         file_type_routes = rag_config.get("chunking", {}).get("file_type_routes", {}) if rag_config else {}
         if file_type_routes:
             init_router_from_settings(file_type_routes)
             logger.info("FileTypeRouter initialized with %d custom routes", len(file_type_routes))
         else:
-            from app.services.file_type_router import get_router
+            from packages.rag.services.file_type_router import get_router
             get_router()  # Initialize with defaults
             logger.info("FileTypeRouter initialized with default routes")
     except Exception as e:
         logger.warning("FileTypeRouter init failed: %s", e)
 
     # --- Default Settings & Auth Init ---
-    from app.core.database import async_session_factory
-    from app.models.system_setting import SystemSetting
+    from packages.core.database import async_session_factory
+    from packages.core.system.models.system_setting import SystemSetting
     from sqlalchemy import select, func
 
     # Init default settings
@@ -72,7 +60,7 @@ async def lifespan(app: FastAPI):
         async with async_session_factory() as session:
             result = await session.execute(select(func.count(SystemSetting.id)))
             if result.scalar() == 0:
-                from app.schemas.settings import SettingsObject
+                from packages.core.system.schemas.settings import SettingsObject
                 session.add(SystemSetting(version=1, is_active=True, settings_json=SettingsObject().model_dump()))
                 await session.commit()
                 logger.info("Default settings initialized")
@@ -80,7 +68,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Settings init failed: %s", e)
 
     # --- Initialize Default Agents ---
-    from app.services.agent_bootstrap import init_system_agents
+    from packages.agent.services.agent_bootstrap import init_system_agents
     try:
         async with async_session_factory() as session:
             await init_system_agents(session)
@@ -89,7 +77,7 @@ async def lifespan(app: FastAPI):
         logger.warning("Default agents init failed: %s", e)
 
     # --- Initialize Default Synonyms ---
-    from app.services.synonym_service import init_default_synonyms
+    from packages.rag.services.synonym_service import init_default_synonyms
     try:
         async with async_session_factory() as session:
             await init_default_synonyms(session)
@@ -108,8 +96,8 @@ async def lifespan(app: FastAPI):
         logger.warning("MinIO init failed: %s", e)
 
     # --- Initialize Global Trace Service ---
-    from app.core.tracing import init_global_trace_service, ensure_trace_index
-    from app.core.es_client import get_es_client
+    from packages.core.tracing import init_global_trace_service, ensure_trace_index
+    from packages.core.infra.es_client import get_es_client
     try:
         es_client = get_es_client()
         init_global_trace_service(es_client)
@@ -133,7 +121,7 @@ async def lifespan(app: FastAPI):
     logger.info("=" * 60)
 
     # --- Model Health Monitor ---
-    from app.services.model_health_monitor import start_monitor, stop_monitor
+    from packages.model_gateway.services.model_health_monitor import start_monitor, stop_monitor
     await start_monitor(
         db_session_factory=async_session_factory,
         check_interval_seconds=settings.model_health_check_interval,
@@ -159,7 +147,7 @@ async def lifespan(app: FastAPI):
     close_milvus_client()
     await close_redis()
 
-    from app.core.database import close_db
+    from packages.core.database import close_db
     await close_db()
     logger.info("Shutdown complete")
 
@@ -175,22 +163,10 @@ app.add_middleware(
 )
 
 # Add observability tracing middleware
-from app.core.observability import setup_observability
+from packages.core.observability import setup_observability
 setup_observability(app)
 
-app.include_router(auth_router, prefix=settings.api_prefix)
-# app.include_router(chat_router, prefix=settings.api_prefix)  # [已废弃] 已移除
 app.include_router(v1_router, prefix=settings.api_prefix)
-app.include_router(feedback_router, prefix=settings.api_prefix)
-app.include_router(conversations_router, prefix=settings.api_prefix)
-app.include_router(evaluation_router, prefix=settings.api_prefix)
-app.include_router(model_gateway_router, prefix=settings.api_prefix)
-app.include_router(agents_router, prefix=settings.api_prefix)
-app.include_router(agent_runtime_router, prefix=settings.api_prefix)  # 仅包含 /{agent_id}/memory/* 端点
-app.include_router(synonyms_router, prefix=settings.api_prefix)
-app.include_router(desensitization_router, prefix=settings.api_prefix)
-app.include_router(tracing_router, prefix=settings.api_prefix)
-app.include_router(admin_router, prefix=settings.api_prefix)
 register_error_handlers(app)
 
 

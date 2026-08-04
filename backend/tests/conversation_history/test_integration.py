@@ -13,12 +13,12 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select, delete, func
 
-from app.models.base import Base
-from app.models.user import User
-from app.models.agent import AgentMemory, AgentConfig
-from app.models.conversation_archive import ConversationArchive, ConversationArchiveConfig
-from app.services.conversation_archive_service import ConversationArchiveService
-from app.api.v1.conversation_history import list_conversation_history, get_conversation_history_stats
+from packages.core.base_model import Base
+from packages.core.system.models.user import User
+from packages.agent.models.agent import AgentMemory, AgentConfig
+from packages.agent.models.conversation_archive import ConversationArchive, ConversationArchiveConfig
+from packages.agent.services.conversation_archive_service import ConversationArchiveService
+from packages.agent.api.conversation_history import list_conversation_history, get_conversation_history_stats
 
 
 # 测试数据库 URL

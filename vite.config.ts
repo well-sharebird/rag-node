@@ -9,6 +9,11 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@packages/core': path.resolve(__dirname, 'packages/core/src'),
+        '@packages/rag': path.resolve(__dirname, 'packages/rag/src'),
+        '@packages/model-gateway': path.resolve(__dirname, 'packages/model-gateway/src'),
+        '@packages/prompt': path.resolve(__dirname, 'packages/prompt/src'),
+        '@packages/agent': path.resolve(__dirname, 'packages/agent/src'),
       },
     },
     server: {

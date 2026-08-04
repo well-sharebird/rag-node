@@ -93,7 +93,7 @@ class TestAgentFactoryCreate:
     @pytest.mark.asyncio
     async def test_create_agent_with_runtime_model_override(self, factory, mock_agent_config, mock_model_gateway):
         """测试运行时覆盖模型"""
-        from app.schemas.chat import ModelConfig
+        from packages.agent.schemas.chat import ModelConfig
 
         # 设置 Mock 返回
         mock_model_gateway.get_model_by_name.return_value = ModelConfig(

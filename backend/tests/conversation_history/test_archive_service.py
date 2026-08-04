@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.conversation_archive_service import ConversationArchiveService
+from packages.agent.services.conversation_archive_service import ConversationArchiveService
 
 
 class TestConversationArchiveService:

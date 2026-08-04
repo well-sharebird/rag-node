@@ -13,11 +13,11 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select
 
-from app.models.agent import AgentConfig
-from app.models.user import User
-from app.schemas.chat import AgentCreate, AgentUpdate
-from app.services.agent_config_service import AgentConfigService
-from app.services.agent_builder_service import AgentBuilderService
+from packages.agent.models.agent import AgentConfig
+from packages.core.system.models.user import User
+from packages.agent.schemas.chat import AgentCreate, AgentUpdate
+from packages.agent.services.agent_config_service import AgentConfigService
+from packages.agent.services.agent_builder_service import AgentBuilderService
 
 # 数据库 URL - 使用远程服务器
 DATABASE_URL = "postgresql+asyncpg://postgres:postgres123@100.4.14.19:5432/rag_db"

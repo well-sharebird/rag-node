@@ -223,7 +223,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_txt(self, sample_txt_content):
         """Test parsing plain text files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         content = sample_txt_content.encode('utf-8')
         result = await parse_document(content, "txt")
@@ -235,7 +235,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_md(self, sample_md_content):
         """Test parsing markdown files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         content = sample_md_content.encode('utf-8')
         result = await parse_document(content, "md")
@@ -247,7 +247,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_html(self, sample_html_content):
         """Test parsing HTML files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         content = sample_html_content.encode('utf-8')
         result = await parse_document(content, "html")
@@ -260,7 +260,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_docx(self, sample_docx_content):
         """Test parsing DOCX files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         result = await parse_document(sample_docx_content, "docx")
 
@@ -271,7 +271,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_xlsx(self, sample_xlsx_content):
         """Test parsing XLSX files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         result = await parse_document(sample_xlsx_content, "xlsx")
 
@@ -281,7 +281,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_pptx(self, sample_pptx_content):
         """Test parsing PPTX files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         result = await parse_document(sample_pptx_content, "pptx")
 
@@ -291,7 +291,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_pdf(self, sample_pdf_content):
         """Test parsing PDF files."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         result = await parse_document(sample_pdf_content, "pdf")
 
@@ -301,7 +301,7 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_image(self, sample_image_content):
         """Test parsing image files (OCR)."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         # Image parsing may return empty string if no OCR available
         result = await parse_document(sample_image_content, "png")
@@ -312,8 +312,8 @@ class TestParsingService:
     @pytest.mark.asyncio
     async def test_parse_unsupported_format(self):
         """Test parsing unsupported file format."""
-        from app.services.parsing_service import parse_document
-        from app.utils.exceptions import ValidationException
+        from packages.rag.services.parsing_service import parse_document
+        from packages.core.exceptions import ValidationException
 
         with pytest.raises(ValidationException):
             await parse_document(b"test content", "xyz")
@@ -329,7 +329,7 @@ class TestChunkingService:
     @pytest.mark.asyncio
     async def test_chunk_fixed_strategy(self):
         """Test fixed-size chunking."""
-        from app.services.chunking_service import chunk_text, _count_tokens
+        from packages.rag.services.chunking_service import chunk_text, _count_tokens
 
         text = "这是测试文本。" * 50
         chunks = chunk_text(text, strategy="fixed", chunk_size=100, chunk_overlap=10)
@@ -344,7 +344,7 @@ class TestChunkingService:
     @pytest.mark.asyncio
     async def test_chunk_semantic_strategy(self):
         """Test semantic chunking."""
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.chunking_service import chunk_text
 
         text = "第一段内容。\n\n第二段内容。\n\n第三段内容。" * 20
         chunks = chunk_text(text, strategy="semantic", chunk_size=100, chunk_overlap=10)
@@ -355,7 +355,7 @@ class TestChunkingService:
     @pytest.mark.asyncio
     async def test_chunk_recursive_strategy(self):
         """Test recursive chunking."""
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.chunking_service import chunk_text
 
         text = "Line 1\nLine 2\nLine 3\n\nParagraph 2\n\nParagraph 3" * 20
         chunks = chunk_text(text, strategy="recursive", chunk_size=100, chunk_overlap=10)
@@ -366,7 +366,7 @@ class TestChunkingService:
     @pytest.mark.asyncio
     async def test_chunk_with_content_type(self):
         """Test chunking with content type tagging."""
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.chunking_service import chunk_text
 
         text = "Table content here" * 20
         chunks = chunk_text(text, strategy="fixed", chunk_size=100, content_type="table")
@@ -378,7 +378,7 @@ class TestChunkingService:
     @pytest.mark.asyncio
     async def test_chunk_empty_text(self):
         """Test chunking empty text."""
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.chunking_service import chunk_text
 
         chunks = chunk_text("", strategy="fixed")
 
@@ -387,7 +387,7 @@ class TestChunkingService:
     @pytest.mark.asyncio
     async def test_count_tokens(self):
         """Test token counting."""
-        from app.services.chunking_service import _count_tokens
+        from packages.rag.services.chunking_service import _count_tokens
 
         # English: ~4 chars per token
         en_tokens = _count_tokens("hello world")
@@ -407,7 +407,7 @@ class TestDocumentService:
 
     def test_validate_file_allowed(self):
         """Test file validation for allowed formats."""
-        from app.services.document_service import validate_file
+        from packages.rag.services.document_service import validate_file
 
         # Should not raise
         validate_file("test.txt", 1024)
@@ -418,16 +418,16 @@ class TestDocumentService:
 
     def test_validate_file_unsupported(self):
         """Test file validation for unsupported formats."""
-        from app.services.document_service import validate_file
-        from app.utils.exceptions import ValidationException
+        from packages.rag.services.document_service import validate_file
+        from packages.core.exceptions import ValidationException
 
         with pytest.raises(ValidationException):
             validate_file("test.xyz", 1024)
 
     def test_validate_file_too_large(self):
         """Test file validation for oversized files."""
-        from app.services.document_service import validate_file, MAX_FILE_SIZE
-        from app.utils.exceptions import ValidationException
+        from packages.rag.services.document_service import validate_file, MAX_FILE_SIZE
+        from packages.core.exceptions import ValidationException
 
         with pytest.raises(ValidationException):
             validate_file("test.txt", MAX_FILE_SIZE + 1)
@@ -443,8 +443,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_txt_document(self, sample_txt_content):
         """Test full pipeline for TXT document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         content = sample_txt_content.encode('utf-8')
@@ -465,8 +465,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_md_document(self, sample_md_content):
         """Test full pipeline for Markdown document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         content = sample_md_content.encode('utf-8')
@@ -480,8 +480,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_html_document(self, sample_html_content):
         """Test full pipeline for HTML document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         content = sample_html_content.encode('utf-8')
@@ -496,8 +496,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_docx_document(self, sample_docx_content):
         """Test full pipeline for DOCX document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         parsed = await parse_document(sample_docx_content, "docx")
@@ -511,8 +511,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_pdf_document(self, sample_pdf_content):
         """Test full pipeline for PDF document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         parsed = await parse_document(sample_pdf_content, "pdf")
@@ -526,8 +526,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_xlsx_document(self, sample_xlsx_content):
         """Test full pipeline for XLSX document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         parsed = await parse_document(sample_xlsx_content, "xlsx")
@@ -541,8 +541,8 @@ class TestDocumentPipelineIntegration:
     @pytest.mark.asyncio
     async def test_pipeline_pptx_document(self, sample_pptx_content):
         """Test full pipeline for PPTX document."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Parse
         parsed = await parse_document(sample_pptx_content, "pptx")
@@ -689,7 +689,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_empty_file(self):
         """Test handling empty file."""
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         # Empty content
         result = await parse_document(b"", "txt")
@@ -698,7 +698,7 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_very_large_chunk(self):
         """Test handling very large text chunking."""
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.chunking_service import chunk_text
 
         # Large text (10000 chars)
         large_text = "x" * 10000
@@ -710,8 +710,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_special_characters(self):
         """Test handling special characters."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text
 
         # Special characters
         special_text = "Special: \n\t\r\n\x00\x01\x02 中文 emoji: 😀"
@@ -726,8 +726,8 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_mixed_language_text(self):
         """Test handling mixed language text."""
-        from app.services.parsing_service import parse_document
-        from app.services.chunking_service import chunk_text, _count_tokens
+        from packages.rag.services.parsing_service import parse_document
+        from packages.rag.services.chunking_service import chunk_text, _count_tokens
 
         mixed_text = """
         English text here.
@@ -746,8 +746,8 @@ class TestEdgeCases:
 
     def test_file_validation_edge_cases(self):
         """Test file validation edge cases."""
-        from app.services.document_service import validate_file
-        from app.utils.exceptions import ValidationException
+        from packages.rag.services.document_service import validate_file
+        from packages.core.exceptions import ValidationException
 
         # File without extension - should raise (no valid extension)
         with pytest.raises(ValidationException):
@@ -775,7 +775,7 @@ class TestPerformance:
     async def test_parsing_performance_txt(self):
         """Test parsing performance for TXT files."""
         import time
-        from app.services.parsing_service import parse_document
+        from packages.rag.services.parsing_service import parse_document
 
         content = "测试文本内容。" * 1000
         content_bytes = content.encode('utf-8')
@@ -791,7 +791,7 @@ class TestPerformance:
     async def test_chunking_performance(self):
         """Test chunking performance."""
         import time
-        from app.services.chunking_service import chunk_text
+        from packages.rag.services.chunking_service import chunk_text
 
         text = "测试文本。" * 5000
 
@@ -813,7 +813,7 @@ class TestStructuredParsing:
     @pytest.mark.asyncio
     async def test_structured_parse_txt(self, sample_txt_content):
         """Test structured parsing for TXT."""
-        from app.services.parsing_service import parse_document_structured
+        from packages.rag.services.parsing_service import parse_document_structured
 
         content = sample_txt_content.encode('utf-8')
         result = await parse_document_structured(content, "txt")
@@ -826,7 +826,7 @@ class TestStructuredParsing:
     @pytest.mark.asyncio
     async def test_structured_parse_html(self, sample_html_content):
         """Test structured parsing for HTML with tables."""
-        from app.services.parsing_service import parse_document_structured
+        from packages.rag.services.parsing_service import parse_document_structured
 
         content = sample_html_content.encode('utf-8')
         result = await parse_document_structured(content, "html")
@@ -838,7 +838,7 @@ class TestStructuredParsing:
     @pytest.mark.asyncio
     async def test_structured_parse_image(self, sample_image_content):
         """Test structured parsing for images."""
-        from app.services.parsing_service import parse_document_structured
+        from packages.rag.services.parsing_service import parse_document_structured
 
         result = await parse_document_structured(sample_image_content, "png")
 

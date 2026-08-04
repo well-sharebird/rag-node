@@ -9,12 +9,12 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.conversation_archive_service import ConversationArchiveService
-from app.api.v1.conversation_history import (
+from packages.agent.services.conversation_archive_service import ConversationArchiveService
+from packages.agent.api.conversation_history import (
     list_conversation_history,
     get_conversation_history_stats,
 )
-from app.models.user import User
+from packages.core.system.models.user import User
 
 
 class TestConversationHistoryPagination:

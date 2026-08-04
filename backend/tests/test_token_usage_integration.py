@@ -11,10 +11,10 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch, call
 from sqlalchemy import select
 
-from app.models.token_usage import TokenUsage, UserQuota
-from app.models.user import User
-from app.services.llm_service import generate_rag_response, _record_token_usage, _get_llm_config
-from app.schemas.retrieval import SearchResultItem
+from packages.model_gateway.models.token_usage import TokenUsage, UserQuota
+from packages.core.system.models.user import User
+from packages.model_gateway.services.llm_service import generate_rag_response, _record_token_usage, _get_llm_config
+from packages.rag.schemas.retrieval import SearchResultItem
 
 
 # Test fixtures

@@ -18,6 +18,21 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@packages/core/*": [
+        "./packages/core/src/*"
+      ],
+      "@packages/rag/*": [
+        "./packages/rag/src/*"
+      ],
+      "@packages/model-gateway/*": [
+        "./packages/model-gateway/src/*"
+      ],
+      "@packages/prompt/*": [
+        "./packages/prompt/src/*"
+      ],
+      "@packages/agent/*": [
+        "./packages/agent/src/*"
       ]
     },
     "allowImportingTsExtensions": true,

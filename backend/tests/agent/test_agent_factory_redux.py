@@ -11,8 +11,8 @@ sys.path.insert(0, '.')
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
-from app.models.agent import AgentConfig
-from app.schemas.chat import ModelConfig
+from packages.agent.models.agent import AgentConfig
+from packages.agent.schemas.chat import ModelConfig
 from app.services.agent_factory import AgentFactory
 from app.services.agent_orchestration_service import AgentOrchestrationService
 

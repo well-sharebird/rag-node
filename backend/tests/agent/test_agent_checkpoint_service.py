@@ -15,8 +15,8 @@ sys.path.insert(0, '.')
 from sqlalchemy import create_engine, select, delete
 from sqlalchemy.orm import sessionmaker
 
-from app.models.agent import AgentConfig, AgentMemory
-from app.services.agent_checkpoint_service import DatabaseCheckpointSaver
+from packages.agent.models.agent import AgentConfig, AgentMemory
+from packages.agent.services.agent_checkpoint_service import DatabaseCheckpointSaver
 
 # 使用同步驱动
 DATABASE_URL = "postgresql://postgres:postgres123@100.4.14.19:5432/rag_db"

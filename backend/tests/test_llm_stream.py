@@ -20,8 +20,8 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.core.database import async_session_factory
-from app.models.model_config import ModelConfig
+from packages.core.database import async_session_factory
+from packages.model_gateway.models.model_config import ModelConfig
 from sqlalchemy import select
 
 

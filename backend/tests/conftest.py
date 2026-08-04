@@ -22,7 +22,7 @@ class MockModelGateway:
     """
 
     async def get_model_by_name(self, name: str):
-        from app.schemas.chat import ModelConfig
+        from packages.agent.schemas.chat import ModelConfig
         return ModelConfig(
             provider="local_qwen",
             model="qwen3.5-397b-a17b",
@@ -33,7 +33,7 @@ class MockModelGateway:
         )
 
     async def get_model(self, model_id: str):
-        from app.schemas.chat import ModelConfig
+        from packages.agent.schemas.chat import ModelConfig
         return ModelConfig(
             provider="local_qwen",
             model="qwen3.5-397b-a17b",
@@ -44,7 +44,7 @@ class MockModelGateway:
         )
 
     async def list_models(self, provider: str = None, limit: int = 20):
-        from app.schemas.chat import ModelConfig
+        from packages.agent.schemas.chat import ModelConfig
         return [
             ModelConfig(
                 provider="local_qwen",
@@ -251,7 +251,7 @@ async def test_kb(client):
 @pytest.fixture
 async def test_db_session():
     """Create a test database session."""
-    from app.core.database import async_session_factory
+    from packages.core.database import async_session_factory
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
     # Use in-memory SQLite for testing

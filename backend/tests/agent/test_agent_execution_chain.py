@@ -12,8 +12,8 @@ sys.path.insert(0, '.')
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select
 
-from app.models.agent import AgentConfig
-from app.models.user import User
+from packages.agent.models.agent import AgentConfig
+from packages.core.system.models.user import User
 from app.services.agent_factory import AgentFactory
 from app.services.agent_orchestration_service import AgentOrchestrationService
 
@@ -24,7 +24,7 @@ class MockModelGateway:
     """模拟模型网关"""
 
     async def get_model_by_name(self, name: str):
-        from app.schemas.chat import ModelConfig
+        from packages.agent.schemas.chat import ModelConfig
         return ModelConfig(
             provider="local_qwen",
             model="qwen3.5-397b-a17b",

@@ -17,8 +17,8 @@ class TestTraceableDecorator:
     @pytest.mark.asyncio
     async def test_traceable_captures_input_output(self):
         """测试装饰器捕获输入输出"""
-        from app.core.tracing import traceable, set_trace_context, set_trace_service
-        from app.services.trace_service import TraceService, TraceContext
+        from packages.core.tracing import traceable, set_trace_context, set_trace_service
+        from packages.agent.services.trace_service import TraceService, TraceContext
 
         # 创建模拟追踪服务
         mock_service = AsyncMock(spec=TraceService)
@@ -51,8 +51,8 @@ class TestTraceableDecorator:
     @pytest.mark.asyncio
     async def test_traceable_handles_error(self):
         """测试装饰器捕获错误"""
-        from app.core.tracing import traceable, set_trace_context, set_trace_service
-        from app.services.trace_service import TraceService, TraceContext
+        from packages.core.tracing import traceable, set_trace_context, set_trace_service
+        from packages.agent.services.trace_service import TraceService, TraceContext
 
         mock_service = AsyncMock(spec=TraceService)
         mock_service.start_span = AsyncMock(return_value="span-123")
@@ -81,9 +81,9 @@ class TestDocumentPipelineTracing:
     @pytest.mark.asyncio
     async def test_process_document_creates_trace(self):
         """测试文档处理创建追踪记录"""
-        from app.workers.document_pipeline import process_document
-        from app.core.tracing import trace_execution, get_trace_context
-        from app.services.trace_service import TraceService
+        from packages.rag.workers.document_pipeline import process_document
+        from packages.core.tracing import trace_execution, get_trace_context
+        from packages.agent.services.trace_service import TraceService
 
         # Mock ES client
         mock_es = AsyncMock()
@@ -127,8 +127,8 @@ class TestAgentExecutionTracing:
     async def test_execute_agent_creates_trace(self):
         """测试 Agent 执行创建追踪记录"""
         from app.services.agent_orchestration_service import AgentOrchestrationService
-        from app.core.tracing import get_trace_context
-        from app.services.trace_service import TraceService
+        from packages.core.tracing import get_trace_context
+        from packages.agent.services.trace_service import TraceService
 
         # Mock database
         mock_db = AsyncMock()
@@ -174,7 +174,7 @@ class TestTraceContext:
 
     def test_trace_context_generation(self):
         """测试追踪上下文生成"""
-        from app.services.trace_service import TraceContext
+        from packages.agent.services.trace_service import TraceContext
 
         ctx = TraceContext(
             execution_type="document_pipeline",
@@ -190,7 +190,7 @@ class TestTraceContext:
 
     def test_span_id_generation(self):
         """测试 Span ID 生成"""
-        from app.services.trace_service import TraceContext
+        from packages.agent.services.trace_service import TraceContext
 
         ctx = TraceContext(execution_type="test", execution_id="test-1")
 
@@ -207,7 +207,7 @@ class TestTraceContext:
 
     def test_span_stack(self):
         """测试 Span 栈管理"""
-        from app.services.trace_service import TraceContext
+        from packages.agent.services.trace_service import TraceContext
 
         ctx = TraceContext(execution_type="test", execution_id="test-1")
 

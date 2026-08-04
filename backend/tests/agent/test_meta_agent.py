@@ -10,7 +10,7 @@ sys.path.insert(0, '.')
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import select
 
-from app.models.agent import AgentConfig
+from packages.agent.models.agent import AgentConfig
 
 DATABASE_URL = "postgresql+asyncpg://postgres:postgres123@100.4.14.19:5432/rag_db"
 
@@ -29,7 +29,7 @@ async def test_meta_agent_create_agents():
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        from app.services.meta_agent_service import MetaAgentService
+        from packages.agent.services.meta_agent_service import MetaAgentService
 
         service = MetaAgentService(
             db=session,
@@ -89,7 +89,7 @@ async def test_meta_agent_list_and_execute():
     async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
-        from app.services.meta_agent_service import MetaAgentService
+        from packages.agent.services.meta_agent_service import MetaAgentService
 
         service = MetaAgentService(
             db=session,

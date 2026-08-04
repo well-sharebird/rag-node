@@ -24,9 +24,9 @@ class TestTracingIntegration:
     @pytest.mark.asyncio
     async def test_full_document_pipeline_trace(self):
         """测试完整的文档处理追踪流程"""
-        from app.core.es_client import get_es_client
-        from app.services.trace_service import TraceService, TraceContext
-        from app.core.tracing import trace_execution, set_trace_context, set_trace_service
+        from packages.core.infra.es_client import get_es_client
+        from packages.agent.services.trace_service import TraceService, TraceContext
+        from packages.core.tracing import trace_execution, set_trace_context, set_trace_service
 
         # 获取 ES 客户端
         es = get_es_client()
@@ -105,9 +105,9 @@ class TestTracingIntegration:
     @pytest.mark.asyncio
     async def test_concurrent_traces(self):
         """测试并发追踪"""
-        from app.core.es_client import get_es_client
-        from app.services.trace_service import TraceService
-        from app.core.tracing import trace_execution
+        from packages.core.infra.es_client import get_es_client
+        from packages.agent.services.trace_service import TraceService
+        from packages.core.tracing import trace_execution
 
         es = get_es_client()
         trace_service = TraceService(es)
@@ -152,9 +152,9 @@ class TestTracingIntegration:
     @pytest.mark.asyncio
     async def test_error_trace(self):
         """测试错误追踪"""
-        from app.core.es_client import get_es_client
-        from app.services.trace_service import TraceService
-        from app.core.tracing import trace_execution
+        from packages.core.infra.es_client import get_es_client
+        from packages.agent.services.trace_service import TraceService
+        from packages.core.tracing import trace_execution
 
         es = get_es_client()
         trace_service = TraceService(es)
@@ -192,9 +192,9 @@ class TestTracingIntegration:
 @pytest.mark.asyncio
 async def test_list_traces_pagination():
     """测试追踪列表分页"""
-    from app.core.es_client import get_es_client
-    from app.services.trace_service import TraceService
-    from app.core.tracing import trace_execution
+    from packages.core.infra.es_client import get_es_client
+    from packages.agent.services.trace_service import TraceService
+    from packages.core.tracing import trace_execution
     from datetime import datetime, timedelta
 
     es = get_es_client()

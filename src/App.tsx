@@ -1,40 +1,45 @@
 import { useState } from 'react';
 import { BrowserRouter } from 'react-router-dom';
-import { AppProvider } from '@/lib/app-context';
-import { I18nProvider, useI18n } from '@/src/lib/i18n';
-import { AuthProvider, useAuth } from '@/src/lib/auth-context';
+import { AppProvider } from '@packages/core/lib/app-context';
+import { I18nProvider, useI18n } from '@packages/core/lib/i18n';
+import { AuthProvider, useAuth } from '@packages/core/lib/auth-context';
 import { Toaster } from 'sonner';
-import { Layout } from './components/Layout';
-import { DashboardView } from './components/DashboardView';
-import { KnowledgeBaseManager } from './components/KnowledgeBaseManager';
-import { RetrievalTestView } from './components/RetrievalTestView';
-import { SystemSettingsView } from './components/SystemSettingsView';
-import { QAChatView } from './components/QAChatView';
-import { MonitoringView } from './components/MonitoringView';
-import { ApiExplorerView } from './components/ApiExplorerView';
-import { DataIngestionView } from './components/DataIngestionView';
-import { SkillManagement } from './pages/SkillManagement';
-import { ModelManagement } from './pages/ModelManagement';
-import { ModelRoutingView } from './pages/ModelRoutingView';
-import { UserManagement } from './pages/UserManagement';
-import { RoleManagement } from './pages/RoleManagement';
-import { DepartmentManagement } from './pages/DepartmentManagement';
-import { MenuManagement } from './pages/MenuManagement';
-import { EvaluationPage } from './pages/EvaluationPage';
-import { TokenUsageAnalysis } from './pages/TokenUsageAnalysis';
-import { QuotaManagement } from './pages/QuotaManagement';
-import { DataSourceManagement } from './pages/DataSourceManagement';
-import { Login } from './pages/Login';
+// Core package — system components & pages
+import { Layout } from '@packages/core/system/components/Layout';
+import { DashboardView } from '@packages/core/system/components/DashboardView';
+import { SystemSettingsView } from '@packages/core/system/components/SystemSettingsView';
+import { MonitoringView } from '@packages/core/system/components/MonitoringView';
+import { ApiExplorerView } from '@packages/core/system/components/ApiExplorerView';
+import { MarkdownPreview } from '@packages/core/system/components/MarkdownPreview';
+import { UserManagement } from '@packages/core/system/pages/UserManagement';
+import { RoleManagement } from '@packages/core/system/pages/RoleManagement';
+import { DepartmentManagement } from '@packages/core/system/pages/DepartmentManagement';
+import { MenuManagement } from '@packages/core/system/pages/MenuManagement';
+import { Login } from '@packages/core/system/pages/Login';
+// RAG package
+import { KnowledgeBaseManager } from '@packages/rag/components/KnowledgeBaseManager';
+import { RetrievalTestView } from '@packages/rag/components/RetrievalTestView';
+import { DataIngestionView } from '@packages/rag/components/DataIngestionView';
+import { SynonymManagement } from '@packages/rag/components/SynonymManagement';
+import { DesensitizationManagement } from '@packages/rag/components/DesensitizationManagement';
+import { EvaluationPage } from '@packages/rag/pages/EvaluationPage';
+import { DataSourceManagement } from '@packages/rag/pages/DataSourceManagement';
+// Model Gateway package
+import { ModelManagement } from '@packages/model-gateway/pages/ModelManagement';
+import { ModelRoutingView } from '@packages/model-gateway/pages/ModelRoutingView';
+import { TokenUsageAnalysis } from '@packages/model-gateway/pages/TokenUsageAnalysis';
+import { QuotaManagement } from '@packages/model-gateway/pages/QuotaManagement';
+// Prompt package
+import { PromptTemplatesView } from '@packages/prompt/components/PromptTemplatesView';
+import { PromptTemplateDetail } from '@packages/prompt/components/PromptTemplateDetail';
+// Agent package
+import { QAChatView } from '@packages/agent/components/QAChatView';
+import { ExecutionTracingView } from '@packages/agent/components/ExecutionTracingView';
+import { SkillManagement } from '@packages/agent/pages/SkillManagement';
+import { AgentPlaza } from '@packages/agent/pages/AgentPlaza';
+import { AgentChat } from '@packages/agent/pages/AgentChat';
+import { ConversationHistory } from '@packages/agent/pages/ConversationHistory';
 import { Loader2 } from 'lucide-react';
-import { PromptTemplatesView } from './components/PromptTemplatesView';
-import { PromptTemplateDetail } from './components/PromptTemplateDetail';
-import { MarkdownPreview } from './components/MarkdownPreview';
-import { AgentPlaza } from './pages/AgentPlaza';
-import { AgentChat } from './pages/AgentChat';
-import { SynonymManagement } from './components/SynonymManagement';
-import { DesensitizationManagement } from './components/DesensitizationManagement';
-import { ExecutionTracingView } from './components/ExecutionTracingView';
-import { ConversationHistory } from './pages/ConversationHistory';
 
 function PlaceholderView({ title, description }: { title: string, description: string }) {
   return (

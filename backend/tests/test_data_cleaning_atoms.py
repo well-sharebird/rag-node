@@ -14,8 +14,8 @@ import pytest
 import sys
 sys.path.insert(0, 'backend')
 
-from app.preprocessing.text_cleaner import TextCleaner, CleaningResult
-from app.services.desensitization_service import (
+from packages.rag.preprocessing.text_cleaner import TextCleaner, CleaningResult
+from packages.rag.services.desensitization_service import (
     DesensitizationService,
     DesensitizationConfig,
     DesensitizationLevel,
