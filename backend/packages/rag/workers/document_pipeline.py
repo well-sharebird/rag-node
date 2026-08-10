@@ -23,6 +23,7 @@ from packages.rag.preprocessing.text_cleaner import get_text_cleaner
 from packages.rag.services.desensitization_service import get_kb_desensitization_config, DesensitizationService
 from packages.rag.services.ingestion_validator import get_ingestion_validator
 from packages.rag.services.file_type_router import get_router
+from packages.rag.services.tag_generation_service import get_tag_generation_service
 from packages.core.tracing import trace_execution
 
 logger = logging.getLogger("app.workers.pipeline")
@@ -127,6 +128,8 @@ PROCESS_STAGES = {
     "cleaning": 20,
     "desensitization": 30,
     "chunking": 50,
+    "tag_generation": 60,       # 智能标签生成
+    "metadata_enrichment": 65,  # 元数据增强文本
     "embedding": 70,
     "validation": 85,
     "indexing": 95,
@@ -165,6 +168,17 @@ async def process_document(ctx: dict, doc_id: str):
 
         async with async_session_factory() as db:
             try:
+                # 保存 trace_id 到文档元数据，以便后续查询流水线
+                import json
+                from sqlalchemy import update
+                await db.execute(
+                    update(Document).where(Document.id == doc_id).values(
+                        metadata_json=json.dumps({"trace_id": trace_ctx.trace_id})
+                    )
+                )
+                await db.commit()
+                logger.info("Saved trace_id to document metadata | doc_id=%s trace_id=%s", doc_id, trace_ctx.trace_id)
+
                 await update_document_progress(db, doc_id, "parsing")
 
                 result = await db.execute(select(Document).where(Document.id == doc_id))
@@ -292,6 +306,48 @@ async def process_document(ctx: dict, doc_id: str):
                             content_types=json.dumps(content_types_found)
                         )
                     )
+
+                # Stage 5.5: Generate smart tags for the document
+                await update_document_progress(db, doc_id, "tag_generation")
+                try:
+                    tag_service = get_tag_generation_service()
+                    # Generate tags from the full document text
+                    tags = await tag_service.generate_tags(
+                        text=text,
+                        doc_name=doc.original_name,
+                        category=doc.category or "",
+                        top_k=10,
+                    )
+                    # Save tags to document record
+                    if tags:
+                        tag_names = [t.name for t in tags]
+                        await db.execute(
+                            update(Document).where(Document.id == doc_id).values(
+                                tags=json.dumps(tag_names)
+                            )
+                        )
+                        logger.info("Tags generated | doc_id=%s tags=%s", doc_id, tag_names[:5])
+                except Exception as e:
+                    logger.warning("Tag generation failed, skipping: %s", e)
+
+                # Stage 5.6: Metadata enrichment - prepend metadata to chunk texts
+                # This makes vectors contain metadata semantics for better retrieval
+                doc_tags = []
+                try:
+                    import json
+                    if doc.tags:
+                        doc_tags = json.loads(doc.tags) if isinstance(doc.tags, str) else doc.tags
+                except:
+                    pass
+
+                tags_str = "，".join(doc_tags[:5]) if doc_tags else "未分类"
+                metadata_prefix = f"[文档]{doc.original_name} [分类]{doc.category or '未分类'} [标签]{tags_str}\n"
+
+                # Prepend metadata prefix to each chunk
+                for chunk in all_chunks:
+                    chunk.text = metadata_prefix + chunk.text
+
+                logger.info("Metadata enrichment applied | doc_id=%s prefix_len=%d", doc_id, len(metadata_prefix))
 
                 # Embed — resolve from model_configs
                 await update_document_progress(db, doc_id, "embedding")

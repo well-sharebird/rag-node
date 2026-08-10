@@ -10,6 +10,10 @@ class SearchRequest(BaseModel):
     enable_hybrid: bool = False
     enable_rerank: bool = False
     enable_multimodal: bool = False
+    # Metadata filtering
+    tags: list[str] | None = Field(default=None, description="Filter by tags")
+    doc_ids: list[str] | None = Field(default=None, description="Filter by specific document IDs")
+    content_type: str | None = Field(default=None, description="Filter by content type: text/table/image")
 
 
 class SearchResultItem(BaseModel):

@@ -23,10 +23,12 @@ from sqlalchemy import select
 from packages.agent.models.agent import AgentConfig, AgentCallLog
 from packages.agent.services.agent_checkpoint_service import DatabaseCheckpointSaver
 from packages.agent.services.agent_memory_service import AgentMemoryService
-from packages.agent.services.agent_graph_factory import StateGraphBuilder, WorkflowState as AgentState
 from packages.agent.schemas.chat import ModelConfig
 from packages.core.database import engine, async_session_factory
 from sqlalchemy.orm import sessionmaker
+
+# 兼容旧导入 - AgentState 已在本文件定义
+# StateGraphBuilder 已废弃，请使用新的 TAO Graph 架构
 
 # 同步 Session factory 用于 LangGraph CheckpointSaver
 sync_session_factory = sessionmaker(bind=engine.sync_engine)
@@ -66,19 +68,48 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
     api_key = None
     api_url = None
 
-    if db and provider_code:
+    # 前端通常传 model_id（如 qwen3.5-397b-a17b），而 provider_code 可能不匹配
+    # 先从 model_configs 表按 model_id 反查真实的 provider code
+    resolved_provider = provider_code
+    if db and model_name and not provider_code:
+        try:
+            from sqlalchemy import select as _select
+            result = await db.execute(
+                _select(DBModelConfig).where(DBModelConfig.model_id == model_name).limit(1)
+            )
+            mc = result.scalar_one_or_none()
+            if mc and mc.provider:
+                resolved_provider = mc.provider.lower()
+                print(f"[LLM] 从 model_configs 解析 provider | model={model_name} provider={resolved_provider}")
+        except Exception as e:
+            print(f"Failed to resolve provider from model_configs: {e}")
+    elif db and provider_code:
+        # provider_code 可能是 model_id，尝试从 model_configs 反查
+        try:
+            result = await db.execute(
+                select(DBModelConfig).where(DBModelConfig.model_id == provider_code).limit(1)
+            )
+            mc = result.scalar_one_or_none()
+            if mc and mc.provider:
+                resolved_provider = mc.provider.lower()
+                resolved_provider_fallback = True
+                print(f"[LLM] provider 实为 model_id，解析为 provider={resolved_provider}")
+        except Exception:
+            pass
+
+    if db and resolved_provider:
         try:
             # 从 ModelProvider 获取供应商配置
             result = await db.execute(
                 select(ModelProvider).where(
-                    ModelProvider.code == provider_code,
+                    ModelProvider.code == resolved_provider,
                 ).limit(1)
             )
             provider_config = result.scalar_one_or_none()
             if provider_config:
                 api_url = provider_config.base_url
                 api_key = provider_config.api_key
-                print(f"[LLM] 使用供应商配置 | provider={provider_code} url={api_url}")
+                print(f"[LLM] 使用供应商配置 | provider={resolved_provider} url={api_url}")
         except Exception as e:
             print(f"Failed to get provider config: {e}")
 
@@ -164,27 +195,145 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
         )
 
     else:
-        # 默认使用 OpenAI 兼容接口
-        from langchain_openai import ChatOpenAI
+        # 默认使用 OpenAI 兼容接口 - 使用自定义 LLM 类绕过 API Key 验证
+        from langchain_core.language_models.chat_models import BaseChatModel
+        from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+        from langchain_core.outputs import ChatGeneration, ChatResult
+        from pydantic import Field, PrivateAttr
+        import httpx
 
-        # 确保 api_url 以 /v1 结尾
-        if api_url:
-            api_url = api_url.rstrip("/")
-            if not api_url.endswith("/v1"):
-                api_url = f"{api_url}/v1"
+        # 保存参数到闭包
+        target_url = api_url
+        target_model = model_name
+        target_temp = temperature
+        target_max_tokens = max_tokens
+        target_top_p = top_p
 
-        # 通用 API Key 处理
-        effective_api_key = None if (api_key and api_key.lower() in ["not_required", "not-needed", "none", ""]) else api_key
+        class SimpleChatHttp(BaseChatModel):
+            """简单的 HTTP Chat 模型 - 用于不需要 API Key 的 OpenAI 兼容接口"""
+            base_url: str = Field(default=target_url)
+            model_name: str = Field(default=target_model)
+            temperature: float = Field(default=target_temp)
+            max_tokens: int = Field(default=target_max_tokens)
+            top_p: float = Field(default=target_top_p)
+            _client: "httpx.AsyncClient" = PrivateAttr()
 
-        return ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            base_url=api_url,
-            api_key=effective_api_key or "not-required",
-            streaming=True,  # 启用流式输出
-        )
+            def model_post_init(self, __context) -> None:
+                self._client = httpx.AsyncClient(timeout=60.0)
+
+            @property
+            def _llm_type(self) -> str:
+                return "simple_chat_http"
+
+            @property
+            def _identifying_params(self):
+                return {"base_url": self.base_url, "model_name": self.model_name}
+
+            def _to_openai_messages(self, messages: list[BaseMessage]) -> list:
+                """将 LangChain 消息转换为 OpenAI 格式"""
+                openai_messages = []
+                for msg in messages:
+                    if isinstance(msg, SystemMessage):
+                        openai_messages.append({"role": "system", "content": msg.content})
+                    elif isinstance(msg, HumanMessage):
+                        openai_messages.append({"role": "user", "content": msg.content})
+                    elif isinstance(msg, AIMessage):
+                        openai_messages.append({"role": "assistant", "content": msg.content})
+                    else:
+                        openai_messages.append({"role": "user", "content": str(msg)})
+                return openai_messages
+
+            async def _agenerate(
+                self,
+                messages: list[BaseMessage],
+                stop: list[str] | None = None,
+                **kwargs,
+            ) -> ChatResult:
+                """异步生成响应（非流式）"""
+                openai_messages = self._to_openai_messages(messages)
+
+                # 发送请求 - 不发送 Authorization header
+                response = await self._client.post(
+                    f"{self.base_url}/chat/completions",
+                    json={
+                        "model": self.model_name,
+                        "messages": openai_messages,
+                        "temperature": self.temperature,
+                        "max_tokens": self.max_tokens,
+                        "top_p": self.top_p,
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                data = response.json()
+                content = data["choices"][0]["message"]["content"]
+
+                return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+            async def _astream(
+                self,
+                messages: list[BaseMessage],
+                stop: list[str] | None = None,
+                **kwargs,
+            ):
+                """异步流式生成响应 - 逐 token 解析 OpenAI SSE 流"""
+                import json
+                from langchain_core.messages import AIMessageChunk
+                from langchain_core.outputs import ChatGenerationChunk
+
+                openai_messages = self._to_openai_messages(messages)
+
+                payload = {
+                    "model": self.model_name,
+                    "messages": openai_messages,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "top_p": self.top_p,
+                    "stream": True,
+                }
+
+                async with self._client.stream(
+                    "POST",
+                    f"{self.base_url}/chat/completions",
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line or not line.startswith("data: "):
+                            continue
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        try:
+                            obj = json.loads(data)
+                            choices = obj.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta") or {}
+                            # 标准 OpenAI 流用 content 字段；
+                            # 部分本地/推理模型（如 Qwen）把输出放在 reasoning 字段
+                            content = delta.get("content")
+                            if not content:
+                                content = delta.get("reasoning")
+                            if content:
+                                yield ChatGenerationChunk(
+                                    message=AIMessageChunk(content=content)
+                                )
+                        except Exception:
+                            continue
+
+            def _generate(
+                self,
+                messages: list[BaseMessage],
+                stop: list[str] | None = None,
+                **kwargs,
+            ) -> ChatResult:
+                """同步生成响应 - 用于非流式调用"""
+                import asyncio
+                loop = asyncio.get_event_loop()
+                return loop.run_until_complete(self._agenerate(messages, stop, **kwargs))
+
+        return SimpleChatHttp()
 
 
 class AgentState(TypedDict):
@@ -220,16 +369,9 @@ class AgentRuntime:
         self.skill_registry = skill_registry
         self.graph_cache: dict[str, Any] = {}  # agent_id -> compiled graph
 
-        # v2.0: 工厂模式支持
+        # v2.0: 工厂模式支持 - 已废弃，请使用新的 Harness 架构
         self.use_factory_mode = use_factory_mode
-        if use_factory_mode:
-            self.graph_factory = StateGraphBuilder(
-                model_gateway_service=model_gateway_service,
-                skill_registry=skill_registry,
-                db=db,
-            )
-        else:
-            self.graph_factory = None
+        self.graph_factory = None  # StateGraphBuilder 已废弃
 
     async def _create_llm(self, model_config: ModelConfig) -> Any:
         """根据模型配置创建 LLM 实例"""

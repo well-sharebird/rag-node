@@ -59,14 +59,25 @@ def search_vectors(
     top_k: int = 10,
     min_score: float = 0.0,
     content_type_filter: str | list[str] | None = None,
+    filter: str | None = None,  # Custom filter expression
 ) -> list[dict]:
-    filter_expr = None
+    # Build filter expression
+    filter_parts = []
+
+    # Content type filter
     if content_type_filter:
         if isinstance(content_type_filter, list):
             types = ', '.join(f'"{t}"' for t in content_type_filter)
-            filter_expr = f'content_type in [{types}]'
+            filter_parts.append(f'content_type in [{types}]')
         else:
-            filter_expr = f'content_type == "{content_type_filter}"'
+            filter_parts.append(f'content_type == "{content_type_filter}"')
+
+    # Custom filter expression (from caller)
+    if filter:
+        filter_parts.append(filter)
+
+    # Combine all filter parts
+    filter_expr = " AND ".join(filter_parts) if filter_parts else None
 
     results = milvus.search(
         collection_name=collection_name,

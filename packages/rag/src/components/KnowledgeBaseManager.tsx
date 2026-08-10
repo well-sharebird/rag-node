@@ -12,10 +12,11 @@ import { Select } from '@/src/components/enterprise/Select';
 import {
   Database, FileText, Plus, Search, UploadCloud, MoreVertical,
   Trash2, Eye, RefreshCw, Loader2, X, FolderOpen,
-  TrendingUp, Calendar, Shield, ChevronLeft, Settings, CheckCircle2
+  TrendingUp, Calendar, Shield, ChevronLeft, Settings, CheckCircle2, Activity
 } from 'lucide-react';
 import { useI18n } from '@/src/lib/i18n';
-import { fetchDocs, deleteDoc, uploadDoc, fetchApi } from '@/lib/api-client';
+import { fetchDocs, deleteDoc, uploadDoc, fetchApi, getDocumentPipeline } from '@/lib/api-client';
+import { DocumentPipelineTracing } from '@packages/rag/components/DocumentPipelineTracing';
 import { cn } from '@/lib/utils';
 
 const STAGE_LABELS: Record<string, string> = {
@@ -96,6 +97,7 @@ export function KnowledgeBaseManager() {
   const [previewDoc, setPreviewDoc] = useState<any>(null);
   const [recentlyUploadedIds, setRecentlyUploadedIds] = useState<string[]>([]);
   const [processingDocIds, setProcessingDocIds] = useState<Set<string>>(new Set());
+  const [viewingPipeline, setViewingPipeline] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const previewPollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -393,6 +395,19 @@ export function KnowledgeBaseManager() {
     }
   };
 
+  const handleViewPipeline = async (docId: string) => {
+    try {
+      const pipeline = await getDocumentPipeline(docId);
+      if (!pipeline || !pipeline.stages || pipeline.stages.length === 0) {
+        toast.info('该文档暂无处理流程数据，可能是上传时未启用追踪功能');
+        return;
+      }
+      setViewingPipeline(docId);
+    } catch (e: any) {
+      toast.error(e.message || '加载流水线失败');
+    }
+  };
+
   const openFilePicker = () => {
     fileInputRef.current?.click();
   };
@@ -650,6 +665,14 @@ export function KnowledgeBaseManager() {
                                 >
                                   <Eye className="w-4 h-4" />
                                 </Button>
+                                <button
+                                  onClick={() => handleViewPipeline(doc.id)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded text-xs font-medium transition-colors"
+                                  title="查看处理流水线"
+                                >
+                                  <Activity className="w-4 h-4" />
+                                  <span>流水线</span>
+                                </button>
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -968,6 +991,23 @@ export function KnowledgeBaseManager() {
           </div>
         </Modal>
       )}
+
+      {/* Pipeline Modal */}
+      <Modal
+        open={!!viewingPipeline}
+        onOpenChange={() => setViewingPipeline(null)}
+        title="文档处理流水线"
+        className="max-w-6xl h-[85vh]"
+      >
+        {viewingPipeline && (
+          <div className="h-[70vh]">
+            <DocumentPipelineTracing
+              docId={viewingPipeline}
+              onClose={() => setViewingPipeline(null)}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

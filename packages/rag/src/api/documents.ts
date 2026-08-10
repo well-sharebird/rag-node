@@ -20,6 +20,10 @@ export interface DocData {
   tags?: string[];
   errorMessage?: string | null;
   error_message?: string | null;
+  // 智能标签元数据
+  content_types?: string[];
+  progress?: number;
+  current_stage?: string;
 }
 
 export const fetchDocs = async (kbId: string) => {
@@ -113,4 +117,45 @@ export const listFailedDocuments = async (kb_id?: string) => {
 
 export const getDocumentVersions = async (doc_id: string) => {
   return fetchApi(`/api/v1/documents/${doc_id}/versions`);
+};
+
+// ============================================================
+// Documents - Pipeline Tracing
+// ============================================================
+
+export interface PipelineStage {
+  stage: string;
+  label: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  duration_ms: number | null;
+  input_summary: {
+    preview: string;
+    count?: number | null;
+    size?: number | null;
+  } | null;
+  output_summary: {
+    preview: string;
+    count?: number | null;
+    size?: number | null;
+  } | null;
+  error: {
+    message: string;
+    details: Record<string, unknown>;
+  } | null;
+  span_id: string;
+}
+
+export interface PipelineResponse {
+  document_id: string;
+  stages: PipelineStage[];
+  total_duration_ms: number;
+  status: string;
+}
+
+export const getDocumentPipeline = async (doc_id: string) => {
+  return fetchApi<PipelineResponse>(`/api/v1/documents/${doc_id}/pipeline`);
+};
+
+export const getStageData = async (doc_id: string, stage: string) => {
+  return fetchApi(`/api/v1/documents/${doc_id}/stages/${stage}/data`);
 };

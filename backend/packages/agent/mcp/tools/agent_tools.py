@@ -283,24 +283,21 @@ async def execute_agent_handler(
 ) -> Dict[str, Any]:
     """Execute agent handler."""
     try:
-        from packages.agent.services.agent_service import AgentService, AgentExecuteRequest, ExecutionMode
+        from packages.agent.services.harness_agent_service import create_harness_agent_service
         from packages.model_gateway.services.model_gateway_service import ModelGatewayService
         from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
 
         model_gateway = ModelGatewayService(db)
         skill_registry = SkillRegistryService(db)
-        agent_service = AgentService(db, model_gateway, skill_registry)
+        harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
 
-        request = AgentExecuteRequest(
+        result = await harness_service.execute(
+            agent_id=agent_id,
             query=query,
             user_id=user_id,
             tenant_id="default",
-            agent_id=agent_id,
             session_id=session_id,
-            execution_mode=ExecutionMode.SINGLE,
         )
-
-        result = await agent_service.execute(request)
 
         return {
             "success": True,

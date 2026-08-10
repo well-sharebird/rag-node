@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "knowledge_base_search",
+  "description": "在知识库中检索相关文档片段",
+  "version": "1.0.0",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "搜索关键词或问题",
+        "minLength": 1,
+        "maxLength": 2000
+      },
+      "kb_id": {
+        "type": "string",
+        "description": "知识库 ID",
+        "format": "uuid"
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "返回结果数量",
+        "minimum": 1,
+        "maximum": 20,
+        "default": 5
+      },
+      "enable_rerank": {
+        "type": "boolean",
+        "description": "是否启用重排序",
+        "default": false
+      }
+    },
+    "required": ["query", "kb_id"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "chunks": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "content": { "type": "string" },
+            "score": { "type": "number" },
+            "metadata": { "type": "object" }
+          }
+        }
+      },
+      "total": { "type": "integer" }
+    }
+  },
+  "constraints": {
+    "auth_required": true,
+    "rate_limit": {
+      "requests": 60,
+      "period": "minute"
+    },
+    "audit_log": true
+  }
+}

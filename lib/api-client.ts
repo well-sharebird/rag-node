@@ -93,7 +93,9 @@ export {
   fetchDocs, deleteDoc, uploadDoc, fetchDocumentCategories, batchUploadDocs,
   fetchDoc, updateDocument, reprocessDocument, batchReprocessDocuments,
   previewChunks, listFailedDocuments, getDocumentVersions,
+  getDocumentPipeline, getStageData,
 } from '@packages/rag/api/documents';
+export type { PipelineStage, PipelineResponse } from '@packages/rag/api/documents';
 
 // ============================================================
 // RAG - Retrieval

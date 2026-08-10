@@ -37,6 +37,9 @@ class Document(Base, TimestampMixin):
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
     current_stage: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # pending, parsing, cleaning, chunking, embedding, indexing, completed, failed
 
+    # 追踪上下文
+    metadata_json: Mapped[Optional[dict]] = mapped_column(String(2000), nullable=True)  # JSON metadata, e.g., {"trace_id": "..."}
+
     @property
     def tags_list(self) -> list[str]:
         import json
@@ -51,3 +54,20 @@ class Document(Base, TimestampMixin):
     def tags_list(self, value: list[str]):
         import json
         self.tags = json.dumps(value) if value else None
+
+    @property
+    def metadata_dict(self) -> dict:
+        import json
+        if self.metadata_json:
+            try:
+                if isinstance(self.metadata_json, str):
+                    return json.loads(self.metadata_json)
+                return self.metadata_json
+            except:
+                return {}
+        return {}
+
+    @metadata_dict.setter
+    def metadata_dict(self, value: dict):
+        import json
+        self.metadata_json = json.dumps(value) if value else None

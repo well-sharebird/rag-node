@@ -268,3 +268,42 @@ async def test_db_session():
 
     # Cleanup
     await engine.dispose()
+
+
+@pytest.fixture
+async def db_session(test_db_session):
+    """Alias for test_db_session - for backward compatibility"""
+    yield test_db_session
+
+
+# ============================================================
+# Mock DB Session for Harness testing (no database required)
+# ============================================================
+
+@pytest.fixture
+def mock_db():
+    """
+    创建完全 Mock 的数据库 Session，用于测试 Harness 引擎
+
+    Harness 引擎主要测试逻辑，不需要真实数据库
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    session = AsyncMock(spec=AsyncSession)
+    session.add = AsyncMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.close = AsyncMock()
+    session.refresh = AsyncMock()
+    session.execute = AsyncMock()
+    session.scalar_one_or_none = AsyncMock()
+    session.scalars = AsyncMock()
+
+    # Mock 返回空结果
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_result.scalars.return_value = []
+    session.execute.return_value = mock_result
+
+    return session

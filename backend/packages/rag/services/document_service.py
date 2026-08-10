@@ -219,10 +219,13 @@ async def delete_document(
 
     if kb and milvus.has_collection(kb.collection_name):
         try:
+            # 先加载集合（如果未加载）
+            milvus.load_collection(kb.collection_name)
             milvus.delete(collection_name=kb.collection_name, filter=f'doc_id == "{doc_id}"')
             logger.info("Deleted vectors for doc=%s from collection=%s", doc_id, kb.collection_name)
         except Exception as e:
-            logger.warning("Failed to delete vectors for doc=%s: %s", doc_id, e)
+            # 静默失败，不影响主流程（PostgreSQL 和 MinIO 删除已成功）
+            logger.debug("Vector deletion skipped for doc=%s: %s", doc_id, e)
 
     if minio is not None:
         try:

@@ -92,9 +92,7 @@ def create_execute_agent_tool(db: AsyncSession, user_id: int, kb_ids: Optional[l
     允许 Meta Agent 调用现有智能体完成任务
     """
     from langchain_core.tools import tool
-    from packages.agent.services.agent_service import AgentService, AgentExecuteRequest, ExecutionMode
-    from packages.model_gateway.services.model_gateway_service import ModelGatewayService
-    from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
+    from packages.agent.services.harness_agent_service import create_harness_agent_service
 
     @tool
     async def execute_agent(
@@ -117,23 +115,24 @@ def create_execute_agent_tool(db: AsyncSession, user_id: int, kb_ids: Optional[l
             The agent's response as a string
         """
         try:
+            from packages.agent.services.harness_agent_service import create_harness_agent_service
+            from packages.model_gateway.services.model_gateway_service import ModelGatewayService
+            from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
+
             model_gateway = ModelGatewayService(db)
             skill_registry = SkillRegistryService(db)
-            agent_service = AgentService(db, model_gateway, skill_registry)
+            harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
 
-            request = AgentExecuteRequest(
+            result = await harness_service.execute(
+                agent_id=agent_id,
                 query=query,
                 user_id=user_id,
                 tenant_id="default",
-                agent_id=agent_id,
                 kb_ids=kb_ids,
                 top_k=top_k,
                 enable_rerank=enable_rerank,
                 model_name=model_name,
-                execution_mode=ExecutionMode.SINGLE,
             )
-
-            result = await agent_service.execute(request)
 
             logger.info(f"[MetaAgent] Executed agent {agent_id}, response length: {len(result.response)}")
 

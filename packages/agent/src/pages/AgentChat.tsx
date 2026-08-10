@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { fetchApi } from '@/lib/api-client';
 import { fetchEventSource } from '@microsoft/fetch-event-source';
 import {
-  Send, Bot, User, Loader2, Settings, ChevronDown, ChevronUp,
+  Send, Bot, User, Loader2, Settings,
   MessageSquare, Trash2, Download, Copy, StopCircle, ArrowLeft, RefreshCw
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -52,9 +52,23 @@ interface Message {
 }
 
 interface StreamEvent {
-  type: 'token' | 'done' | 'error';
+  type: 'token' | 'done' | 'error' | 'agent_selected' | 'tool_call' | 'thought' | 'agent_switch' | 'complete';
   content?: string;
   error?: string;
+  agent_id?: string;
+  agent_name?: string;
+  agent_type?: string;
+  tool_name?: string;
+  tool_input?: string;
+  node?: string;
+  run_id?: string;
+}
+
+interface TraceMessage extends Message {
+  type?: string;
+  agent_name?: string;
+  tool_name?: string;
+  isSystemMessage?: boolean;
 }
 
 // ========== 模型类型映射 ==========
@@ -79,10 +93,12 @@ export function AgentChat() {
 
   const [loading, setLoading] = useState(true);
   const [agent, setAgent] = useState<AgentConfig | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<TraceMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId, setSessionId] = useState<string>(`session_${Date.now()}`);
+  const [showTrace, setShowTrace] = useState(false);
+  const [currentAgent, setCurrentAgent] = useState<string | null>(null);
 
   // 模型选择 - 从后端 API 获取
   const [showModelSettings, setShowModelSettings] = useState(false);
@@ -231,7 +247,8 @@ export function AgentChat() {
       const controller = new AbortController();
       abortControllerRef.current = controller;
 
-      await fetchEventSource(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/v1/agents/${agent.id}/execute/stream`, {
+      // 使用 Harness 统一执行入口
+      await fetchEventSource(`${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/api/v1/agents/execute/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -239,6 +256,7 @@ export function AgentChat() {
         },
         body: JSON.stringify({
           query: userMessage.content,
+          agent_id: agent.id,  // 指定 Agent (可选)
           model_name: selectedModel || undefined,
           plan_mode: false,
           session_id: sessionId,
@@ -251,28 +269,82 @@ export function AgentChat() {
               return;
             }
             const data: StreamEvent = JSON.parse(event.data);
-            if (data.type === 'token' && data.content) {
-              hasReceivedContent = true;
-              setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  // 如果是第一个 token，替换空内容；否则追加
-                  if (lastMessage.content === '') {
-                    lastMessage.content = data.content!;
-                  } else {
-                    lastMessage.content += data.content!;
-                  }
+
+            // 处理不同类型的事件
+            switch (data.type) {
+              case 'agent_selected':
+                // 显示选中的 Agent
+                if (data.agent_name) {
+                  setCurrentAgent(data.agent_name);
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `正在使用 ${data.agent_name} 为您服务...`,
+                    timestamp: new Date(),
+                    type: 'agent_selected',
+                    isSystemMessage: true,
+                  }]);
                 }
-                return newMessages;
-              });
-            } else if (data.type === 'done') {
-              setIsStreaming(false);
-              abortControllerRef.current = null;
-            } else if (data.type === 'error' && data.error) {
-              toast.error(data.error);
-              setIsStreaming(false);
-              setMessages(prev => prev.filter(m => m.content !== ''));
+                break;
+
+              case 'tool_call':
+                // 显示工具调用
+                if (data.tool_name && showTrace) {
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `正在调用工具：${data.tool_name}`,
+                    timestamp: new Date(),
+                    type: 'tool_call',
+                    tool_name: data.tool_name,
+                    isSystemMessage: true,
+                  }]);
+                }
+                break;
+
+              case 'thought':
+                // 显示思考过程 (仅追踪模式)
+                if (showTrace && data.content) {
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: data.content,
+                    timestamp: new Date(),
+                    type: 'thought',
+                    isSystemMessage: true,
+                  }]);
+                }
+                break;
+
+              case 'token':
+                if (data.content) {
+                  hasReceivedContent = true;
+                  setMessages(prev => {
+                    const newMessages = [...prev];
+                    const lastMessage = newMessages[newMessages.length - 1];
+                    if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isSystemMessage) {
+                      // 追加 token
+                      lastMessage.content += data.content!;
+                    } else {
+                      // 创建新的助手消息
+                      newMessages.push({
+                        role: 'assistant',
+                        content: data.content!,
+                        timestamp: new Date(),
+                      });
+                    }
+                    return newMessages;
+                  });
+                }
+                break;
+
+              case 'complete':
+                setIsStreaming(false);
+                abortControllerRef.current = null;
+                break;
+
+              case 'error':
+                toast.error(data.error || '发生错误');
+                setIsStreaming(false);
+                setMessages(prev => prev.filter(m => !m.isSystemMessage || m.content !== ''));
+                break;
             }
           } catch (e) {
             console.error('Parse error:', e, 'event.data:', event.data);
@@ -405,8 +477,22 @@ export function AgentChat() {
               <p className="text-xs text-[var(--text-tertiary)] truncate max-w-[200px]">{agent.description}</p>
             </div>
           </div>
+          {currentAgent && (
+            <Badge variant="secondary" size="sm" className="ml-2">
+              使用中：{currentAgent}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant={showTrace ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setShowTrace(!showTrace)}
+            title="显示执行追踪"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span className="ml-1 text-xs">追踪</span>
+          </Button>
           <Button variant="outline" size="sm" onClick={handleClearChat} title="清空对话">
             <Trash2 className="w-4 h-4" />
           </Button>
@@ -538,41 +624,62 @@ export function AgentChat() {
               key={index}
               className={cn(
                 "flex items-start gap-3 mb-4",
-                message.role === 'user' ? "flex-row-reverse" : ""
+                message.role === 'user' ? "flex-row-reverse" : "",
+                message.isSystemMessage ? "justify-center" : ""
               )}
             >
-              <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
-                message.role === 'user'
-                  ? "bg-blue-500 text-white"
-                  : "bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-white"
-              )}>
-                {message.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-              </div>
-              <div className={cn(
-                "flex-1 max-w-[80%]",
-                message.role === 'user' ? "text-right" : "text-left"
-              )}>
-                <div className={cn(
-                  "inline-block px-4 py-2.5 rounded-2xl text-sm",
-                  message.role === 'user'
-                    ? "bg-blue-500 text-white rounded-tr-sm"
-                    : "bg-white border border-[var(--gray-200)] rounded-tl-sm text-[var(--text-primary)]"
-                )}>
-                  <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                </div>
-                {message.role === 'assistant' && message.content && (
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <button
-                      className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1"
-                      onClick={() => handleCopyMessage(message.content)}
-                    >
-                      <Copy className="w-3 h-3" />
-                      复制
-                    </button>
+              {message.isSystemMessage ? (
+                <div className="w-full max-w-2xl">
+                  <div className={cn(
+                    "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs",
+                    message.type === 'agent_selected' && "bg-green-50 text-green-700 border border-green-200",
+                    message.type === 'tool_call' && "bg-blue-50 text-blue-700 border border-blue-200",
+                    message.type === 'thought' && "bg-purple-50 text-purple-700 border border-purple-200",
+                    message.type === 'agent_switch' && "bg-orange-50 text-orange-700 border border-orange-200",
+                  )}>
+                    {message.type === 'agent_selected' && <Bot className="w-3 h-3" />}
+                    {message.type === 'tool_call' && <Settings className="w-3 h-3" />}
+                    {message.type === 'thought' && <MessageSquare className="w-3 h-3" />}
+                    {message.type === 'agent_switch' && <RefreshCw className="w-3 h-3" />}
+                    <span>{message.content}</span>
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div className={cn(
+                    "w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0",
+                    message.role === 'user'
+                      ? "bg-blue-500 text-white"
+                      : "bg-gradient-to-br from-[var(--primary)] to-[var(--accent)] text-white"
+                  )}>
+                    {message.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
+                  </div>
+                  <div className={cn(
+                    "flex-1 max-w-[80%]",
+                    message.role === 'user' ? "text-right" : "text-left"
+                  )}>
+                    <div className={cn(
+                      "inline-block px-4 py-2.5 rounded-2xl text-sm",
+                      message.role === 'user'
+                        ? "bg-blue-500 text-white rounded-tr-sm"
+                        : "bg-white border border-[var(--gray-200)] rounded-tl-sm text-[var(--text-primary)]"
+                    )}>
+                      <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                    </div>
+                    {message.role === 'assistant' && message.content && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <button
+                          className="text-xs text-[var(--text-tertiary)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1"
+                          onClick={() => handleCopyMessage(message.content)}
+                        >
+                          <Copy className="w-3 h-3" />
+                          复制
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           ))}
           <div ref={messagesEndRef} />

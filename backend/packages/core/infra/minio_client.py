@@ -12,10 +12,18 @@ def get_minio_client() -> Minio:
     global _minio_client
     if _minio_client is None:
         import urllib3
-        # Use smaller retry count and timeout for faster startup
+        # Increased timeout for remote MinIO server (100.4.14.19)
+        # Support large file uploads (PPTX, etc.) with longer timeout
         http_client = urllib3.PoolManager(
-            timeout=urllib3.Timeout(connect=2.0, read=5.0),
-            retries=urllib3.Retry(total=1, connect=1, backoff_factor=0.3),
+            timeout=urllib3.Timeout(connect=10.0, read=60.0),  # 连接 10 秒，读取 60 秒
+            retries=urllib3.Retry(
+                total=3,
+                connect=3,
+                read=3,
+                backoff_factor=1.0,  # 1s, 2s, 4s 指数退避
+                status_forcelist=[429, 500, 502, 503, 504],
+                allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "POST"],
+            ),
         )
         _minio_client = Minio(
             endpoint=settings.minio_endpoint,

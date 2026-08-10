@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "workspace-boundary",
+  "description": "工作区边界检查规则",
+  "version": "1.0.0",
+  "rule_type": "path_validation",
+  "check": {
+    "type": "path_starts_with",
+    "field": "requested_path",
+    "reference": "workspace.root_path"
+  },
+  "action": {
+    "on_violation": "reject",
+    "log_level": "warning",
+    "audit": true
+  },
+  "error_message": "越权访问：请求的路径超出了工作区边界",
+  "examples": {
+    "valid": [
+      {
+        "workspace_root": "/workspace/users/123",
+        "requested": "/workspace/users/123/file.txt"
+      },
+      {
+        "workspace_root": "/workspace/users/123",
+        "requested": "/workspace/users/123/subdir/file.txt"
+      }
+    ],
+    "invalid": [
+      {
+        "workspace_root": "/workspace/users/123",
+        "requested": "/workspace/users/456/file.txt",
+        "reason": "访问其他用户工作区"
+      },
+      {
+        "workspace_root": "/workspace/users/123",
+        "requested": "/etc/passwd",
+        "reason": "访问系统文件"
+      },
+      {
+        "workspace_root": "/workspace/users/123",
+        "requested": "/workspace/users/123/../../../etc/passwd",
+        "reason": "路径遍历攻击"
+      }
+    ]
+  }
+}

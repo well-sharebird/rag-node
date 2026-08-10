@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "name": "code_executor",
+  "description": "在沙箱环境中执行代码",
+  "version": "1.0.0",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "code": {
+        "type": "string",
+        "description": "要执行的代码",
+        "minLength": 1,
+        "maxLength": 50000
+      },
+      "language": {
+        "type": "string",
+        "description": "编程语言",
+        "enum": ["python", "javascript", "bash"],
+        "default": "python"
+      },
+      "timeout_seconds": {
+        "type": "integer",
+        "description": "超时时间（秒）",
+        "minimum": 1,
+        "maximum": 60,
+        "default": 30
+      },
+      "workspace_path": {
+        "type": "string",
+        "description": "工作区路径（可选，限定文件访问范围）"
+      }
+    },
+    "required": ["code"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "stdout": { "type": "string" },
+      "stderr": { "type": "string" },
+      "exit_code": { "type": "integer" },
+      "timed_out": { "type": "boolean" },
+      "duration_ms": { "type": "integer" }
+    }
+  },
+  "constraints": {
+    "auth_required": true,
+    "rate_limit": {
+      "requests": 30,
+      "period": "minute"
+    },
+    "audit_log": true,
+    "sandbox_required": {
+      "type": "nsjail",
+      "network_enabled": false,
+      "max_memory_mb": 128,
+      "max_files": 100
+    },
+    "forbidden_imports": [
+      "os.system",
+      "subprocess",
+      "socket",
+      "requests",
+      "urllib",
+      "http.client",
+      "ftplib",
+      "smtplib",
+      "telnetlib",
+      "paramiko"
+    ],
+    "forbidden_patterns": [
+      "__import__.*os",
+      "eval.*input",
+      "exec.*input",
+      "open.*\\/etc",
+      "rm.*-rf"
+    ]
+  }
+}

@@ -257,7 +257,7 @@ export function QAChatView() {
       // 确保模型名称正确传递 - 使用 model_id 而不是 name
       const modelName = availableModels.find(m => m.model_id === selectedModelId)?.model_id || availableModels[0]?.model_id;
 
-      // 使用 Meta Agent 接口进行问答（系统内置的 AI 助手入口，不需要 agent_id）
+      // 使用 Harness 统一执行入口进行问答（不传 agent_id，由 Harness 自主决策）
       const requestBody: any = {
         query,
         kb_ids: useRAG ? selectedKbs : undefined,
@@ -269,8 +269,9 @@ export function QAChatView() {
         requestBody.model_name = modelName;
       }
 
-      // 使用 Meta Agent 接口：/api/v1/agents/meta/execute/stream
-      const res = await fetch(getApiUrl('/api/v1/agents/meta/execute/stream'), {
+      // 使用 Harness 统一入口：/api/v1/agents/execute/stream
+      // 不传 agent_id，Harness 会自动使用 AI 助手模式
+      const res = await fetch(getApiUrl('/api/v1/agents/execute/stream'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

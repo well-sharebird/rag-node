@@ -58,3 +58,47 @@ class ChunkPreviewResponse(BaseModel):
     min_chunk_size: int
     max_chunk_size: int
     preview: list[str]  # First 5 chunks
+
+
+# ============================================================
+# Pipeline Tracking Schemas
+# ============================================================
+
+class InputSummary(BaseModel):
+    """输入数据摘要"""
+    preview: str = ""
+    count: int | None = None
+    size: int | None = None
+
+
+class OutputSummary(BaseModel):
+    """输出数据摘要"""
+    preview: str = ""
+    count: int | None = None
+    size: int | None = None
+
+
+class ErrorInfo(BaseModel):
+    """错误信息"""
+    message: str = ""
+    details: dict = {}
+
+
+class PipelineStage(BaseModel):
+    """流水线处理阶段"""
+    stage: str  # parsing, cleaning, desensitization, chunking, embedding, indexing
+    label: str
+    status: str  # pending, running, completed, failed
+    duration_ms: int | None = None
+    input_summary: InputSummary | None = None
+    output_summary: OutputSummary | None = None
+    error: ErrorInfo | None = None
+    span_id: str = ""
+
+
+class PipelineResponse(BaseModel):
+    """文档处理流水线响应"""
+    document_id: str
+    stages: list[PipelineStage]
+    total_duration_ms: int
+    status: str  # completed, failed, running

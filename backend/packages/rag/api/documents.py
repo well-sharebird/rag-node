@@ -12,6 +12,7 @@ from packages.rag.services import document_service
 from packages.rag.schemas.document import (
     DocumentResponse, DocumentDetailResponse, DocumentListResponse,
     DocumentUpdateRequest, UploadResponse, ChunkPreviewRequest, ChunkPreviewResponse,
+    PipelineResponse, PipelineStage, InputSummary, OutputSummary, ErrorInfo,
 )
 
 logger = logging.getLogger("app.api.documents")
@@ -227,6 +228,227 @@ async def get_document_versions(db: DBSession, doc_id: str):
         else:
             break
     return versions
+
+
+@router.get("/{doc_id}/pipeline", response_model=PipelineResponse)
+async def get_document_pipeline(db: DBSession, doc_id: str):
+    """
+    获取文档处理流水线追踪详情
+
+    返回文档处理的各个阶段信息，包括输入输出数据摘要
+    """
+    from sqlalchemy import select
+    from packages.rag.models.document import Document
+
+    # 获取文档信息
+    doc = await document_service.get_document(db, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # 获取关联的 trace_id (从 metadata_json 或单独存储)
+    trace_id = None
+    if doc.metadata_json:
+        import json
+        try:
+            metadata = json.loads(doc.metadata_json) if isinstance(doc.metadata_json, str) else doc.metadata_json
+            trace_id = metadata.get("trace_id")
+        except:
+            pass
+
+    # 如果没有 trace_id，返回空流水线
+    if not trace_id:
+        return PipelineResponse(
+            document_id=doc_id,
+            stages=[],
+            total_duration_ms=0,
+            status=doc.status,
+        )
+
+    # 从 Elasticsearch 获取追踪数据
+    try:
+        from packages.core.infra.es_client import get_es_client
+        es = get_es_client()
+
+        # 查询该 trace 的所有 spans
+        search_query = {
+            "query": {"term": {"trace_id": trace_id}},
+            "sort": [{"started_at": "asc"}]
+        }
+
+        response = await es.search(index="execution_traces", body=search_query)
+        spans = [hit["_source"] for hit in response["hits"]["hits"]]
+
+        # 转换为流水线阶段
+        stages = []
+        stage_order = ["parsing", "cleaning", "desensitization", "chunking", "embedding", "indexing"]
+
+        for stage_key in stage_order:
+            stage_spans = [s for s in spans if stage_key in s.get("node_type", "").lower()]
+            if not stage_spans:
+                continue
+
+            span = stage_spans[0]
+            duration = span.get("duration_ms", 0)
+            # 映射 ES 的 status 到前端期望的值
+            es_status = span.get("status", "unknown")
+            status = "completed" if es_status == "success" else es_status
+
+            # 提取输入输出摘要
+            input_data = span.get("input_data", {})
+            output_data = span.get("output_data", {})
+
+            # 提取 input preview（跳过二进制数据）
+            input_preview = ""
+            if input_data:
+                if "preview" in input_data:
+                    val = str(input_data["preview"])
+                    # 跳过二进制数据（包含 PK 头、\x 转义等）
+                    if not (val.startswith("b'") or "\\x" in val or val.startswith("PK")):
+                        input_preview = val[:200]
+                if not input_preview and "args" in input_data:
+                    args = input_data.get("args", [])
+                    # 找第一个文本参数（跳过二进制）
+                    for arg in args:
+                        arg_str = str(arg)
+                        if not (arg_str.startswith("b'") or "\\x" in arg_str or arg_str.startswith("PK")):
+                            # 只保留可打印字符
+                            clean = "".join(c for c in arg_str if c.isprintable() or c in " \n\t")
+                            if len(clean) > 10:
+                                input_preview = clean[:200]
+                                break
+                if not input_preview and "kwargs" in input_data:
+                    kwargs = input_data.get("kwargs", {})
+                    # 提取有意义的 kwargs
+                    text_parts = []
+                    for k, v in kwargs.items():
+                        if k not in ("strategy", "chunk_size", "chunk_overlap"):
+                            text_parts.append(f"{k}={v}")
+                    input_preview = ", ".join(text_parts)[:200] if text_parts else ""
+
+            # 提取 output preview
+            output_preview = ""
+            output_count = None
+            if output_data:
+                if "preview" in output_data:
+                    val = output_data["preview"]
+                    if isinstance(val, list):
+                        # 列表预览（如 chunks）
+                        output_preview = f"[{len(val)} 项] " + str(val[0])[:150] if val else ""
+                    elif isinstance(val, str):
+                        output_preview = val[:200]
+                    else:
+                        output_preview = str(val)[:200]
+                    output_count = output_data.get("length") or output_data.get("count")
+                elif "result" in output_data:
+                    result = output_data.get("result", "")
+                    if isinstance(result, str):
+                        # 清理不可打印字符
+                        clean = "".join(c for c in result if c.isprintable() or c in " \n\t")
+                        output_preview = clean[:200]
+                    else:
+                        output_preview = str(result)[:200]
+
+            stages.append(PipelineStage(
+                stage=stage_key,
+                label=stage_key.title(),
+                status=status,
+                duration_ms=duration,
+                input_summary=InputSummary(
+                    preview=input_preview,
+                    count=input_data.get("args_count") or input_data.get("count"),
+                    size=input_data.get("size"),
+                ),
+                output_summary=OutputSummary(
+                    preview=output_preview,
+                    count=output_count,
+                    size=output_data.get("size"),
+                ),
+                error=ErrorInfo(
+                    message=span.get("error_info", {}).get("message", ""),
+                    details=span.get("error_info", {}),
+                ) if status == "failed" else None,
+                span_id=span.get("span_id", ""),
+            ))
+
+        total_duration = sum(s.duration_ms or 0 for s in stages)
+
+        return PipelineResponse(
+            document_id=doc_id,
+            stages=stages,
+            total_duration_ms=total_duration,
+            status=doc.status,
+        )
+
+    except Exception as e:
+        logger.warning("Failed to get pipeline data: %s", e)
+        # 返回空结果但不报错
+        return PipelineResponse(
+            document_id=doc_id,
+            stages=[],
+            total_duration_ms=0,
+            status=doc.status,
+        )
+
+
+@router.get("/{doc_id}/stages/{stage}/data")
+async def get_stage_data(db: DBSession, doc_id: str, stage: str):
+    """获取指定阶段的详细输入输出数据"""
+    from sqlalchemy import select
+    from packages.rag.models.document import Document
+
+    doc = await document_service.get_document(db, doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    trace_id = None
+    if doc.metadata_json:
+        import json
+        try:
+            metadata = json.loads(doc.metadata_json) if isinstance(doc.metadata_json, str) else doc.metadata_json
+            trace_id = metadata.get("trace_id")
+        except:
+            pass
+    if not trace_id:
+        raise HTTPException(status_code=404, detail="No trace data found")
+
+    try:
+        from packages.core.infra.es_client import get_es_client
+        es = get_es_client()
+
+        # 查询指定阶段的 span
+        search_query = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"term": {"trace_id": trace_id}},
+                        {"match": {"node_type": stage}}
+                    ]
+                }
+            }
+        }
+
+        response = await es.search(index="execution_traces", body=search_query)
+        if not response["hits"]["hits"]:
+            raise HTTPException(status_code=404, detail="Stage not found")
+
+        span = response["hits"]["hits"][0]["_source"]
+
+        return {
+            "stage": stage,
+            "input": span.get("input_data", {}),
+            "output": span.get("output_data", {}),
+            "metrics": {
+                "duration_ms": span.get("duration_ms"),
+                "items_in": span.get("input_data", {}).get("count"),
+                "items_out": span.get("output_data", {}).get("count"),
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to get stage data")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/{doc_id}", response_model=DocumentResponse)

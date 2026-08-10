@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import redis.asyncio as aioredis
 
 from packages.rag.models.knowledge_base import KnowledgeBase
+from packages.rag.models.document import Document
 from packages.rag.services.embedding_service import get_embedding_service
 from packages.rag.services.vector_store_service import search_vectors
 from packages.rag.schemas.retrieval import SearchRequest, SearchResponse, SearchResultItem, SearchHistoryItem, SearchHistoryResponse
@@ -157,14 +158,63 @@ async def search_chunks(db: AsyncSession, redis: aioredis.Redis, milvus, data: S
     # When reranking, use a wider initial recall (min_score=0) since rerank will re-score
     initial_min_score = 0.0 if enable_rerank else min_score
 
+    # Build Milvus filter expression from metadata filters
+    filter_parts = []
+
+    # Tag filtering: find documents with matching tags, then filter by doc_id
+    if data.tags:
+        tag_conditions = []
+        for tag in data.tags:
+            tag_conditions.append(f"tags LIKE '%{tag}%'")
+        tag_filter = " OR ".join(tag_conditions)
+        tag_docs_result = await db.execute(
+            select(Document.id).where(
+                Document.kb_id == data.kb_id,
+                Document.tags.isnot(None),
+            )
+        )
+        tag_doc_ids = [str(d.id) for d in tag_docs_result.scalars().all()]
+        # Filter documents that match any of the tags
+        matching_doc_ids = []
+        for doc_id in tag_doc_ids:
+            doc_result = await db.execute(select(Document.tags).where(Document.id == doc_id))
+            doc_tags_raw = doc_result.scalar_one_or_none()
+            if doc_tags_raw:
+                try:
+                    doc_tags = json.loads(doc_tags_raw) if isinstance(doc_tags_raw, str) else doc_tags_raw
+                    if any(t in doc_tags for t in data.tags):
+                        matching_doc_ids.append(doc_id)
+                except:
+                    pass
+        if matching_doc_ids:
+            doc_ids_str = ", ".join(f'"{id}"' for id in matching_doc_ids)
+            filter_parts.append(f'doc_id in [{doc_ids_str}]')
+        else:
+            # No documents match tags, return empty results
+            logger.info("No documents match tags: %s", data.tags)
+            return SearchResponse(results=[], query=data.query, search_time_ms=0, total_recalled=0)
+
+    # Direct doc_id filtering
+    if data.doc_ids:
+        doc_ids_str = ", ".join(f'"{id}"' for id in data.doc_ids)
+        filter_parts.append(f'doc_id in [{doc_ids_str}]')
+
+    # Content type filtering
+    if data.content_type:
+        filter_parts.append(f'content_type == "{data.content_type}"')
+
+    # Combine all filter parts
+    filter_expr = " AND ".join(filter_parts) if filter_parts else None
+
     if data.enable_multimodal:
         from packages.rag.services.multi_modal_retrieval import get_multi_modal_retrieval_service
         mm_svc = get_multi_modal_retrieval_service(milvus, embed_service)
         hits = await mm_svc.multi_modal_search(
             kb.collection_name, data.query, top_k=top_k * 2,
+            content_type_filter=data.content_type,
         )
     else:
-        hits = search_vectors(milvus, kb.collection_name, query_embedding, top_k=top_k, min_score=initial_min_score)
+        hits = search_vectors(milvus, kb.collection_name, query_embedding, top_k=top_k, min_score=initial_min_score, filter=filter_expr)
 
     # Rerank if configured and enabled
     if enable_rerank and len(hits) > 1:

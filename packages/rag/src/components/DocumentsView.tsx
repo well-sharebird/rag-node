@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAppContext } from '@/lib/app-context';
-import { uploadDoc, fetchDoc, updateDocument, fetchDocumentCategories, reprocessDocument, batchReprocessDocuments } from '@/lib/api-client';
+import { uploadDoc, fetchDoc, updateDocument, fetchDocumentCategories, reprocessDocument, batchReprocessDocuments, getDocumentPipeline } from '@/lib/api-client';
 import { Button, Card, CardHeader, CardBody, CardTitle, Badge, Input, Modal } from '@/src/components/enterprise';
 import { Select } from '@/src/components/enterprise/Select';
 import { Table, TableHeader, TableBody, TableRow, TableCell } from '@/src/components/enterprise/Table';
-import { UploadCloud, Search, Trash2, RefreshCw, FileText, Database, Link as LinkIcon, AlertCircle, Tag, X, Eye, FolderTree } from 'lucide-react';
+import { UploadCloud, Search, Trash2, RefreshCw, FileText, Database, Link as LinkIcon, AlertCircle, Tag, X, Eye, FolderTree, Activity } from 'lucide-react';
 import { useI18n } from '@/src/lib/i18n';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { DocumentPipelineTracing } from '@packages/rag/components/DocumentPipelineTracing';
 
 function formatBytes(bytes: number) {
   if (bytes === 0) return '0 B';
@@ -33,11 +34,12 @@ export function DocumentsView() {
   const [uploading, setUploading] = useState(false);
   const [reprocessing, setReprocessing] = useState<string | null>(null);
   const [selectedFailedDocs, setSelectedFailedDocs] = useState<string[]>([]);
+  const [viewingPipeline, setViewingPipeline] = useState<string | null>(null);
 
   useEffect(() => {
     const kbParam = filterKb !== 'all' ? filterKb : undefined;
     fetchDocumentCategories(kbParam)
-      .then(d => {
+      .then((d: any) => {
         setCategories(d.categories || []);
       })
       .catch(() => {});
@@ -69,6 +71,19 @@ export function DocumentsView() {
       const data = await fetchDoc(docId);
       setPreviewDoc(data);
     } catch { setPreviewDoc(null); }
+  };
+
+  const handleViewPipeline = async (docId: string) => {
+    try {
+      const pipeline = await getDocumentPipeline(docId);
+      if (!pipeline || !pipeline.stages || pipeline.stages.length === 0) {
+        toast.info('该文档暂无处理流程数据');
+        return;
+      }
+      setViewingPipeline(docId);
+    } catch (e: any) {
+      toast.error(e.message || '加载流水线失败');
+    }
   };
 
   const handleSaveTags = async (docId: string) => {
@@ -349,19 +364,36 @@ export function DocumentsView() {
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1">
-                            {doc.tags?.slice(0, 3).map((tag: string, i: number) => (
-                              <Badge key={i} variant="neutral" size="sm">{tag}</Badge>
-                            ))}
-                            {doc.tags && doc.tags.length > 3 && (
-                              <Badge variant="neutral" size="sm">+{doc.tags.length - 3}</Badge>
+                          <div className="flex flex-wrap items-center gap-1.5 max-w-[280px]">
+                            {doc.tags && doc.tags.length > 0 ? (
+                              <>
+                                {doc.tags.slice(0, 5).map((tag: string, i: number) => (
+                                  <Badge
+                                    key={i}
+                                    variant="secondary"
+                                    size="sm"
+                                    className="bg-purple-50 text-purple-700 border-purple-200"
+                                  >
+                                    <Tag className="w-2.5 h-2.5 mr-1" />
+                                    {tag}
+                                  </Badge>
+                                ))}
+                                {doc.tags.length > 5 && (
+                                  <Badge variant="secondary" size="sm" className="bg-gray-100">
+                                    +{doc.tags.length - 5}
+                                  </Badge>
+                                )}
+                              </>
+                            ) : (
+                              <span className="text-xs text-gray-400">暂无标签</span>
                             )}
                             <button
                               onClick={() => {
                                 setEditingTags(doc.id);
                                 setTagInput(doc.tags?.join(', ') || '');
                               }}
-                              className="text-[var(--accent)] hover:underline"
+                              className="ml-1 p-1 text-gray-400 hover:text-[var(--accent)] transition-colors"
+                              title="编辑标签"
                             >
                               <Tag className="w-3.5 h-3.5" />
                             </button>
@@ -399,8 +431,19 @@ export function DocumentsView() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleShowPreview(doc.id)}
-                            icon={<Eye className="w-3.5 h-3.5" />}
-                          />
+                            title="查看详情"
+                            className="hover:bg-gray-100"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Button>
+                          <button
+                            onClick={() => handleViewPipeline(doc.id)}
+                            title="查看处理流水线"
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded text-xs font-medium transition-colors"
+                          >
+                            <Activity className="w-4 h-4" />
+                            <span>流水线</span>
+                          </button>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -469,6 +512,23 @@ export function DocumentsView() {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* Pipeline Modal */}
+      <Modal
+        open={!!viewingPipeline}
+        onOpenChange={() => setViewingPipeline(null)}
+        title="文档处理流水线"
+        className="max-w-6xl h-[85vh]"
+      >
+        {viewingPipeline && (
+          <div className="h-[70vh]">
+            <DocumentPipelineTracing
+              docId={viewingPipeline}
+              onClose={() => setViewingPipeline(null)}
+            />
+          </div>
+        )}
       </Modal>
     </div>
   );

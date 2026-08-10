@@ -1,114 +1,64 @@
 /**
- * Agent 执行 API 客户端
- * 连接到后端的工厂模式 Agent 执行接口
+ * Agent 执行 API 客户端 - Harness 架构统一入口
+ *
+ * Harness 架构采用统一执行入口，用户只需表达需求，Harness 自主决策使用哪个 Agent
  */
 import { fetchWithBaseUrl, getApiUrl } from '@/src/lib/env';
 
-export interface AgentExecuteRequest {
+export interface AgentExecuteUnifiedRequest {
   query: string;
+  agent_id?: string;           // 可选：指定 Agent ID (不传时由 Harness 自主决策)
   model_name?: string;
-  plan_mode?: boolean;
-  skills?: string[];
-  mcp_servers?: string[];
+  kb_ids?: string[];
+  top_k?: number;
+  enable_rerank?: boolean;
   session_id?: string;
 }
 
-export interface AgentExecuteResponse {
+export interface AgentExecuteUnifiedResponse {
   run_id: string;
   response: string;
   messages: Array<{
     role: string;
     content: string;
   }>;
-  factory_mode: boolean;
-  agent_type: string;
+  agent_id?: string;           // 实际使用的 Agent ID
+  agent_type?: string;         // single/multi/meta
+  agents_used?: string[];      // 被调用的子 Agent ID 列表 (多 Agent 场景)
 }
 
 export interface AgentExecuteStreamRequest {
   query: string;
+  agent_id?: string;
   model_name?: string;
-  plan_mode?: boolean;
+  kb_ids?: string[];
+  top_k?: number;
+  enable_rerank?: boolean;
   session_id?: string;
 }
 
 /**
- * 执行 Agent（非流式）
+ * 执行 Agent - Harness 统一入口 (非流式)
+ *
+ * @param data - 执行请求 (agent_id 可选)
  */
 export async function executeAgent(
-  agentId: string,
-  data: AgentExecuteRequest
-): Promise<AgentExecuteResponse> {
-  return fetchWithBaseUrl<AgentExecuteResponse>(`/api/v1/agents/${agentId}/execute`, {
+  data: AgentExecuteUnifiedRequest
+): Promise<AgentExecuteUnifiedResponse> {
+  return fetchWithBaseUrl<AgentExecuteUnifiedResponse>('/api/v1/agents/execute', {
     method: 'POST',
     body: JSON.stringify(data),
   });
 }
 
 /**
- * 执行 Agent（流式）
- * 使用 EventSource 接收 SSE 事件
+ * 执行 Agent - Harness 统一入口 (流式)
+ * 使用 fetch + ReadableStream 实现 SSE
+ *
+ * @param data - 执行请求 (agent_id 可选)
+ * @param callbacks - 回调函数
  */
-export function executeAgentStream(
-  agentId: string,
-  data: AgentExecuteStreamRequest,
-  callbacks: {
-    onToken?: (content: string) => void;
-    onDone?: () => void;
-    onError?: (error: string) => void;
-  }
-): { abort: () => void } {
-  const url = getApiUrl(`/api/v1/agents/${agentId}/execute/stream`);
-  const token = localStorage.getItem('auth_token');
-
-  const eventSource = new EventSource(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
-  });
-
-  let aborted = false;
-
-  eventSource.addEventListener('token', (event) => {
-    if (aborted) return;
-    const data = JSON.parse(event.data);
-    callbacks.onToken?.(data.content);
-  });
-
-  eventSource.addEventListener('done', () => {
-    if (aborted) return;
-    eventSource.close();
-    callbacks.onDone?.();
-  });
-
-  eventSource.addEventListener('error', (event) => {
-    if (aborted) return;
-    eventSource.close();
-    const data = JSON.parse(event.data);
-    callbacks.onError?.(data.error || 'Stream error');
-  });
-
-  // 处理连接建立
-  eventSource.onopen = () => {
-    console.log('SSE connection opened');
-    // 发送请求体（POST 数据）
-    // 注意：EventSource 默认只支持 GET，需要使用其他方式发送 POST
-  };
-
-  return {
-    abort: () => {
-      aborted = true;
-      eventSource.close();
-    },
-  };
-}
-
-/**
- * 执行 Agent（流式）- Fetch 版本
- * 使用 fetch + ReadableStream 实现
- */
-export async function executeAgentStreamFetch(
-  agentId: string,
+export async function executeAgentStream(
   data: AgentExecuteStreamRequest,
   callbacks: {
     onToken?: (content: string) => void;
@@ -121,7 +71,7 @@ export async function executeAgentStreamFetch(
 
   (async () => {
     try {
-      const response = await fetch(getApiUrl(`/api/v1/agents/${agentId}/execute/stream`), {
+      const response = await fetch(getApiUrl('/api/v1/agents/execute/stream'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -159,8 +109,12 @@ export async function executeAgentStreamFetch(
             const eventData = line.slice(6);
             try {
               const parsed = JSON.parse(eventData);
-              if (parsed.content) {
-                callbacks.onToken?.(parsed.content);
+              if (parsed.type === 'token' || parsed.content) {
+                callbacks.onToken?.(parsed.content || parsed.data);
+              } else if (parsed.type === 'done') {
+                callbacks.onDone?.();
+              } else if (parsed.type === 'error') {
+                callbacks.onError?.(parsed.error || 'Unknown error');
               }
             } catch (e) {
               // 忽略解析错误
@@ -182,35 +136,13 @@ export async function executeAgentStreamFetch(
 }
 
 /**
- * 获取可用的子智能体列表
+ * 获取可用的 Agent 列表 (用于用户选择)
  */
-export async function getAvailableSubagents(): Promise<Array<{
-  type: string;
-  name: string;
-  description: string;
-  default_skills: string[];
-}>> {
-  return fetchWithBaseUrl('/api/v1/agents/subagents');
-}
-
-/**
- * 注册自定义子智能体
- */
-export async function registerCustomSubagent(data: {
-  name: string;
-  system_prompt: string;
-  skills: string[];
-  model_config: {
-    provider: string;
-    model: string;
-  };
-}): Promise<{
+export async function getAgentList(): Promise<Array<{
   id: string;
   name: string;
-  type: string;
-}> {
-  return fetchWithBaseUrl('/api/v1/agents/subagents', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
+  description: string;
+  agent_type: string;
+}>> {
+  return fetchWithBaseUrl('/api/v1/agents');
 }

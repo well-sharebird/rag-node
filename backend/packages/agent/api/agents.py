@@ -1,9 +1,25 @@
 """
-Agent 管理 API
+Agent 管理 API - Harness 架构
 
-执行逻辑统一使用 AgentExecutor：
-- /api/v1/agents/{agent_id}/execute/stream - 单智能体执行
-- /api/v1/agents/meta/execute/stream - Meta Agent 执行
+=============================================================
+统一执行入口
+=============================================================
+
+POST /api/v1/agents/execute
+    用户只需表达需求，Harness 自主决策使用哪个 Agent
+
+POST /api/v1/agents/execute/stream
+    流式版本，实时返回 token (SSE)
+
+示例:
+    # 简单问答 (Harness 自主选择)
+    {"query": "你可以做什么？"}
+
+    # 指定 Agent
+    {"query": "帮我写脚本", "agent_id": "xxx"}
+
+    # 绑定知识库
+    {"query": "查询文档", "kb_ids": ["kb1", "kb2"]}
 """
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,7 +40,7 @@ from packages.agent.services.agent_config_service import AgentConfigService
 from packages.agent.services.agent_builder_service import AgentBuilderService
 from packages.model_gateway.services.model_gateway_service import ModelGatewayService
 from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
-from packages.agent.services.agent_service import AgentService, AgentExecuteRequest, ExecutionMode, create_agent_service
+from packages.agent.services.harness_agent_service import HarnessAgentService, create_harness_agent_service, HarnessAgentExecuteResult
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -93,47 +109,7 @@ class RegisterSubagentResponse(BaseModel):
     type: str = "custom_subagent"
 
 
-@router.get("/subagents", response_model=list[SubagentInfo])
-async def list_subagents(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """获取可用的子智能体列表"""
-    model_gateway = ModelGatewayService(db)
-    skill_registry = SkillRegistryService(db)
-    agent_service = AgentService(
-        db=db,
-        model_gateway=model_gateway,
-        skill_registry=skill_registry,
-    )
-
-    # TODO: 实现获取可用子智能体逻辑
-    subagents = []
-    return subagents
-
-
-@router.post("/subagents", response_model=RegisterSubagentResponse)
-async def register_subagent(
-    data: RegisterSubagentRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """注册自定义子智能体"""
-    # TODO: 实现注册子智能体逻辑
-    # 使用 AgentService 统一处理
-    model_gateway = ModelGatewayService(db)
-    skill_registry = SkillRegistryService(db)
-    agent_service = AgentService(
-        db=db,
-        model_gateway=model_gateway,
-        skill_registry=skill_registry,
-    )
-
-    return RegisterSubagentResponse(
-        id="temp",
-        name=data.name,
-        type="custom_subagent",
-    )
+# Subagent 相关 API 已移除，使用 HarnessEngine 统一管理
 
 
 @router.get("/public", response_model=list[AgentListItem])
@@ -281,285 +257,129 @@ async def create_agent_from_requirement(
 
 
 # ============================================================
-# Meta Agent APIs (自主智能体) - AI 助手超级入口
+# Harness Unified Execution APIs (统一执行入口)
 # ============================================================
 
-class MetaAgentExecuteRequest(BaseModel):
-    """Meta Agent 执行请求 - AI 助手超级入口
+class AgentExecuteUnifiedRequest(BaseModel):
+    """统一执行请求 - Harness 架构入口
 
-    Meta Agent 是系统的默认问答入口，可以：
-    1. 分析用户需求，自主决策创建什么智能体
-    2. 调用 create_agent 工具创建新智能体
-    3. 调用 execute_agent 工具使用广场中的现有智能体
-    4. 整合多个智能体的结果
-    5. 支持 RAG 检索增强（绑定知识库）
-    6. 支持用户选择模型
+    用户只需表达需求，Harness 负责选择最优执行策略：
+    - 不传 agent_id → Harness 自主决策使用哪个 Agent
+    - 传入 agent_id → 使用指定的 Agent
 
     示例：
-    - "如何配置 SSL 证书？" → 调用文档检索智能体
-    - "帮我分析这个项目" → 调用代码分析智能体
-    - "创建产品经理和架构师两个智能体" → 创建多个智能体协作
+    - {"query": "你可以做什么？"} → Harness 选择默认助手
+    - {"query": "帮我写脚本", "agent_id": "xxx"} → 使用指定 Agent
     """
     query: str = Field(..., min_length=1, description="用户输入/任务描述")
+    agent_id: Optional[str] = Field(None, description="可选：指定 Agent ID (不传时由 Harness 自主决策)")
+
     # RAG 相关参数
     kb_ids: Optional[list[str]] = Field(None, description="知识库 ID 列表（可选）")
     top_k: Optional[int] = Field(5, description="检索返回的文档片段数量")
     enable_rerank: Optional[bool] = Field(False, description="是否启用重排序")
+
     # 模型选择
     model_name: Optional[str] = Field(None, description="运行时选择的模型名称")
 
+    # 会话管理
+    session_id: Optional[str] = Field(None, description="会话 ID (用于记忆/上下文)")
 
-class MetaAgentExecuteResponse(BaseModel):
-    """Meta Agent 执行响应"""
+
+class AgentExecuteUnifiedResponse(BaseModel):
+    """统一执行响应"""
+    run_id: str
     response: str
     messages: list = []
-    agents_used: list[str] = Field(default_factory=list, description="被调用的智能体 ID 列表")
+    agent_id: Optional[str] = Field(None, description="实际使用的 Agent ID")
+    agent_type: Optional[str] = Field(None, description="Agent 类型 (single/multi/meta)")
+    agents_used: Optional[list[str]] = Field(None, description="被调用的子 Agent ID 列表 (多 Agent 场景)")
 
 
-@router.post("/meta/execute", response_model=MetaAgentExecuteResponse)
-async def execute_meta_agent(
-    data: MetaAgentExecuteRequest,
+@router.post("/execute", response_model=AgentExecuteUnifiedResponse)
+async def execute_agent_unified(
+    data: AgentExecuteUnifiedRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    执行 Meta Agent（自主智能体）- AI 助手超级入口
+    统一执行入口 - Harness 架构
 
-    使用统一的 AgentService 执行引擎
+    Harness Engine 根据用户意图自主决策：
+    1. 简单问答 → 直接用 LLM
+    2. 需要技能 → 选择/创建对应 Agent
+    3. 复杂任务 → 多 Agent 协作
     """
-    from packages.agent.services.agent_service import AgentExecuteRequest as ServiceAgentExecuteRequest
-
     model_gateway = ModelGatewayService(db)
     skill_registry = SkillRegistryService(db)
-    agent_service = await create_agent_service(db, model_gateway, skill_registry)
 
-    request = ServiceAgentExecuteRequest(
+    # 使用 HarnessAgentService (基于 Harness 三层架构)
+    harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
+
+    result = await harness_service.execute(
+        agent_id=data.agent_id,
         query=data.query,
         user_id=current_user.id,
         tenant_id=str(current_user.tenant_id) if current_user.tenant_id else "default",
-        agent_id=None,
         kb_ids=data.kb_ids,
         top_k=data.top_k,
         enable_rerank=data.enable_rerank,
         model_name=data.model_name,
-        execution_mode=ExecutionMode.META,
+        session_id=data.session_id,
     )
 
-    result = await agent_service.execute(request)
-
-    return MetaAgentExecuteResponse(
+    return AgentExecuteUnifiedResponse(
+        run_id=result.run_id,
         response=result.response,
         messages=result.messages,
+        agent_id=result.agent_id,
+        agent_type="harness",
         agents_used=result.agents_used,
     )
 
 
-@router.post("/meta/execute/stream")
-async def execute_meta_agent_stream(
-    data: MetaAgentExecuteRequest,
+@router.post("/execute/stream")
+async def execute_agent_unified_stream(
+    data: AgentExecuteUnifiedRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """
-    流式执行 Meta Agent（SSE）- AI 助手超级入口
-
-    使用统一的 AgentService 执行引擎
+    流式执行入口 (SSE) - Harness 架构
 
     支持：
+    - Harness 自主决策 (不传 agent_id)
+    - 指定 Agent 执行 (传入 agent_id)
     - 多 Agent 协作调度
     - RAG 检索增强
-    - 用户选择模型
     - 实时 token 流式返回
     """
     from sse_starlette.sse import EventSourceResponse
     import json
-    from packages.model_gateway.services.model_gateway_service import ModelGatewayService
-    from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
-    from packages.agent.services.agent_service import create_agent_service, AgentExecuteRequest as ServiceAgentExecuteRequest, ExecutionMode
 
     model_gateway = ModelGatewayService(db)
     skill_registry = SkillRegistryService(db)
-    agent_service = await create_agent_service(db, model_gateway, skill_registry)
 
-    request = ServiceAgentExecuteRequest(
-        query=data.query,
-        user_id=current_user.id,
-        tenant_id=str(current_user.tenant_id) if current_user.tenant_id else "default",
-        agent_id=None,
-        kb_ids=data.kb_ids,
-        top_k=data.top_k,
-        enable_rerank=data.enable_rerank,
-        model_name=data.model_name,
-        execution_mode=ExecutionMode.META,
-    )
+    # 使用 HarnessAgentService (基于 Harness 三层架构)
+    harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
 
     async def event_generator():
         try:
-            async for chunk in agent_service.execute_stream(request):
-                if chunk:
-                    # chunk 已经是 JSON 字符串，直接返回
-                    # EventSourceResponse 会自动添加 "data: " 前缀
-                    yield chunk
-            yield json.dumps({"type": "done"})
-        except Exception as e:
-            yield json.dumps({"type": "error", "error": str(e)})
-
-    return EventSourceResponse(event_generator())
-
-
-# ============================================================
-# Agent Execution APIs (工厂模式) - 注意：这些路由在{agent_id}之后定义
-# ============================================================
-
-class AgentExecuteRequest(BaseModel):
-    """执行 Agent 请求"""
-    query: str = Field(..., min_length=1, description="用户输入/查询")
-    model_name: Optional[str] = Field(None, description="运行时选择的模型名称")
-    plan_mode: Optional[bool] = Field(False, description="是否启用计划模式")
-    skills: Optional[list[str]] = Field(None, description="技能覆盖列表")
-    mcp_servers: Optional[list[str]] = Field(None, description="MCP 服务器列表")
-    session_id: Optional[str] = Field(None, description="会话 ID")
-    # RAG 相关参数
-    kb_ids: Optional[list[str]] = Field(None, description="知识库 ID 列表")
-    top_k: Optional[int] = Field(5, description="检索返回的文档片段数量")
-    enable_rerank: Optional[bool] = Field(False, description="是否启用重排序")
-
-
-class AgentExecuteResponse(BaseModel):
-    """执行 Agent 响应"""
-    run_id: str
-    response: str
-    messages: list
-    factory_mode: bool = True
-    agent_type: str = "lead_agent"
-
-
-class AgentExecuteStreamRequest(BaseModel):
-    """流式执行 Agent 请求（支持调试模式）"""
-    query: str = Field(..., min_length=1, description="用户输入/查询")
-    model_name: Optional[str] = Field(None, description="运行时选择的模型名称")
-    plan_mode: Optional[bool] = Field(False, description="是否启用计划模式")
-    debug_mode: Optional[bool] = Field(False, description="是否启用调试模式（输出节点执行轨迹）")
-    session_id: Optional[str] = Field(None, description="会话 ID")
-    # RAG 相关参数
-    kb_ids: Optional[list[str]] = Field(None, description="知识库 ID 列表")
-    top_k: Optional[int] = Field(5, description="检索返回的文档片段数量")
-    enable_rerank: Optional[bool] = Field(False, description="是否启用重排序")
-
-
-@router.post("/{agent_id}/execute", response_model=AgentExecuteResponse)
-async def execute_agent(
-    agent_id: str,
-    data: AgentExecuteRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    执行 Agent（统一入口）
-
-    使用统一的 AgentService 执行引擎
-    """
-    model_gateway = ModelGatewayService(db)
-    skill_registry = SkillRegistryService(db)
-    agent_service = await create_agent_service(db, model_gateway, skill_registry)
-
-    request = AgentExecuteRequest(
-        query=data.query,
-        user_id=current_user.id,
-        tenant_id=str(current_user.tenant_id) if current_user.tenant_id else "default",
-        agent_id=agent_id,
-        kb_ids=data.kb_ids,
-        top_k=data.top_k,
-        enable_rerank=data.enable_rerank,
-        model_name=data.model_name,
-        execution_mode=ExecutionMode.SINGLE,
-    )
-
-    result = await agent_service.execute(request)
-
-    return AgentExecuteResponse(
-        run_id=result.run_id,
-        response=result.response,
-        messages=result.messages,
-        factory_mode=True,
-        agent_type="single",
-    )
-
-
-@router.post("/{agent_id}/execute/stream")
-async def execute_agent_stream(
-    agent_id: str,
-    data: AgentExecuteStreamRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """流式执行 Agent（SSE）- 支持调试模式"""
-    from sse_starlette.sse import EventSourceResponse
-    import json
-    from packages.agent.services.agent_monitoring_service import AgentMonitoringService
-    from packages.agent.services.agent_service import create_agent_service, AgentExecuteRequest, ExecutionMode
-
-    runtime_config = {
-        "model_name": data.model_name,
-        "plan_mode": data.plan_mode,
-        "kb_ids": data.kb_ids,
-        "top_k": data.top_k,
-        "enable_rerank": data.enable_rerank,
-        "debug_mode": data.debug_mode,
-    }
-
-    model_gateway = ModelGatewayService(db)
-    skill_registry = SkillRegistryService(db)
-    agent_service = await create_agent_service(db, model_gateway, skill_registry)
-
-    # 创建监控服务
-    monitoring = AgentMonitoringService(db)
-
-    async def event_generator():
-        run_id = None
-        try:
-            # 开始执行轨迹追踪
-            trace = monitoring.start_trace(agent_id=agent_id, user_id=current_user.id)
-            run_id = trace.run_id
-
-            # 如果启用调试模式，设置调试标记
-            if data.debug_mode:
-                monitoring.set_debug_mode(run_id, enabled=True)
-                yield {
-                    "event": "debug",
-                    "data": json.dumps({"type": "debug_enabled", "run_id": run_id}),
-                }
-
-            request = AgentExecuteRequest(
+            async for chunk in harness_service.execute_stream(
+                agent_id=data.agent_id,
                 query=data.query,
                 user_id=current_user.id,
                 tenant_id=str(current_user.tenant_id) if current_user.tenant_id else "default",
-                agent_id=agent_id,
                 kb_ids=data.kb_ids,
                 top_k=data.top_k,
                 enable_rerank=data.enable_rerank,
                 model_name=data.model_name,
-                execution_mode=ExecutionMode.SINGLE,
-            )
-
-            async for chunk in agent_service.execute_stream(request):
+                session_id=data.session_id,
+            ):
                 if chunk:
-                    # chunk 已经是 JSON 字符串，直接返回
                     yield chunk
-
-            # 结束追踪并发送统计
-            completed_trace = monitoring.end_trace(run_id) if run_id else None
-            yield json.dumps({
-                "type": "done",
-                "metrics": completed_trace.to_dict() if completed_trace else None,
-            })
+            yield json.dumps({"type": "done"})
         except Exception as e:
-            if run_id:
-                trace = monitoring.get_trace(run_id)
-                if trace:
-                    trace.add_error(str(e))
-                    monitoring.end_trace(run_id)
-
             yield json.dumps({"type": "error", "error": str(e)})
 
     return EventSourceResponse(event_generator())
