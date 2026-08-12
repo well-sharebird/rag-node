@@ -26,6 +26,7 @@ class AgentCreate(BaseModel):
     retrieval_top_k: Optional[int] = Field(5, ge=1, le=50)
     retrieval_enabled: Optional[bool] = False
     multi_agent_config: Optional[dict] = None
+    security_policy: Optional[dict] = None
     is_public: Optional[bool] = Field(False, description="是否公开分享到广场")
 
 
@@ -45,6 +46,7 @@ class AgentUpdate(BaseModel):
     retrieval_top_k: Optional[int] = None
     retrieval_enabled: Optional[bool] = None
     multi_agent_config: Optional[dict] = None
+    security_policy: Optional[dict] = None
     is_public: Optional[bool] = None
     changelog: Optional[str] = None  # 版本更新说明
 
@@ -68,6 +70,7 @@ class AgentResponse(BaseModel):
     retrieval_top_k: int
     retrieval_enabled: bool
     multi_agent_config: Optional[dict]
+    security_policy: Optional[dict]
     status: str
     is_public: bool
     current_version: str

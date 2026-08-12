@@ -6,6 +6,7 @@ LangGraph Checkpoint 持久化服务
 这里使用同步 Session 进行数据库操作。
 """
 from __future__ import annotations
+import base64
 import json
 from typing import Any, Iterator, Optional
 from datetime import datetime
@@ -18,10 +19,29 @@ from langgraph.checkpoint.base import (
     CheckpointTuple,
     get_checkpoint_id,
 )
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from sqlalchemy import select, delete, text
 from sqlalchemy.orm import Session
 
 from packages.agent.models.agent import AgentMemory
+
+# LangGraph checkpoint 包含 BaseMessage（HumanMessage 等），无法直接 JSON 序列化。
+# 用 JsonPlusSerializer（msgpack，支持 LangChain 消息）序列化后 base64 存 JSONB。
+_serde = JsonPlusSerializer()
+
+
+def _ser_bytes(obj: Any) -> str:
+    """序列化对象为 base64 字符串（支持 LangChain BaseMessage）。"""
+    data = _serde.dumps_typed(obj)[1]
+    return base64.b64encode(data).decode()
+
+
+def _deser_bytes(s: str) -> Any:
+    """反序列化 base64 字符串为对象。"""
+    try:
+        return _serde.loads_typed(("json", base64.b64decode(s)))
+    except Exception:
+        return _serde.loads_typed(("msgpack", base64.b64decode(s)))
 
 
 class DatabaseCheckpointSaver(BaseCheckpointSaver):
@@ -46,6 +66,20 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
             return int(parts[0]), parts[1], "default"
         else:
             return 0, thread_id, "default"
+
+    @staticmethod
+    def _safe_uuid(value: str) -> Optional[str]:
+        """将 agent_id 转为合法 UUID；虚拟代理（如 meta，无 agent_configs 记录）返回 None。
+
+        agent_memories.agent_id 已可为空，NULL 会通过外键 NO ACTION 校验。
+        """
+        import uuid as _uuid
+        if not value:
+            return None
+        try:
+            return str(_uuid.UUID(value))
+        except (ValueError, AttributeError):
+            return None
 
     def _get_checkpoint_key(self, config: dict, checkpoint_id: Optional[str] = None) -> str:
         """生成检查点存储键
@@ -132,7 +166,7 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
             # 创建新的 checkpoint
             memory = AgentMemory(
                 id=str(uuid4()),
-                agent_id=agent_id,
+                agent_id=self._safe_uuid(agent_id),
                 user_id=user_id,
                 thread_id=key,
                 memory_type="checkpoint",

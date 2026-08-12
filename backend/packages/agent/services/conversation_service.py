@@ -247,7 +247,6 @@ async def create_or_update_conversation_from_agent(
     target_conv = None
     for conv in conversations:
         if conv.metadata_json:
-            import json
             try:
                 metadata = json.loads(conv.metadata_json)
                 if metadata.get("session_id") == session_id:

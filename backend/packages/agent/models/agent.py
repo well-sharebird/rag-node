@@ -103,6 +103,18 @@ class AgentConfig(Base):
     #   "custom_tools": [...]
     # }
 
+    # 安全策略（对齐 AgentManifest.security_policy）：
+    # {
+    #   "allowed_tools": [...],
+    #   "blocked_tools": [...],
+    #   "require_approval_tools": [...],
+    #   "blocked_commands": [...],
+    #   "max_code_execution_time_seconds": 30
+    # }
+    security_policy: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=dict
+    )
+
     # 状态
     status: Mapped[str] = mapped_column(String(20), default="draft")
     # draft: 草稿

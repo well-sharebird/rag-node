@@ -41,6 +41,7 @@ class AgentConfigService:
             retrieval_top_k=data.retrieval_top_k or 5,
             retrieval_enabled=data.retrieval_enabled or False,
             multi_agent_config=data.multi_agent_config,
+            security_policy=data.security_policy,
             is_public=data.is_public or False,
         )
         self.db.add(agent)

@@ -61,6 +61,13 @@ class AgentRuntime:
         self.config = config or RuntimeConfig()
         self._active_executions: Dict[str, Dict[str, Any]] = {}
 
+        # 上下文压缩器：基于 token_budget / reserve_tokens 预算
+        from packages.agent.runtime.context import ContextCompressor
+        self._compressor = ContextCompressor(
+            max_tokens=self.config.token_budget,
+            reserve_tokens=self.config.reserve_tokens,
+        )
+
     async def execute(
         self,
         graph: CompiledStateGraph,
@@ -85,15 +92,32 @@ class AgentRuntime:
         start_time = datetime.utcnow()
         run_id = run_id or str(uuid4())
 
+        # 上下文压缩：超预算时压缩历史（保留 system 与最近消息）
+        prepared_state = self._prepare_state(state)
+
         # 构建 LangGraph 配置
         config = await self._build_config(thread_id, run_id, callbacks)
 
-        try:
-            # 执行
-            result = await asyncio.wait_for(
-                graph.ainvoke(state, config=config),
+        # 重试策略：读 max_retries / retry_delay_seconds
+        from packages.agent.runtime.retry import RetryPolicy, with_retry
+        retry_policy = RetryPolicy(
+            max_retries=self.config.max_retries,
+            delay_seconds=self.config.retry_delay_seconds,
+        )
+
+        async def _run():
+            return await asyncio.wait_for(
+                graph.ainvoke(prepared_state, config=config),
                 timeout=self.config.timeout_seconds,
             )
+
+        try:
+            # 执行（带重试）
+            result = await with_retry(_run, retry_policy)
+
+            # Runtime 职责：统一把 Agent 输出中的任务清单解析进 State.todos
+            # （observe 节点已处理工具轮；此处兜底无工具调用的最终轮）
+            result = self._finalize_result(result)
 
             duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
 
@@ -115,6 +139,46 @@ class AgentRuntime:
                 str(e),
                 duration_ms=int((datetime.utcnow() - start_time).total_seconds() * 1000)
             )
+
+    def _prepare_state(self, state: dict) -> dict:
+        """执行前准备状态：压缩超预算的 messages。
+
+        原子职责：上下文压缩。不修改原 state 引用，返回新副本。
+        """
+        messages = state.get("messages")
+        if not messages or not self._compressor.should_compress(messages):
+            return state
+        compressed = self._compressor.compress(messages)
+        if len(compressed) != len(messages):
+            logger.info("上下文压缩 | %d -> %d 条消息", len(messages), len(compressed))
+            return {**state, "messages": compressed}
+        return state
+
+    def _finalize_result(self, result: Any) -> Any:
+        """Runtime 职责：从 Agent 输出解析任务清单并维护 State.todos。
+
+        Agent 只负责"决定任务怎么拆"（在输出中表达任务），State 的解析与更新
+        由 Runtime 统一负责。此方法兜底处理无工具调用的最终轮（observe 节点
+        已处理工具轮）。
+        """
+        if not isinstance(result, dict):
+            return result
+        messages = result.get("messages")
+        if not messages:
+            return result
+
+        from packages.agent.runtime.state import update_todos_from_message
+
+        todos = list(result.get("todos") or [])
+        for msg in messages:
+            if getattr(msg, "type", "") in ("ai", "assistant"):
+                content = getattr(msg, "content", "")
+                if content:
+                    update = update_todos_from_message({"todos": todos}, content)
+                    todos = update.get("todos", todos)
+        if todos:
+            result["todos"] = todos
+        return result
 
     async def execute_stream(
         self,

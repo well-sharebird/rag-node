@@ -1,17 +1,14 @@
 """
 Harness 层 - 基础方案引擎
 
-解决"怎么用"的问题 - 开箱即用的完整方案：
-- 内置默认提示词
-- 工具调用处理
-- 规划工具
-- 文件系统访问
-- 多 Agent 协作模式
+执行内核已统一为 OrchestratorRuntime（packages/agent/orchestrator/）。
+此处保留 HarnessConfig 等配置，供兼容引用。
+
+历史：HarnessEngine 已并入单一执行内核（OrchestratorRuntime）后删除。
 """
-from packages.agent.harness.engine import HarnessEngine
-from packages.agent.harness.config import HarnessConfig
+from packages.agent.harness.config import HarnessConfig, CollaborationMode
 
 __all__ = [
-    "HarnessEngine",
     "HarnessConfig",
+    "CollaborationMode",
 ]

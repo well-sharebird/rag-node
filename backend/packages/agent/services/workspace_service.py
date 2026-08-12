@@ -32,8 +32,12 @@ class WorkspaceService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        # 默认工作空间根目录：可写的项目内 data/workspaces（可用 WORKSPACE_ROOT 覆盖）
+        default_root = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "data", "workspaces"
+        )
         self.base_workspace_root = os.environ.get(
-            "WORKSPACE_ROOT", "/workspace"
+            "WORKSPACE_ROOT", os.path.abspath(default_root)
         )
 
     async def get_or_create_workspace(

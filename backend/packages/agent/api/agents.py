@@ -38,10 +38,6 @@ from packages.agent.schemas.chat import (
 )
 from packages.agent.services.agent_config_service import AgentConfigService
 from packages.agent.services.agent_builder_service import AgentBuilderService
-from packages.model_gateway.services.model_gateway_service import ModelGatewayService
-from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
-from packages.agent.services.harness_agent_service import HarnessAgentService, create_harness_agent_service, HarnessAgentExecuteResult
-
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
@@ -285,6 +281,10 @@ class AgentExecuteUnifiedRequest(BaseModel):
     # 会话管理
     session_id: Optional[str] = Field(None, description="会话 ID (用于记忆/上下文)")
 
+    # 执行模式
+    orchestrator: Optional[bool] = Field(False, description="是否启用主从编排模式（流式）")
+    main_prompt: Optional[str] = Field(None, description="主 Agent 编排提示词（orchestrator 时可选）")
+
 
 class AgentExecuteUnifiedResponse(BaseModel):
     """统一执行响应"""
@@ -303,38 +303,26 @@ async def execute_agent_unified(
     current_user: User = Depends(get_current_user),
 ):
     """
-    统一执行入口 - Harness 架构
+    统一执行入口 - 主 Agent 调度
 
-    Harness Engine 根据用户意图自主决策：
-    1. 简单问答 → 直接用 LLM
-    2. 需要技能 → 选择/创建对应 Agent
-    3. 复杂任务 → 多 Agent 协作
+    一切请求由主 Agent 决策调度（可派生子 Agent 或直接回答）。
     """
-    model_gateway = ModelGatewayService(db)
-    skill_registry = SkillRegistryService(db)
+    from packages.agent.orchestrator.graph import OrchestratorRuntime
 
-    # 使用 HarnessAgentService (基于 Harness 三层架构)
-    harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
-
-    result = await harness_service.execute(
-        agent_id=data.agent_id,
+    rt = OrchestratorRuntime(db, model_name=data.model_name, user_id=current_user.id)
+    result = await rt.run(
         query=data.query,
+        main_prompt=data.main_prompt,
         user_id=current_user.id,
-        tenant_id=str(current_user.tenant_id) if current_user.tenant_id else "default",
-        kb_ids=data.kb_ids,
-        top_k=data.top_k,
-        enable_rerank=data.enable_rerank,
-        model_name=data.model_name,
-        session_id=data.session_id,
     )
 
     return AgentExecuteUnifiedResponse(
-        run_id=result.run_id,
-        response=result.response,
-        messages=result.messages,
-        agent_id=result.agent_id,
-        agent_type="harness",
-        agents_used=result.agents_used,
+        run_id=f"run_{int(__import__('time').time() * 1000)}",
+        response=result["final_answer"],
+        messages=[],
+        agent_id=data.agent_id,
+        agent_type="main_agent",
+        agents_used=[r["sub_agent_id"] for r in result.get("sub_agent_results", [])],
     )
 
 
@@ -357,27 +345,24 @@ async def execute_agent_unified_stream(
     from sse_starlette.sse import EventSourceResponse
     import json
 
-    model_gateway = ModelGatewayService(db)
-    skill_registry = SkillRegistryService(db)
-
-    # 使用 HarnessAgentService (基于 Harness 三层架构)
-    harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
-
     async def event_generator():
         try:
-            async for chunk in harness_service.execute_stream(
-                agent_id=data.agent_id,
+            # 统一由主 Agent 调度（一切请求走 OrchestratorRuntime）
+            from packages.agent.orchestrator.graph import OrchestratorRuntime
+
+            rt = OrchestratorRuntime(db, model_name=data.model_name, user_id=current_user.id)
+            # orchestrator 字段语义：是否允许主 Agent 派生子 Agent（不传=允许自主）
+            allow_sub = True if data.orchestrator is None else bool(data.orchestrator)
+            async for event in rt.run_stream(
                 query=data.query,
+                main_prompt=data.main_prompt,
+                run_mode="serial",
                 user_id=current_user.id,
-                tenant_id=str(current_user.tenant_id) if current_user.tenant_id else "default",
-                kb_ids=data.kb_ids,
-                top_k=data.top_k,
-                enable_rerank=data.enable_rerank,
-                model_name=data.model_name,
+                allow_sub_agents=allow_sub,
                 session_id=data.session_id,
             ):
-                if chunk:
-                    yield chunk
+                if event:
+                    yield json.dumps(event, ensure_ascii=False)
             yield json.dumps({"type": "done"})
         except Exception as e:
             yield json.dumps({"type": "error", "error": str(e)})

@@ -283,25 +283,14 @@ async def execute_agent_handler(
 ) -> Dict[str, Any]:
     """Execute agent handler."""
     try:
-        from packages.agent.services.harness_agent_service import create_harness_agent_service
-        from packages.model_gateway.services.model_gateway_service import ModelGatewayService
-        from packages.agent.services.skill_registry import RegistryService as SkillRegistryService
+        from packages.agent.orchestrator.graph import OrchestratorRuntime
 
-        model_gateway = ModelGatewayService(db)
-        skill_registry = SkillRegistryService(db)
-        harness_service = await create_harness_agent_service(db, model_gateway, skill_registry)
-
-        result = await harness_service.execute(
-            agent_id=agent_id,
-            query=query,
-            user_id=user_id,
-            tenant_id="default",
-            session_id=session_id,
-        )
+        rt = OrchestratorRuntime(db, user_id=user_id)
+        response = await rt.execute_agent(agent_id=agent_id, query=query, user_id=user_id)
 
         return {
             "success": True,
-            "data": result.to_dict()
+            "data": {"agent_id": agent_id, "response": response}
         }
     except Exception as e:
         logger.error("Failed to execute agent: %s", e)

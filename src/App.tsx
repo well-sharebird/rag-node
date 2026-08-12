@@ -37,8 +37,8 @@ import { QAChatView } from '@packages/agent/components/QAChatView';
 import { ExecutionTracingView } from '@packages/agent/components/ExecutionTracingView';
 import { SkillManagement } from '@packages/agent/pages/SkillManagement';
 import { AgentPlaza } from '@packages/agent/pages/AgentPlaza';
-import { AgentChat } from '@packages/agent/pages/AgentChat';
 import { ConversationHistory } from '@packages/agent/pages/ConversationHistory';
+import { WorkSpaceView } from '@packages/agent/pages/WorkSpaceView';
 import { Loader2 } from 'lucide-react';
 
 function PlaceholderView({ title, description }: { title: string, description: string }) {
@@ -99,6 +99,7 @@ function MainAppContent() {
     'm-29': 'evaluation',      // 质量评估
     'm-30': 'api-explorer',    // API 接口
     'm-31': 'settings',        // 系统设置
+    'm-32': 'agent-workspace', // 工作空间
   };
 
   const renderContent = () => {
@@ -147,7 +148,8 @@ function MainAppContent() {
           }
         }} />;
       case 'agent-chat':
-        return <AgentChat />;
+        // 统一聊天界面（AI 助手 + 可选智能体），agent_id 从 URL 读取
+        return <QAChatView />;
       case 'knowledge-bases':
         return <KnowledgeBaseManager />;
       case 'retrieval-test':
@@ -158,6 +160,8 @@ function MainAppContent() {
         return <MonitoringView />;
       case 'settings':
         return <SystemSettingsView />;
+      case 'agent-workspace':
+        return <WorkSpaceView />;
       case 'data-ingestion':
       case 'data-sources':
         return <DataIngestionView />;

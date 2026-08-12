@@ -1,0 +1,61 @@
+# 主 Agent 配置文件
+
+name: "main_agent"
+description: "默认全能主 Agent - 任务编排与通用问答"
+version: "1.0.0"
+
+# 工具配置
+tools:
+  # 默认启用的工具白名单
+  enabled_tools:
+    - "web_search"
+    - "calculator"
+    - "code_interpreter"
+    - "file_reader"
+    - "knowledge_base_query"
+
+# 沙箱策略
+sandbox_policy:
+  # 执行超时（秒）
+  timeout_seconds: 60
+  # 最大内存（MB）
+  max_memory_mb: 512
+  # 网络访问白名单
+  network_whitelist:
+    - "api.openai.com"
+    - "api.anthropic.com"
+  # 文件系统访问限制
+  filesystem:
+    allowed_paths:
+      - "/workspace"
+    denied_paths:
+      - "/etc"
+      - "/root"
+      - "/home"
+
+# 内存策略
+memory_strategy:
+  # 记忆类型：conversation | vector | hybrid
+  type: "conversation"
+  # 最大保留轮数
+  max_turns: 50
+  # 会话 TTL（小时）
+  ttl_hours: 24
+
+# 执行限制
+limits:
+  # 最大执行步数
+  max_steps: 20
+  # Token 预算
+  token_budget: 8192
+  # 单次响应最大 Token
+  max_output_tokens: 2048
+
+# 日志与审计
+logging:
+  # 日志级别
+  level: "INFO"
+  # 是否记录工具调用详情
+  log_tool_calls: true
+  # 是否记录 LLM 调用
+  log_llm_calls: false

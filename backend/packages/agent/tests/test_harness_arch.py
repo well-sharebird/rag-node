@@ -139,46 +139,8 @@ class TestTAOGraph:
 # ============================================================
 # Test 3: Orchestration Graph 测试
 # ============================================================
-
-class TestOrchestrationGraph:
-    """Orchestration Graph 测试"""
-
-    def test_orchestration_state_definition(self):
-        """测试 OrchestrationState 定义"""
-        from packages.agent.runtime_engine.orchestration_graph import OrchestrationState
-
-        state: OrchestrationState = {
-            "task": "Test task",
-            "workers": ["worker1", "worker2"],
-            "results": {},
-            "current_worker": None,
-            "final_output": None,
-            "messages": [],
-        }
-        assert state["task"] == "Test task"
-        print("✅ OrchestrationState definition test passed")
-
-    def test_orchestration_builder(self):
-        """测试编排构建器"""
-        from packages.agent.runtime_engine.orchestration_graph import OrchestrationGraphBuilder
-
-        workers = [
-            {"id": "researcher", "role": "Researcher"},
-            {"id": "writer", "role": "Writer"},
-        ]
-
-        builder = OrchestrationGraphBuilder(workers)
-
-        # 测试 RoundRobin 模式
-        graph = builder.build("round_robin")
-        assert graph is not None
-        print("✅ RoundRobin graph build test passed")
-
-        # 测试 Voting 模式
-        graph = builder.build("voting")
-        assert graph is not None
-        print("✅ Voting graph build test passed")
-
+# 注：多 Agent 改用主从编排（主 Agent + 子 Agent 子图），
+#     旧的 orchestration_graph（supervisor/round_robin/voting 死壳）已移除。
 
 # ============================================================
 # Test 4: Governance Callback 测试
@@ -289,13 +251,6 @@ if __name__ == "__main__":
     test_tao = TestTAOGraph()
     test_tao.test_tao_state_definition()
     test_tao.test_should_act_router()
-    print()
-
-    # Orchestration Graph 测试
-    print("--- Orchestration Graph 测试 ---")
-    test_orch = TestOrchestrationGraph()
-    test_orch.test_orchestration_state_definition()
-    test_orch.test_orchestration_builder()
     print()
 
     # Governance 测试

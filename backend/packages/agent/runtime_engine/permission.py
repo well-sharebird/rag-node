@@ -28,6 +28,7 @@ class PermissionLevel(str, Enum):
     FREE = "free"              # 自由执行，无需审批
     ASK_FIRST = "ask_first"    # 首次询问，后续缓存
     APPROVE_ONCE = "approve_once"  # 每次都需要审批
+    DENIED = "denied"          # 直接拒绝（安全策略禁止）
 
 
 class PermissionStatus(str, Enum):
@@ -82,11 +83,13 @@ class PermissionEngine:
     3. Approve-once - 每次都需审批
     """
 
-    def __init__(self, db: AsyncSession, user_id: int):
+    def __init__(self, db: AsyncSession, user_id: int, policy: Optional[Dict[str, Any]] = None):
         self.db = db
         self.user_id = user_id
         self._permission_cache: Dict[str, PermissionCacheEntry] = {}
         self._pending_requests: Dict[str, PermissionRequest] = {}
+        # 安全策略（对齐 AgentConfig.security_policy / AgentManifest.security_policy）
+        self.policy = policy or {}
 
         # 默认权限配置
         self._default_tool_permissions: Dict[str, PermissionLevel] = {
@@ -122,15 +125,46 @@ class PermissionEngine:
             - has_permission: True=可以直接执行，False=需要审批或被拒绝
             - permission_request: 如果需要审批，返回请求对象；否则为 None
         """
-        # 1. 确定权限级别
-        permission_level = self._get_permission_level(tool_name, operation)
+        # 0. 安全策略校验（blocked / allowed / require_approval）
+        blocked = set(self.policy.get("blocked_tools") or [])
+        allowed = set(self.policy.get("allowed_tools") or [])
+        require_approval = set(self.policy.get("require_approval_tools") or [])
+
+        if tool_name in blocked:
+            logger.info(f"Permission DENIED by policy: {tool_name}")
+            return False, PermissionRequest(
+                tool_name=tool_name,
+                operation=operation,
+                parameters=parameters or {},
+                permission_level=PermissionLevel.DENIED,
+                risk_level="high",
+                reason="工具被安全策略（blocked_tools）禁止",
+            )
+
+        # 白名单模式：明确指定了 allowed_tools 时，白名单外的工具一律拒绝
+        if allowed and tool_name not in allowed and not require_approval:
+            logger.info(f"Permission DENIED: {tool_name} 不在 allowed_tools 白名单")
+            return False, PermissionRequest(
+                tool_name=tool_name,
+                operation=operation,
+                parameters=parameters or {},
+                permission_level=PermissionLevel.DENIED,
+                risk_level="medium",
+                reason="工具不在 allowed_tools 白名单内",
+            )
+
+        # 1. 确定权限级别（require_approval 强制走审批）
+        if tool_name in require_approval:
+            permission_level = PermissionLevel.APPROVE_ONCE
+        else:
+            permission_level = self._get_permission_level(tool_name, operation)
 
         # 2. Free 级别直接允许
         if permission_level == PermissionLevel.FREE:
             logger.debug(f"Permission FREE: {tool_name}.{operation}")
             return True, None
 
-        # 3. 检查缓存
+        # 3. 检查缓存（会话内 + DB 持久化 ASK_FIRST 批准）
         cache_key = f"{self.user_id}:{tool_name}:{operation}"
         if cache_key in self._permission_cache:
             cache_entry = self._permission_cache[cache_key]
@@ -141,6 +175,12 @@ class PermissionEngine:
                     logger.debug(f"Permission cached: {tool_name}.{operation}")
                     cache_entry.approval_count += 1
                     return True, None
+
+        # ASK_FIRST：查询 DB 持久化批准（跨请求；已批准则放行，无需再审批）
+        if permission_level == PermissionLevel.ASK_FIRST:
+            if await self.has_approval(self.user_id, tool_name):
+                logger.debug(f"Permission DB-approved: {tool_name}")
+                return True, None
 
         # 4. Approve-once 级别每次都创建新请求
         # 5. Ask-first 级别如果没有缓存也创建请求
@@ -196,8 +236,30 @@ class PermissionEngine:
             expires_at=expires_at,
         )
 
-        # 保存到待审批队列
+        # 保存到待审批队列（会话内）
         self._pending_requests[request.id] = request
+
+        # 持久化到 DB（跨请求可查，HITL 闭环）
+        try:
+            import uuid as _uuid
+            from packages.agent.models.permission import PermissionRequest as DBPermissionRequest
+
+            self.db.add(DBPermissionRequest(
+                id=_uuid.UUID(request.id),
+                tool_name=tool_name,
+                operation=operation,
+                parameters=parameters,
+                permission_level=permission_level.value if hasattr(permission_level, "value") else str(permission_level),
+                risk_level=risk_level,
+                reason=request.reason,
+                status="pending",
+                requester_id=self.user_id,
+                expires_at=request.expires_at,
+            ))
+            await self.db.commit()
+        except Exception as e:
+            logger.warning("权限请求 DB 持久化失败: %s", e)
+            await self.db.rollback()
 
         logger.info(
             f"Permission request created: {request.id} "
@@ -256,43 +318,36 @@ class PermissionEngine:
         request_id: str,
         approver_id: int,
     ) -> bool:
-        """
-        批准权限请求
+        """批准权限请求（DB 持久化，跨请求可审批）"""
+        import uuid as _uuid
+        from sqlalchemy import select
+        from packages.agent.models.permission import PermissionRequest as DBT
 
-        Returns:
-            bool: 是否批准成功
-        """
-        if request_id not in self._pending_requests:
-            logger.warning(f"Permission request not found: {request_id}")
+        try:
+            r = await self.db.get(DBT, _uuid.UUID(request_id))
+        except Exception as e:
+            logger.warning(f"approve: request 不存在 {request_id}: {e}")
             return False
-
-        request = self._pending_requests[request_id]
-
-        if request.status != PermissionStatus.PENDING:
+        if not r or r.status != "pending":
             logger.warning(f"Request already processed: {request_id}")
             return False
 
-        # 更新请求状态
-        request.status = PermissionStatus.APPROVED
-        request.approver_id = approver_id
-        request.approved_at = datetime.utcnow()
+        r.status = PermissionStatus.APPROVED.value
+        r.approver_id = approver_id
+        r.approved_at = datetime.utcnow()
+        await self.db.commit()
 
-        # 添加到缓存（Ask-first 级别才缓存）
-        if request.permission_level == PermissionLevel.ASK_FIRST:
-            cache_key = f"{self.user_id}:{request.tool_name}:{request.operation}"
+        # 会话内缓存（ASK_FIRST 级别）
+        if r.permission_level == PermissionLevel.ASK_FIRST.value:
+            cache_key = f"{self.user_id}:{r.tool_name}:{r.operation}"
             self._permission_cache[cache_key] = PermissionCacheEntry(
-                tool_name=request.tool_name,
-                operation=request.operation,
-                user_id=self.user_id,
+                tool_name=r.tool_name, operation=r.operation, user_id=self.user_id,
                 permission_level=PermissionLevel.ASK_FIRST,
-                approved_at=datetime.utcnow(),
-                expires_at=request.expires_at,
-                approval_count=1,
-                max_approvals=None,  # 无限制
+                approved_at=datetime.utcnow(), expires_at=r.expires_at,
+                approval_count=1, max_approvals=None,
             )
-
-        # 从待审批队列移除
-        del self._pending_requests[request_id]
+        if request_id in self._pending_requests:
+            del self._pending_requests[request_id]
 
         logger.info(f"Permission approved: {request_id}")
         return True
@@ -302,22 +357,78 @@ class PermissionEngine:
         request_id: str,
         approver_id: int,
     ) -> bool:
-        """拒绝权限请求"""
-        if request_id not in self._pending_requests:
+        """拒绝权限请求（DB 持久化）"""
+        import uuid as _uuid
+        from packages.agent.models.permission import PermissionRequest as DBT
+
+        try:
+            r = await self.db.get(DBT, _uuid.UUID(request_id))
+        except Exception as e:
+            logger.warning(f"reject: request 不存在 {request_id}: {e}")
+            return False
+        if not r or r.status != "pending":
             return False
 
-        request = self._pending_requests[request_id]
-        request.status = PermissionStatus.REJECTED
-        request.approver_id = approver_id
+        r.status = PermissionStatus.REJECTED.value
+        r.approver_id = approver_id
+        await self.db.commit()
 
-        del self._pending_requests[request_id]
+        if request_id in self._pending_requests:
+            del self._pending_requests[request_id]
 
         logger.info(f"Permission rejected: {request_id}")
         return True
 
-    def get_pending_requests(self) -> List[PermissionRequest]:
-        """获取所有待审批的请求"""
-        return list(self._pending_requests.values())
+    async def get_pending_requests(
+        self,
+        user_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """获取待审批请求（DB 持久化，跨请求可查）"""
+        import uuid as _uuid
+        from sqlalchemy import select
+        from packages.agent.models.permission import PermissionRequest as DBT
+
+        stmt = select(DBT).where(DBT.status == "pending")
+        if user_id is not None:
+            stmt = stmt.where(DBT.requester_id == user_id)
+        stmt = stmt.order_by(DBT.created_at.desc()).limit(100)
+        try:
+            result = await self.db.execute(stmt)
+            rows = result.scalars().all()
+            return [
+                {
+                    "id": str(r.id), "tool_name": r.tool_name, "operation": r.operation,
+                    "parameters": r.parameters or {}, "permission_level": r.permission_level,
+                    "risk_level": r.risk_level, "reason": r.reason,
+                    "status": r.status, "requester_id": r.requester_id,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.warning(f"get_pending_requests 失败: {e}")
+            return []
+
+    async def has_approval(self, user_id: int, tool_name: str) -> bool:
+        """查询该用户是否已有该工具的批准（ASK_FIRST 持久化缓存，跨请求）。"""
+        from sqlalchemy import select
+        from packages.agent.models.permission import PermissionRequest as DBT
+
+        try:
+            r = await self.db.execute(
+                select(DBT).where(
+                    DBT.requester_id == user_id,
+                    DBT.tool_name == tool_name,
+                    DBT.status == PermissionStatus.APPROVED.value,
+                ).order_by(DBT.approved_at.desc()).limit(1)
+            )
+            row = r.scalar_one_or_none()
+            if row and row.expires_at and row.expires_at < datetime.utcnow():
+                return False
+            return row is not None
+        except Exception as e:
+            logger.warning(f"has_approval 查询失败: {e}")
+            return False
 
     def clear_expired_cache(self) -> int:
         """清理过期的权限缓存"""

@@ -4,12 +4,13 @@ import { useAppContext } from '@/lib/app-context';
 import { useAuth } from '@/src/lib/auth-context';
 import { useI18n } from '@/src/lib/i18n';
 import { toast } from 'sonner';
-import { Send, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, AtSign, Check, Cpu, ChevronUp, ChevronDown } from 'lucide-react';
+import { Send, BookOpen, Loader2, ThumbsUp, ThumbsDown, X, Brain, AtSign, Check, Cpu, ChevronUp, ChevronDown, Bot } from 'lucide-react';
 import { SourcePanel } from '@/src/components/SourcePanel';
 import { cn } from '@/lib/utils';
 import { submitFeedback, createConversation, addMessageToConversation } from '@/lib/api-client';
 import { getApiUrl } from '@/src/lib/env';
 import { ChatMessageList, type ChatMessage as ChatMessageType } from '@/src/components/ChatMessageList';
+import { Modal } from '@/src/components/enterprise/Modal';
 
 interface Citation {
   index: number;
@@ -108,8 +109,18 @@ export function QAChatView() {
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
 
-  // 注意：AI 助手使用 Meta Agent 接口 (/api/v1/agents/meta/execute/stream)
-  // 不需要预先加载 agent_id，直接在请求时调用即可
+  // 智能体选择（统一入口：可选广场智能体 + 主从编排开关）
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+  const [selectedAgentInfo, setSelectedAgentInfo] = useState<{ id: string; name: string } | null>(null);
+  const [agentOptions, setAgentOptions] = useState<{ id: string; name: string }[]>([]);
+  const [showAgentSelector, setShowAgentSelector] = useState(false);
+  const [orchestrator, setOrchestrator] = useState(false);
+  const [orchestratorStatus, setOrchestratorStatus] = useState('');
+
+  // 人工审批（HITL）
+  const [approvalPending, setApprovalPending] = useState<any[]>([]);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [approving, setApproving] = useState(false);
 
   // @ mention selector state
   const [showKbSelector, setShowKbSelector] = useState(false);
@@ -148,6 +159,50 @@ export function QAChatView() {
     };
     loadModels();
   }, [token]);
+
+  // 智能体加载：从 URL/session 读取所选 agent_id，并加载可选智能体列表
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const agentFromUrl = urlParams.get('agent_id');
+    const agentFromSession = sessionStorage.getItem('agent_chat_id');
+    const initial = agentFromUrl || agentFromSession || '';
+    if (initial) {
+      setSelectedAgentId(initial);
+      sessionStorage.removeItem('agent_chat_id');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    // 加载可选智能体列表（供统一界面选择）
+    fetch(getApiUrl('/api/v1/agents'), {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(res => res.json())
+      .then((data: any) => {
+        const items = Array.isArray(data) ? data : data.items || [];
+        setAgentOptions(items.filter((a: any) => a && a.id).map((a: any) => ({
+          id: a.id, name: a.name || a.id,
+        })));
+      })
+      .catch(() => {});
+  }, [token]);
+
+  // 加载所选智能体信息（显示其身份）
+  useEffect(() => {
+    if (!selectedAgentId || !token) {
+      setSelectedAgentInfo(null);
+      return;
+    }
+    fetch(getApiUrl(`/api/v1/agents/${selectedAgentId}`), {
+      headers: { 'Authorization': `Bearer ${token}` },
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then((data: any) => {
+        if (data && data.id) setSelectedAgentInfo({ id: data.id, name: data.name });
+      })
+      .catch(() => setSelectedAgentInfo(null));
+  }, [selectedAgentId, token]);
 
   // Close KB selector on Escape
   useEffect(() => {
@@ -257,20 +312,25 @@ export function QAChatView() {
       // 确保模型名称正确传递 - 使用 model_id 而不是 name
       const modelName = availableModels.find(m => m.model_id === selectedModelId)?.model_id || availableModels[0]?.model_id;
 
-      // 使用 Harness 统一执行入口进行问答（不传 agent_id，由 Harness 自主决策）
+      // 统一执行入口请求：可选 agent_id（所选智能体）/ orchestrator（主从编排）
       const requestBody: any = {
         query,
         kb_ids: useRAG ? selectedKbs : undefined,
         top_k: 5,
         enable_rerank: useRAG,
+        session_id: currentSessionId || undefined,
       };
-      // 只在有选择模型时传递 model_name，让 Agent 使用默认配置
       if (modelName) {
         requestBody.model_name = modelName;
       }
+      if (selectedAgentId) {
+        requestBody.agent_id = selectedAgentId;
+      }
+      if (orchestrator) {
+        requestBody.orchestrator = true;
+      }
 
       // 使用 Harness 统一入口：/api/v1/agents/execute/stream
-      // 不传 agent_id，Harness 会自动使用 AI 助手模式
       const res = await fetch(getApiUrl('/api/v1/agents/execute/stream'), {
         method: 'POST',
         headers: {
@@ -315,6 +375,32 @@ export function QAChatView() {
             try {
               const parsed = JSON.parse(data);
 
+              // 编排状态事件（主从编排进度反馈；不渲染则安全忽略）
+              if (parsed.type === 'orchestrator_plan') {
+                setOrchestratorStatus('编排中…');
+                continue;
+              }
+              if (parsed.type === 'sub_agent' && parsed.data) {
+                const sd = parsed.data;
+                setOrchestratorStatus(
+                  sd.status === 'done'
+                    ? `子Agent「${sd.sub_agent_id}」完成`
+                    : `调用子Agent「${sd.sub_agent_id}」…`
+                );
+                continue;
+              }
+              if (parsed.type === 'agent_selected' && parsed.agent_name) {
+                // 指定智能体接管提示（不强制展示，token 仍正常）
+                setOrchestratorStatus(`智能体「${parsed.agent_name}」为您服务`);
+                continue;
+              }
+              // 人工审批需求（HITL）→ 弹窗
+              if (parsed.type === 'approval_required' && parsed.data?.pending) {
+                setApprovalPending(parsed.data.pending);
+                setShowApprovalModal(true);
+                continue;
+              }
+
               // Handle Agent API stream format: {"type": "token", "content": "..."}
               if (parsed.type === 'token' && parsed.content) {
                 accumulatedContent += parsed.content;
@@ -336,6 +422,7 @@ export function QAChatView() {
                     : msg
                 ));
                 setLoading(false);
+                setOrchestratorStatus('');
 
                 // Save messages to session after streaming completes
                 if (currentSessionId) {
@@ -538,6 +625,32 @@ export function QAChatView() {
     }
   };
 
+  // 人工审批：批准/拒绝
+  const submitApproval = async (requestId: string, action: 'approve' | 'reject') => {
+    setApproving(true);
+    try {
+      const res = await fetch(getApiUrl(`/api/v1/approvals/${requestId}/${action}`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.detail || `审批失败`);
+        return;
+      }
+      toast.success(action === 'approve' ? '已批准，可重新提问' : '已拒绝');
+      setApprovalPending(prev => prev.filter(p => (p as any)?.id !== requestId));
+      if (approvalPending.length <= 1) setShowApprovalModal(false);
+    } catch (e: any) {
+      toast.error(`审批失败：${e?.message || ''}`);
+    } finally {
+      setApproving(false);
+    }
+  };
+
   const handleStop = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -648,6 +761,53 @@ export function QAChatView() {
           }`}>
             {selectedKbs.length > 0 ? 'RAG 模式' : 'LLM 模式'}
           </span>
+          {/* 智能体选择（统一入口：可选广场智能体 / AI 助手） */}
+          <div className="relative">
+            <button
+              onClick={() => setShowAgentSelector(!showAgentSelector)}
+              className="ml-2 px-2.5 py-1 rounded-lg text-[10px] font-medium border hover:bg-gray-50 transition-colors flex items-center gap-1.5"
+              style={{ borderColor: '#e2e1dd', color: selectedAgentInfo ? '#0a7a3d' : '#9b9b9b' }}
+            >
+              <Bot className="w-3 h-3" />
+              {selectedAgentInfo ? selectedAgentInfo.name : 'AI 助手'}
+              {selectedAgentInfo ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSelectedAgentId(''); setSelectedAgentInfo(null); }}
+                  className="text-[9px] ml-0.5 px-1 rounded hover:bg-red-50 hover:text-red-600"
+                >✕</button>
+              ) : null}
+            </button>
+            {showAgentSelector && (
+              <div className="absolute top-full left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-[#e2e1dd] z-50 overflow-hidden">
+                <div className="max-h-64 overflow-y-auto py-1">
+                  <button
+                    onClick={() => { setSelectedAgentId(''); setSelectedAgentInfo(null); setShowAgentSelector(false); }}
+                    className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 ${!selectedAgentId ? 'bg-[#eeedfe]' : ''}`}
+                  >AI 助手（自主决策）</button>
+                  {agentOptions.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => { setSelectedAgentId(a.id); setShowAgentSelector(false); }}
+                      className={`w-full px-3 py-2 text-left text-xs hover:bg-gray-50 ${selectedAgentId === a.id ? 'bg-[#eeedfe]' : ''}`}
+                    >{a.name}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* 主从编排开关 */}
+          <button
+            onClick={() => setOrchestrator(!orchestrator)}
+            className={`ml-2 px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors ${orchestrator ? 'bg-purple-100 text-purple-700' : 'text-[#9b9b9b]'}`}
+            style={{ borderColor: '#e2e1dd' }}
+            title="主从编排（主Agent + 子Agent）"
+          >{orchestrator ? '编排 ON' : '编排 OFF'}</button>
+          {/* 编排状态指示 */}
+          {orchestratorStatus && (
+            <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700">
+              {orchestratorStatus}
+            </span>
+          )}
           {/* Model selector */}
           <div className="relative">
             <button
@@ -927,6 +1087,45 @@ export function QAChatView() {
           // TODO: Scroll to and highlight the citation in the message
         }}
       />
+
+      {/* 人工审批弹窗（HITL）*/}
+      <Modal
+        open={showApprovalModal}
+        onOpenChange={setShowApprovalModal}
+        title="需要人工审批"
+        description="以下敏感调用需要你的批准后才能执行"
+        footer={
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => approvalPending.forEach(p => submitApproval(p?.id, 'reject'))}
+              disabled={approving}
+              className="px-3 py-1.5 rounded-lg text-xs border hover:bg-gray-50"
+              style={{ borderColor: '#e2e1dd' }}
+            >拒绝</button>
+            <button
+              onClick={() => approvalPending.forEach(p => submitApproval(p?.id, 'approve'))}
+              disabled={approving}
+              className="px-3 py-1.5 rounded-lg text-xs text-white"
+              style={{ background: '#534ab7' }}
+            >{approving ? '处理中…' : '批准'}</button>
+          </div>
+        }
+      >
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {approvalPending.map((p: any, i: number) => (
+            <div key={i} className="p-2 rounded-lg text-xs border" style={{ borderColor: '#e8e6e6' }}>
+              <div className="font-medium">{p?.tool || p?.name || '工具调用'}</div>
+              {p?.risk_level && (
+                <span className={`px-1.5 py-0.5 rounded text-[10px] mt-1 inline-block ${
+                  p.risk_level === 'high' || p.risk_level === 'critical' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                }`}>风险：{p.risk_level}</span>
+              )}
+              <div className="text-[#9b9b9b] mt-1 break-all">{JSON.stringify(p?.args ?? p?.parameters ?? '')}</div>
+            </div>
+          ))}
+          {approvalPending.length === 0 && <div className="text-xs text-[#9b9b9b]">暂无待审批项</div>}
+        </div>
+      </Modal>
     </div>
   );
 }

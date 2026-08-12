@@ -11,7 +11,7 @@ Runtime Engine - Agent 运行时执行引擎
     from packages.agent.runtime import AgentRuntime
     from packages.agent.harness import HarnessEngine
     from packages.agent.runtime_engine.tao_graph import build_tao_graph
-    from packages.agent.runtime_engine.orchestration_graph import build_orchestration_graph
+    # 注：多 Agent 改用主从编排（主 Agent + 子 Agent 子图），orchestration_graph 已移除
     from packages.agent.runtime_engine.governance_callback import GovernanceEngine, GovernanceCallbackHandler
     from packages.agent.runtime_engine.permission import PermissionEngine
 

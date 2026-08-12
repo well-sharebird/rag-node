@@ -210,16 +210,20 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
         target_top_p = top_p
 
         class SimpleChatHttp(BaseChatModel):
-            """简单的 HTTP Chat 模型 - 用于不需要 API Key 的 OpenAI 兼容接口"""
+            """简单的 HTTP Chat 模型 - 用于不需要 API Key 的 OpenAI 兼容接口
+
+            支持 OpenAI function calling（bind_tools + tool_calls 解析）。
+            """
             base_url: str = Field(default=target_url)
             model_name: str = Field(default=target_model)
             temperature: float = Field(default=target_temp)
             max_tokens: int = Field(default=target_max_tokens)
             top_p: float = Field(default=target_top_p)
             _client: "httpx.AsyncClient" = PrivateAttr()
+            _bound_tools: list = PrivateAttr(default_factory=list)
 
             def model_post_init(self, __context) -> None:
-                self._client = httpx.AsyncClient(timeout=60.0)
+                self._client = httpx.AsyncClient(timeout=180.0)
 
             @property
             def _llm_type(self) -> str:
@@ -228,6 +232,21 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
             @property
             def _identifying_params(self):
                 return {"base_url": self.base_url, "model_name": self.model_name}
+
+            def bind_tools(self, tools, **kwargs):
+                """绑定工具（OpenAI function calling schema）。返回独立副本，避免污染。"""
+                from langchain_core.utils.function_calling import convert_to_openai_tool
+
+                bound = self.__class__(
+                    base_url=self.base_url,
+                    model_name=self.model_name,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    top_p=self.top_p,
+                )
+                bound._client = self._client
+                bound._bound_tools = [convert_to_openai_tool(t) for t in tools]
+                return bound
 
             def _to_openai_messages(self, messages: list[BaseMessage]) -> list:
                 """将 LangChain 消息转换为 OpenAI 格式"""
@@ -249,25 +268,50 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                 stop: list[str] | None = None,
                 **kwargs,
             ) -> ChatResult:
-                """异步生成响应（非流式）"""
+                """异步生成响应（非流式，支持 function calling）"""
+                import json as _json
+
                 openai_messages = self._to_openai_messages(messages)
+
+                payload = {
+                    "model": self.model_name,
+                    "messages": openai_messages,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
+                    "top_p": self.top_p,
+                    "stream": False,
+                }
+                if self._bound_tools:
+                    payload["tools"] = self._bound_tools
+                    payload["tool_choice"] = "auto"
 
                 # 发送请求 - 不发送 Authorization header
                 response = await self._client.post(
-                    f"{self.base_url}/chat/completions",
-                    json={
-                        "model": self.model_name,
-                        "messages": openai_messages,
-                        "temperature": self.temperature,
-                        "max_tokens": self.max_tokens,
-                        "top_p": self.top_p,
-                        "stream": False,
-                    },
+                    f"{self.base_url}/chat/completions", json=payload,
                 )
                 response.raise_for_status()
                 data = response.json()
-                content = data["choices"][0]["message"]["content"]
+                msg = data["choices"][0]["message"]
 
+                content = msg.get("content") or ""
+                tool_calls = msg.get("tool_calls") or []
+
+                if tool_calls:
+                    # 解析 OpenAI tool_calls → LangChain AIMessage.tool_calls
+                    lc_tool_calls = []
+                    for tc in tool_calls:
+                        fn = tc.get("function", {})
+                        lc_tool_calls.append({
+                            "name": fn.get("name", ""),
+                            "args": _json.loads(fn.get("arguments") or "{}"),
+                            "id": tc.get("id", ""),
+                        })
+                    return ChatResult(generations=[ChatGeneration(
+                        message=AIMessage(content=content, tool_calls=lc_tool_calls))])
+
+                # Qwen 等推理模型可能把输出放 reasoning 而 content 为空/None，需兜底
+                if not content:
+                    content = msg.get("reasoning") or ""
                 return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
 
             async def _astream(

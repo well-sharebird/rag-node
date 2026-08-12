@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/**
+backend/.venv/**
+backend/__pypackages__/**
+**/venv/**
+
+# Build outputs
+dist/**
+build/**
+**/dist/**
+**/build/**
+
+# Logs
+*.log
+logs/**
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# IDE
+.idea/**
+.vscode/**
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/**
+.htmlcov/**
+.pytest_cache/**
+*.cover
+
+# Temporary files
+tmp/**
+temp/**
+*.tmp
+*.temp
+
+# Large data files
+*.parquet
+*.feather
+*.pkl
+data/**/raw/**

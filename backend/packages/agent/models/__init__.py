@@ -51,6 +51,7 @@ from packages.agent.models.session import (
     AgentSessionMessage,
     AgentSessionCheckpoint,
 )
+from packages.agent.models.permission import PermissionRequest
 
 __all__ = [
     # Agent
@@ -84,4 +85,8 @@ __all__ = [
     "AgentSession",
     "AgentSessionMessage",
     "AgentSessionCheckpoint",
+
+    # Permission (新增)
+    "PermissionRequest",
 ]
+
