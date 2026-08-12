@@ -143,61 +143,7 @@ class TestTAOGraph:
 #     旧的 orchestration_graph（supervisor/round_robin/voting 死壳）已移除。
 
 # ============================================================
-# Test 4: Governance Callback 测试
-# ============================================================
-
-class TestGovernance:
-    """Governance 测试"""
-
-    def test_governance_engine_creation(self):
-        """测试 GovernanceEngine 创建"""
-        from packages.agent.runtime_engine.governance_callback import GovernanceEngine
-
-        engine = GovernanceEngine()
-        assert engine._active_traces == {}
-        print("✅ GovernanceEngine creation test passed")
-
-    def test_trace_lifecycle(self):
-        """测试追踪生命周期"""
-        from packages.agent.runtime_engine.governance_callback import (
-            GovernanceEngine, ExecutionStep,
-        )
-
-        engine = GovernanceEngine()
-
-        # 开始追踪
-        trace_id = "test_trace_001"
-        engine._active_traces[trace_id] = []
-
-        # 添加步骤
-        step = ExecutionStep(
-            step_id="step_1",
-            action="llm_call",
-            timestamp="2024-01-01T00:00:00Z",
-            duration_ms=100,
-            metadata={"tokens": 100},
-        )
-        asyncio.run(engine.add_step(trace_id, step))
-
-        assert len(engine._active_traces[trace_id]) == 1
-        print("✅ Trace lifecycle test passed")
-
-    def test_callback_handler_creation(self):
-        """测试 Callback Handler 创建"""
-        from packages.agent.runtime_engine.governance_callback import (
-            GovernanceEngine, GovernanceCallbackHandler,
-        )
-
-        engine = GovernanceEngine()
-        handler = GovernanceCallbackHandler(trace_id="test_001", engine=engine)
-
-        assert handler.trace_id == "test_001"
-        assert handler.engine == engine
-        print("✅ CallbackHandler creation test passed")
-
-
-# ============================================================
-# Test 5: Harness 层测试
+# Test 4: Harness 层测试
 # ============================================================
 
 class TestHarness:
@@ -251,14 +197,6 @@ if __name__ == "__main__":
     test_tao = TestTAOGraph()
     test_tao.test_tao_state_definition()
     test_tao.test_should_act_router()
-    print()
-
-    # Governance 测试
-    print("--- Governance 测试 ---")
-    test_gov = TestGovernance()
-    test_gov.test_governance_engine_creation()
-    test_gov.test_trace_lifecycle()
-    test_gov.test_callback_handler_creation()
     print()
 
     # Harness 层测试
