@@ -51,9 +51,11 @@ class ToolRegistry:
         """为特定工具注册错误处理器"""
         self._error_handlers[tool_name] = handler
 
-    def safe_invoke(self, tool: BaseTool, input: dict) -> str:
-        """安全调用工具 — 带错误降级"""
+    async def safe_invoke(self, tool: BaseTool, input: dict) -> str:
+        """安全调用工具 — 带错误降级（async 工具走 ainvoke，同步工具兜底 invoke）"""
         try:
+            if hasattr(tool, "ainvoke"):
+                return await tool.ainvoke(input)
             return tool.invoke(input)
         except Exception as e:
             logger.error(f"Tool '{tool.name}' failed: {e}")
@@ -62,7 +64,10 @@ class ToolRegistry:
             handler = self._error_handlers.get(tool.name)
             if handler:
                 try:
-                    return handler(e, input)
+                    res = handler(e, input)
+                    if hasattr(res, "__await__"):
+                        res = await res
+                    return res
                 except Exception:
                     pass
 

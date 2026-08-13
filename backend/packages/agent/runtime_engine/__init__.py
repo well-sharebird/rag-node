@@ -8,11 +8,10 @@ Runtime Engine - Agent 运行时执行引擎
     from packages.agent.runtime_engine import OrchestrationEngine, MemoryEngine, ActionEngine
 
     # 新方式 (推荐)
-    from packages.agent.runtime import AgentRuntime
-    from packages.agent.harness import HarnessEngine
+    from packages.agent.orchestrator.graph import OrchestratorRuntime
     from packages.agent.runtime_engine.tao_graph import build_tao_graph
-    # 注：多 Agent 改用主从编排（主 Agent + 子 Agent 子图），orchestration_graph 已移除
-    from packages.agent.runtime_engine.governance_callback import GovernanceEngine, GovernanceCallbackHandler
+    # 注：多 Agent 采用主从编排（主 Agent + 子 Agent 子图），orchestration_graph 已移除；
+    #     运行时统一为 OrchestratorRuntime（含通用执行/超时/重试/时间旅行能力）
     from packages.agent.runtime_engine.permission import PermissionEngine
 
 详见：REFACTOR_PLAN.md
@@ -39,9 +38,8 @@ class _DeprecatedEngine:
     def __init__(self, *args, **kwargs):
         raise RuntimeError(
             "This engine has been removed. "
-            "Please use the new architecture: "
-            "HarnessEngine for business logic, AgentRuntime for execution, "
-            "and TAO Graph / Orchestration Graph for agent flow."
+            "Please use the unified runtime: OrchestratorRuntime "
+            "for orchestration/execution, built on the TAO Graph."
         )
 
 OrchestrationEngine = _DeprecatedEngine

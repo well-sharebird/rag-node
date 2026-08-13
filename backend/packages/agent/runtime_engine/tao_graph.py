@@ -35,6 +35,7 @@ def build_tao_graph(
     checkpointer: Optional[Any] = None,
     middlewares: Optional[List[Any]] = None,
     prompt_assembler: Optional[Any] = None,
+    execution_manager: Optional[Any] = None,
 ) -> CompiledStateGraph:
     """
     构建 TAO 循环图
@@ -51,6 +52,9 @@ def build_tao_graph(
         checkpointer: LangGraph checkpointer (编译时注入，启用断点持久化)
         middlewares: LangChain AgentMiddleware 列表（由节点驱动的管控中间件）
         prompt_assembler: PromptAssembler（Harness 层上下文组装器，设计文档 11.4）
+        execution_manager: ToolExecutionManager（Harness 工具执行唯一门面，设计文档 2.2）。
+            线程注：Phase 0 仅透传不切换，act_node 仍走 ToolRegistry.safe_invoke；
+            Phase 1 由此处接管工具执行（按风险分级路由进程内/沙箱）。
 
     Returns:
         CompiledStateGraph: 编译后的图
@@ -72,7 +76,7 @@ def build_tao_graph(
 
     # 3. Act 节点 - 使用 LangGraph ToolNode
     if has_tools:
-        graph.add_node("act", create_act_node(tools, permission_engine))
+        graph.add_node("act", create_act_node(tools, permission_engine, execution_manager))
 
     # 4. Observe 节点 - 处理结果
     graph.add_node("observe", create_observe_node())
@@ -207,11 +211,13 @@ def create_think_node(llm: Any, system_prompt: Optional[str] = None, on_token: O
     return think_node
 
 
-def create_act_node(tools: List[Any], permission_engine: Optional[Any] = None):
+def create_act_node(tools: List[Any], permission_engine: Optional[Any] = None,
+                    execution_manager: Optional[Any] = None):
     """创建 Act 节点 - 工具执行
 
     注意：权限检查在 create_permission_check_node 中完成，
-    这里的 permission_engine 仅用于日志记录
+    这里的 permission_engine 仅用于日志记录。
+    execution_manager：Harness 工具执行门面（Phase 0 透传不拦截，Phase 1 接管执行）。
     """
     from packages.agent.tools.registry import get_tool_registry
 
@@ -246,10 +252,13 @@ def create_act_node(tools: List[Any], permission_engine: Optional[Any] = None):
                 results.append({"tool": tool_name, "result": reason})
                 continue
 
-            # 执行工具
+            # 执行工具：经 Harness 工具治理门面（设计文档 2.2）——权限→清洗→按风险分流→审计
             tool = tool_registry.get(tool_name)
             if tool:
-                result = tool_registry.safe_invoke(tool, tool_input)
+                if execution_manager is not None:
+                    result = await execution_manager.execute_tool(tool, tool_input)
+                else:
+                    result = await tool_registry.safe_invoke(tool, tool_input)
             else:
                 reason = f"[工具不存在] {tool_name}"
                 feedback_msgs.append(reason)
@@ -366,18 +375,29 @@ def create_observe_node():
     async def observe_node(state: TAOState) -> Dict[str, Any]:
         """
         Observe 节点 - 处理工具执行结果 + 整理 State.todos
+
+        把 act 节点产生的 tool_results 转成 ToolMessage 追加进 messages，
+        使下一轮 think 能看到执行结果并据此给出最终答案（否则模型会因看不到结果而反复重调工具）。
         """
-        messages = state.get("messages", [])
-        tool_results = extract_tool_results(messages)
+        from langchain_core.messages import ToolMessage
+
+        messages = list(state.get("messages") or [])
+        tool_results = state.get("tool_results") or []
+        for r in tool_results:
+            messages.append(ToolMessage(
+                content=str(r.get("result", "") or ""),
+                tool_call_id=str(r.get("tool_call_id", "") or ""),
+                name=str(r.get("tool", "") or "") or None,
+            ))
 
         # Runtime 职责：解析 Agent 输出中的任务清单 -> State.todos
         todos_update = _collect_todos(messages, state)
 
-        logger.info(f"Observe: processed {len(tool_results)} tool results, {len(todos_update.get('todos', []))} todos")
+        logger.info(f"Observe: merged {len(tool_results)} tool results into messages")
 
         return {
             **todos_update,
-            "messages": [],  # 结果已在消息中
+            "messages": messages,
         }
 
     return observe_node
@@ -451,17 +471,6 @@ def extract_tool_calls(response: AIMessage) -> list:
     tool_calls = getattr(response, 'tool_calls', [])
     return tool_calls if tool_calls else []
 
-
-def extract_tool_results(messages: List[BaseMessage]) -> list:
-    """从消息中提取工具执行结果"""
-    results = []
-    for msg in messages:
-        if hasattr(msg, 'type') and msg.type == 'tool':
-            results.append({
-                'tool_call_id': getattr(msg, 'tool_call_id', None),
-                'content': msg.content,
-            })
-    return results
 
 
 # ============================================================

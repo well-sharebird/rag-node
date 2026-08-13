@@ -5,10 +5,35 @@
 定义原子 reducer 与状态工具函数，供图节点复用。
 """
 import re
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TypedDict, Union, Annotated
 
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
+
+
+@dataclass
+class ExecutionResult:
+    """通用图执行结果（统一运行时 execute/resume 的返回类型）。"""
+
+    success: bool
+    result: Optional[Any] = None
+    error_message: Optional[str] = None
+    duration_ms: int = 0
+    metadata: Optional[Dict[str, Any]] = None
+    # 原始异常（供审批 GraphInterrupt 等提取，默认 None 保持后向兼容）
+    error: Optional[BaseException] = None
+
+    @classmethod
+    def ok(cls, result: Any, duration_ms: int = 0, metadata: Optional[Dict] = None):
+        return cls(success=True, result=result, duration_ms=duration_ms, metadata=metadata)
+
+    @classmethod
+    def error(cls, error_message: str, duration_ms: int = 0, *,
+              error: Optional[BaseException] = None,
+              metadata: Optional[Dict] = None):
+        return cls(success=False, error_message=error_message, duration_ms=duration_ms,
+                   metadata=metadata, error=error)
 
 
 def append_lists(

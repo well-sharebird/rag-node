@@ -1,27 +1,21 @@
 """
 Harness 架构测试
 
-验证新的三层架构是否正常工作
+验证统一运行时（OrchestratorRuntime）与 TAO 图正常工作
 """
 import pytest
-import asyncio
-from typing import TypedDict, Annotated, List
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from packages.agent.runtime import RuntimeConfig
 
 
 # ============================================================
-# Test 1: Runtime 层测试
+# Test 1: Runtime 配置测试
 # ============================================================
 
 class TestRuntime:
-    """Runtime 层测试"""
+    """Runtime 配置测试"""
 
     def test_runtime_config_creation(self):
         """测试 RuntimeConfig 创建"""
-        from packages.agent.runtime import RuntimeConfig
-
         config = RuntimeConfig(
             stream=True,
             timeout_seconds=300,
@@ -32,47 +26,6 @@ class TestRuntime:
         assert config.timeout_seconds == 300
         assert config.token_budget == 4096
         print("✅ RuntimeConfig creation test passed")
-
-    def test_agent_runtime_creation(self):
-        """测试 AgentRuntime 创建"""
-        from packages.agent.runtime import AgentRuntime, RuntimeConfig
-
-        runtime = AgentRuntime(config=RuntimeConfig())
-
-        assert runtime.config.timeout_seconds == 300
-        assert runtime.config.token_budget == 4096
-        print("✅ AgentRuntime creation test passed")
-
-    @pytest.mark.asyncio
-    async def test_simple_graph_execution(self):
-        """测试简单图执行"""
-        from packages.agent.runtime import AgentRuntime, RuntimeConfig, ExecutionResult
-
-        # 定义状态
-        class SimpleState(TypedDict):
-            messages: Annotated[List[str], add_messages]
-
-        # 构建简单图
-        def agent_node(state: SimpleState):
-            return {"messages": [f"Response to: {state['messages'][-1]}"]}
-
-        graph = StateGraph(SimpleState)
-        graph.add_node("agent", agent_node)
-        graph.add_edge(START, "agent")
-        graph.add_edge("agent", END)
-        compiled = graph.compile()
-
-        # 执行
-        runtime = AgentRuntime(config=RuntimeConfig())
-        result = await runtime.execute(
-            graph=compiled,
-            state={"messages": ["Hello"]},
-            thread_id="test_1",
-        )
-
-        assert isinstance(result, ExecutionResult)
-        assert result.success is True
-        print("✅ Simple graph execution test passed")
 
 
 # ============================================================
@@ -185,11 +138,9 @@ if __name__ == "__main__":
     print()
 
     # Runtime 测试
-    print("--- Runtime 层测试 ---")
+    print("--- Runtime 配置测试 ---")
     test_runtime = TestRuntime()
     test_runtime.test_runtime_config_creation()
-    test_runtime.test_agent_runtime_creation()
-    asyncio.run(test_runtime.test_simple_graph_execution())
     print()
 
     # TAO Graph 测试

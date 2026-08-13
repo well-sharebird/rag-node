@@ -335,6 +335,9 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                     "top_p": self.top_p,
                     "stream": True,
                 }
+                if self._bound_tools:
+                    payload["tools"] = self._bound_tools
+                    payload["tool_choice"] = "auto"
 
                 async with self._client.stream(
                     "POST",
@@ -362,6 +365,22 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                             if content:
                                 yield ChatGenerationChunk(
                                     message=AIMessageChunk(content=content)
+                                )
+                            # 工具调用片段（SSE 按 index 分片）：转成 langchain tool_call_chunks，
+                            # think 节点合并 chunk 后 .tool_calls 即可得到完整调用并被 ToolNode 执行。
+                            tool_deltas = delta.get("tool_calls") or []
+                            for tc in tool_deltas:
+                                fn = tc.get("function") or {}
+                                yield ChatGenerationChunk(
+                                    message=AIMessageChunk(
+                                        content="",
+                                        tool_call_chunks=[{
+                                            "name": fn.get("name", ""),
+                                            "args": fn.get("arguments", "") or "",
+                                            "id": tc.get("id", ""),
+                                            "index": tc.get("index", 0),
+                                        }],
+                                    )
                                 )
                         except Exception:
                             continue

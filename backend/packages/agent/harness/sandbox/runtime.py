@@ -56,10 +56,12 @@ class SandboxResult:
 class SandboxRuntime:
     """Harness 统一沙箱执行运行时。"""
 
-    def __init__(self, db, user_id: int, session_id: Optional[str] = None):
+    def __init__(self, db, user_id: int, session_id: Optional[str] = None,
+                 workdir: Optional[str] = None):
         self.db = db
         self.user_id = user_id
         self.session_id = session_id
+        self.workdir = workdir  # 任务级沙箱工作目录（SandboxScope 提供），None 用默认工作区
 
     @staticmethod
     def _interpreter(language: str) -> tuple[str, str]:
@@ -88,7 +90,9 @@ class SandboxRuntime:
 
         # 2. 获取工作空间
         ws = await self.get_workspace()
-        exec_dir = os.path.join(ws.root_path, "exec", str(int(time.time() * 1000)))
+        # 任务级沙箱工作目录优先；否则落默认工作区 exec 目录
+        exec_root = self.workdir or os.path.join(ws.root_path, "exec")
+        exec_dir = os.path.join(exec_root, str(int(time.time() * 1000)))
         os.makedirs(exec_dir, exist_ok=True)
 
         interpreter, ext = self._interpreter(language)
@@ -168,3 +172,50 @@ class SandboxRuntime:
 
         return SandboxResult(sandbox=sandbox_label, stdout=stdout, stderr=stderr,
                              exit_code=exit_code, timed_out=timed_out, files=files)
+
+
+class SandboxScope:
+    """任务/会话级沙箱生命周期（Phase 3：加载→执行→销毁）。
+
+    为子 Agent 执行（_exec_sub_task）与主 Agent 直答（_direct_answer_stream）
+    提供隔离工作区：进入创建独立 workdir，退出 best-effort 销毁（防逃逸/残留）。
+
+    Usage:
+        async with SandboxScope(db, user_id, session_id, policy) as scope:
+            # 将 scope.workdir 注入工具治理门面，高危工具执行落于该目录
+            ...execute...
+        # 退出后 scope.workdir 已被清理
+    """
+
+    def __init__(self, db, user_id: int, session_id: Optional[str] = None,
+                 policy: Optional[dict] = None):
+        self.db = db
+        self.user_id = user_id
+        self.session_id = session_id
+        self.policy = policy or {}
+        self.workdir: Optional[str] = None
+
+    async def get_workspace(self):
+        from packages.core.system.models.user import User
+        user = await self.db.get(User, self.user_id)
+        if user is None:
+            raise ValueError("用户不存在")
+        from packages.agent.services.workspace_service import WorkspaceService
+        return await WorkspaceService(self.db).get_or_create_workspace(user)
+
+    async def __aenter__(self):
+        ws = await self.get_workspace()
+        self.workdir = os.path.join(
+            ws.root_path, "sandbox", f"task_{int(time.time() * 1000)}"
+        )
+        os.makedirs(self.workdir, exist_ok=True)
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        if self.workdir:
+            import shutil
+            try:
+                shutil.rmtree(self.workdir, ignore_errors=True)
+            except Exception as e:
+                logger.warning("[SandboxScope] 清理失败: %s", e)
+        return False

@@ -115,6 +115,27 @@ class AgentConfig(Base):
         JSONB, nullable=True, default=dict
     )
 
+    # 沙箱策略（对齐主 Agent agent.yaml sandbox_policy，子 Agent 专属）：
+    # {
+    #   "timeout_seconds": 60,
+    #   "max_memory_mb": 512,
+    #   "network_whitelist": [...],
+    #   "filesystem": {"allowed_paths": [...], "denied_paths": [...]}
+    # }
+    sandbox_policy: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=dict
+    )
+
+    # 记忆策略（何时/如何记忆）：
+    # {
+    #   "type": "conversation" | "vector" | "hybrid",
+    #   "max_turns": 50,
+    #   "ttl_hours": 24
+    # }
+    memory_strategy: Mapped[Optional[dict]] = mapped_column(
+        JSONB, nullable=True, default=dict
+    )
+
     # 状态
     status: Mapped[str] = mapped_column(String(20), default="draft")
     # draft: 草稿

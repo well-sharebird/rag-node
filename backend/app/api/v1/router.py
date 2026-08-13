@@ -34,7 +34,6 @@ from packages.agent.api.runtimes import router as runtimes_router
 from packages.agent.api.sessions import router as sessions_router
 from packages.agent.api.code_execution import router as code_execution_router
 from packages.agent.api.execution_traces import router as execution_traces_router
-from packages.agent.api.orchestrator import router as orchestrator_router
 from packages.agent.api.approvals import router as approvals_router
 
 # ============================================================
@@ -47,7 +46,6 @@ router.include_router(workspaces_router)
 router.include_router(runtimes_router)
 router.include_router(sessions_router)
 router.include_router(code_execution_router)
-router.include_router(orchestrator_router)
 router.include_router(approvals_router)
 router.include_router(dashboard_router)
 router.include_router(kb_router)
