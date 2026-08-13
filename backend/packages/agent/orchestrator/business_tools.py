@@ -5,6 +5,9 @@
 沙箱优先（nsjail）、缺失降级受限子进程，产物自动登记进用户工作空间。
 """
 import logging
+import os
+import re
+import mimetypes
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +16,35 @@ logger = logging.getLogger(__name__)
 
 # 统一沙箱安全检查（复用 Harness SandboxRuntime）
 from packages.agent.harness.sandbox.runtime import check_code_safety as _check_code_safety  # noqa: E402
+
+# 允许保存的文件扩展名白名单（防写任意/二进制文件）
+ALLOWED_FILE_EXTENSIONS = (
+    ".py", ".md", ".txt", ".json", ".csv", ".yaml", ".yml",
+    ".html", ".js", ".ts", ".sh", ".toml", ".xml",
+)
+MAX_GENERATED_FILE_SIZE = 1024 * 1024  # 1MB
+
+
+def _validate_workspace_target(filename: str, folder: str) -> Optional[str]:
+    """校验生成文件的文件名/子目录，返回拒绝原因（合法返回 None）。
+
+    - filename 必须是 basename（不允许路径分隔符 / 穿越），且扩展名在白名单内
+    - folder 可选，禁止穿越/绝对路径，只允许 [\\w\\-/]+
+    """
+    name = (filename or "").strip()
+    if not name:
+        return "文件名不能为空"
+    if "/" in name or "\\" in name or ".." in name or os.path.isabs(name):
+        return "文件名不能包含路径或 '..'"
+    ext = os.path.splitext(name)[1].lower()
+    if not ext or ext not in ALLOWED_FILE_EXTENSIONS:
+        return f"不支持的扩展名：{name}（允许：{' '.join(ALLOWED_FILE_EXTENSIONS)}）"
+
+    folder = (folder or "").strip()
+    if folder:
+        if os.path.isabs(folder) or ".." in folder or not re.fullmatch(r"[\w\-/]+", folder):
+            return "子目录不合法（禁止穿越或绝对路径）"
+    return None
 
 
 async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None) -> None:
@@ -60,6 +92,24 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
                     f"工作空间产物: {res.files if res.files else '无'}")
 
         execute_code.name = "execute_code"
+
+        # Harness 沙箱化：高危 EXECUTE 工具在 ToolExecutionManager 注册沙箱执行器，
+        # 执行经独立 SandboxRuntime 工作区（设计文档 2.2/3.1）。
+        # （工具为 pydantic StructuredTool 不可附加属性，故按名称键控注册）
+        from packages.agent.core.harness.tools import ToolExecutionManager
+
+        async def _sandbox_execute_code(sandbox, tool_input: dict) -> str:
+            res = await sandbox.execute(
+                tool_input.get("code", ""),
+                tool_input.get("language", "python"),
+            )
+            if res.blocked:
+                return f"[安全拦截] {res.blocked}"
+            return (f"[{res.sandbox}] exit={res.exit_code} {'(超时)' if res.timed_out else ''}\n"
+                    f"stdout:\n{res.stdout[:2000]}\nstderr:\n{res.stderr[:2000]}\n"
+                    f"工作空间产物: {res.files if res.files else '无'}")
+        ToolExecutionManager.register_sandbox_executor("execute_code", _sandbox_execute_code)
+
         if reg.get("execute_code"):
             reg.unregister("execute_code")
         reg.register(execute_code, category="business")
@@ -99,3 +149,118 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
     elif not reg.get("execute_code"):
         # 未提供 user_id 时用默认 1（兼容旧调用）
         _register_execute(1)
+
+    def _register_generate(current_user_id: int):
+        from langchain_core.tools import tool
+
+        @tool
+        async def save_workspace_file(filename: str, content: str, folder: str = "", session_id: str = "") -> str:
+            """把生成的文件内容写入你的工作空间（可查看/下载）。
+
+            当用户要求生成/创建/保存一个文件时使用（如 .py/.md/.json/.csv/.txt
+            等文本文件）。文件内容由本工具直接写入用户自己的工作空间，无需执行代码。
+
+            Args:
+                filename: 文件名（需含扩展名，如 report.md）
+                content: 文件的完整内容
+                folder: 可选子目录（相对工作空间，如 docs），默认放 generated 根下
+                session_id: 会话 ID（产物关联）
+            """
+            reason = _validate_workspace_target(filename, folder)
+            if reason:
+                return f"[参数错误] {reason}"
+            if len(content or "") > MAX_GENERATED_FILE_SIZE:
+                return f"[参数错误] 内容超过大小上限（{MAX_GENERATED_FILE_SIZE // 1024}KB）"
+
+            from packages.core.system.models.user import User
+            from packages.agent.services.workspace_service import WorkspaceService
+
+            try:
+                user = await db.get(User, current_user_id)
+                if user is None:
+                    return "[错误] 用户不存在"
+                ws_svc = WorkspaceService(db)
+                ws = await ws_svc.get_or_create_workspace(user)
+            except Exception as e:
+                logger.warning("[FileGenTool] 工作区获取失败: %s", e)
+                return f"[错误] 工作区获取失败: {e}"
+
+            folder = (folder or "").strip().strip("/")
+            rel_dir = os.path.join("generated", folder) if folder else "generated"
+            abs_dir = os.path.join(ws.root_path, rel_dir)
+            try:
+                os.makedirs(abs_dir, exist_ok=True)
+                abs_path = os.path.join(abs_dir, filename)
+                with open(abs_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception as e:
+                logger.warning("[FileGenTool] 写入失败: %s", e)
+                return f"[错误] 文件写入失败: {e}"
+
+            rel_path = os.path.join(rel_dir, filename)
+            mime, _ = mimetypes.guess_type(filename)
+            size = len(content.encode("utf-8"))
+            try:
+                # 幂等登记：同工作区同路径已存在则更新，避免唯一约束冲突污染共享会话。
+                from sqlalchemy import select
+                from packages.agent.models.workspace import WorkspaceFile
+
+                existing = (
+                    await db.execute(
+                        select(WorkspaceFile).where(
+                            WorkspaceFile.workspace_id == ws.id,
+                            WorkspaceFile.relative_path == rel_path,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    existing.file_size = size
+                    existing.mime_type = mime
+                    existing.session_id = session_id or None
+                    file_id = str(existing.id)
+                else:
+                    wf = await ws_svc.register_file(
+                        workspace=ws, filename=filename, relative_path=rel_path,
+                        file_size=size, mime_type=mime,
+                        source_type="generated", session_id=session_id or None,
+                    )
+                    file_id = str(getattr(wf, "id", ""))
+
+                await ws_svc.log_action(
+                    workspace=ws, action="generate_file", file_path=rel_path,
+                    user_id=current_user_id, session_id=session_id or None,
+                    file_size=size, success=True,
+                )
+            except Exception as e:
+                # 恢复会话可继续使用，避免一次登记失败拖垮整轮图的后续操作
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                logger.warning("[FileGenTool] 登记/审计失败(文件已写入): %s", e)
+                return f"文件已写入磁盘，但登记失败：{e}（相对路径 {rel_path}）"
+
+            return f"文件已保存：{rel_path}（file_id={file_id}），可在工作空间查看/下载。"
+
+        save_workspace_file.name = "save_workspace_file"
+        if reg.get("save_workspace_file"):
+            reg.unregister("save_workspace_file")
+        reg.register(save_workspace_file, category="business")
+        logger.info("[BusinessTools] 注册文件生成工具 save_workspace_file (user=%s)", current_user_id)
+        return save_workspace_file
+
+    if user_id is not None:
+        _register_generate(user_id)
+    elif not reg.get("save_workspace_file"):
+        _register_generate(1)
+
+    # 工具风险分级注册（Harness 工具治理门面，幂等）
+    # EXECUTE/WRITE 高危走沙箱；读取类进程内执行。
+    from packages.agent.core.harness.tools import ToolExecutionManager, ToolRisk
+    ToolExecutionManager.register_many_risks({
+        "execute_code": ToolRisk.EXECUTE,
+        "save_workspace_file": ToolRisk.WRITE,
+        "list_knowledge_bases": ToolRisk.READ,
+        "get_knowledge_base_detail": ToolRisk.READ,
+    })
+    logger.info("[BusinessTools] 风险分级已注册: %s", dict(ToolExecutionManager._risks))
