@@ -1,7 +1,8 @@
-"""错误重试策略 - 运行时原子能力
+"""重试策略 - Harness 韧性/降级机制（与熔断 circuit_breaker.py 同属 resilience）
 
 提供指数退避的异步重试执行器，仅对可重试异常进行重试。
-纯函数、无外部依赖，可被 AgentRuntime 及其它调用方复用。
+纯函数、无外部依赖。重试（with_retry）+ 熔断（CircuitBreaker）共同构成
+Harness 对下游执行调用的降级保护。
 """
 import asyncio
 import logging

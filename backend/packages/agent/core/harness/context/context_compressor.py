@@ -1,8 +1,8 @@
-"""上下文压缩 - 运行时原子能力
+"""上下文压缩 - Harness 上下文工程（设计文档 2.1）
 
 在有限上下文窗口下，当对话消息超出 Token 预算时压缩历史。
-适配 langchain_core 的 BaseMessage，复用到 runtime_engine.token_budget 的
-TokenBudgetManager。原子、无状态编排、易单测。
+适配 langchain_core 的 BaseMessage，自带 Token 估算，原子、无状态编排、易单测。
+供编排层 `_prepare_state` 在每次 `execute` 前触发。
 """
 import logging
 from typing import List, Optional

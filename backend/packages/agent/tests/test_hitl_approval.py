@@ -47,7 +47,7 @@ class _FakeDB:
 
 @pytest.mark.asyncio
 async def test_require_approval_creates_request():
-    from packages.agent.runtime_engine.permission import PermissionEngine
+    from packages.agent.core.harness.security.permission import PermissionEngine
 
     db = _FakeDB()
     eng = PermissionEngine(
@@ -84,7 +84,7 @@ async def test_interrupt_extraction():
 
 @pytest.mark.asyncio
 async def test_ask_first_fallback_and_has_approval():
-    from packages.agent.runtime_engine.permission import PermissionEngine
+    from packages.agent.core.harness.security.permission import PermissionEngine
 
     db = _FakeDB()  # execute 返回空 → 无持久化批准记录
     eng = PermissionEngine(db, user_id=1, policy={})

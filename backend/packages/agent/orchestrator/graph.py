@@ -14,15 +14,15 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.agent.orchestrator.agent_loader import AgentLoader, LoadedAgentConfig
+from packages.agent.core.harness.agent.loader import AgentLoader, LoadedAgentConfig, security_policy_for
 from packages.agent.orchestrator.state import (
     OrchestrationPlan,
     OrchestratorState,
     SubAgentResult,
     SubTask,
 )
-from packages.agent.runtime.config import RuntimeConfig
-from packages.agent.runtime.state import ExecutionResult
+from packages.agent.core.harness.config import RuntimeConfig
+from packages.agent.runtime_engine.state import ExecutionResult
 from packages.agent.runtime_engine.tao_graph import build_tao_graph
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ class OrchestratorRuntime:
         """惰性创建数据库 checkpointer（断点/会话恢复，Harness 运行时增强）。"""
         if self._checkpointer is None:
             try:
-                from packages.agent.runtime.checkpointer import create_async_checkpointer
+                from packages.agent.runtime_engine.checkpointer import create_async_checkpointer
                 self._checkpointer = create_async_checkpointer()
             except Exception as e:
                 logger.warning("[Orchestrator] checkpointer 初始化失败: %s", e)
@@ -102,7 +102,7 @@ class OrchestratorRuntime:
 
     @property
     def _compressor(self):
-        from packages.agent.runtime.context import ContextCompressor
+        from packages.agent.core.harness.context import ContextCompressor
         return ContextCompressor(
             max_tokens=self.config.token_budget,
             reserve_tokens=self.config.reserve_tokens,
@@ -123,7 +123,7 @@ class OrchestratorRuntime:
         return state
 
     def _retry_policy(self):
-        from packages.agent.runtime.retry import RetryPolicy
+        from packages.agent.core.harness.security.retry import RetryPolicy
         return RetryPolicy(
             max_retries=self.config.max_retries,
             delay_seconds=self.config.retry_delay_seconds,
@@ -132,7 +132,7 @@ class OrchestratorRuntime:
     async def execute(self, graph, state: dict, thread_id: str, run_id: Optional[str] = None,
                       callbacks: Optional[list] = None) -> ExecutionResult:
         """批量执行给定编译图：上下文压缩 + 重试 + 硬超时。"""
-        from packages.agent.runtime.retry import with_retry
+        from packages.agent.core.harness.security.retry import with_retry
         start = datetime.utcnow()
         run_id = run_id or str(uuid4())
         prepared = self._prepare_state(state)
@@ -204,7 +204,7 @@ class OrchestratorRuntime:
 
     async def resume(self, graph, thread_id: str, values: dict, run_id: Optional[str] = None) -> ExecutionResult:
         """恢复中断执行。"""
-        from packages.agent.runtime.retry import with_retry
+        from packages.agent.core.harness.security.retry import with_retry
         start = datetime.utcnow()
         run_id = run_id or str(uuid4())
         config = self._build_config(thread_id, run_id)
@@ -236,11 +236,7 @@ class OrchestratorRuntime:
         except Exception as e:
             return {"success": False, "error": f"子Agent加载失败: {e}", "sub_agent_id": sub_agent_id}
 
-        sub_security = {}
-        if cfg.tools_whitelist:
-            sub_security["allowed_tools"] = cfg.tools_whitelist
-        if cfg.require_approval_tools:
-            sub_security["require_approval_tools"] = cfg.require_approval_tools
+        sub_security = security_policy_for(cfg)
 
         sub_llm = await self._create_llm()
         tools = self._load_sub_tools(cfg.tools_whitelist)
@@ -376,7 +372,7 @@ class OrchestratorRuntime:
 
         复用 middlewares/builtin 的四个中间件（日志/审计/安全/上下文）。
         """
-        from packages.agent.middlewares.builtin import (
+        from packages.agent.core.harness.middleware.builtin import (
             AuditLoggerMiddleware,
             ContextInitMiddleware,
             SecurityGuardMiddleware,
@@ -401,8 +397,7 @@ class OrchestratorRuntime:
         """统一构建 TAO Graph：middleware + 权限引擎 + 输出治理 + checkpointer + Harness 上下文工程。
 
         集成 Harness 上下文工程子系统（设计文档 2.1）：
-        - PromptAssembler：SOUL/CLAUDE 分层提示词组装
-        - TokenBudgetManager：Token 预算控制
+        - PromptAssembler：SOUL/CLAUDE 分层提示词组装 + Token 预算裁剪
 
         主/子 Agent 执行默认不启用 checkpointer（即时任务状态无需持久化）；
         需 HITL 断点续跑时（`resume_sub_agent`/`_run_sub_agent_graph` 携带
@@ -411,7 +406,7 @@ class OrchestratorRuntime:
         test_checkpointer_serde.py）。
         """
         from packages.agent.output.governance import OutputGovernanceNode
-        from packages.agent.runtime_engine.permission import PermissionEngine
+        from packages.agent.core.harness.security.permission import PermissionEngine
         from packages.agent.core.harness.context import PromptAssembler
 
         # Harness 上下文工程：使用 PromptAssembler 组装系统提示词（设计文档 11.4）
@@ -450,6 +445,8 @@ class OrchestratorRuntime:
         execution_manager = ToolExecutionManager(
             db=self.db, user_id=self.user_id, session_id=getattr(self, "session_id", None),
             sandbox_workdir=sandbox_workdir, security_policy=security_policy,
+            rate_limit=(agent_config or {}).get("rate_limit"),
+            circuit=(agent_config or {}).get("circuit"),
         )
 
         return build_tao_graph(
@@ -693,16 +690,12 @@ class OrchestratorRuntime:
 
             sub_system = cfg.system_prompt or "你是专业子 Agent，请用工具（如需要）完成任务。"
             # 统一经 _build_agent_graph（middleware + 输出治理 + 权限全装配）
-            # 传入安全策略（allowed + require_approval）以启用人工审批
-            sub_security = {}
-            if cfg.tools_whitelist:
-                sub_security["allowed_tools"] = cfg.tools_whitelist
-            if cfg.require_approval_tools:
-                sub_security["require_approval_tools"] = cfg.require_approval_tools
+            # 传入安全策略（allowed + require_approval）以启用人工审批（组装下沉 Harness）
+            sub_security = security_policy_for(cfg)
 
             # 按 sandbox_policy 初始化独立沙箱生命周期（Phase 3）：进入创建、退出销毁
             if cfg.sandbox_policy:
-                from packages.agent.harness.sandbox.runtime import SandboxScope
+                from packages.agent.core.harness.sandbox.runtime import SandboxScope
                 async with SandboxScope(
                     db=self.db, user_id=self.user_id,
                     session_id=getattr(self, "session_id", None), policy=cfg.sandbox_policy,
@@ -866,7 +859,7 @@ class OrchestratorRuntime:
         # 沙箱生命周期（Phase 3）：按主 Agent sandbox_policy 初始化/销毁隔离工作区
         scope = None
         if main_agent_cfg is not None and main_agent_cfg.sandbox_policy:
-            from packages.agent.harness.sandbox.runtime import SandboxScope
+            from packages.agent.core.harness.sandbox.runtime import SandboxScope
             scope = SandboxScope(
                 db=self.db, user_id=self.user_id,
                 session_id=getattr(self, "session_id", None),

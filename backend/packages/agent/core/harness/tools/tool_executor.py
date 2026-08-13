@@ -47,7 +47,8 @@ class ToolExecutionManager:
     _sandbox_executors: Dict[str, Callable] = {}
 
     def __init__(self, db=None, user_id=None, session_id=None, tool_registry=None,
-                 sandbox_workdir: Optional[str] = None, security_policy: Optional[dict] = None):
+                 sandbox_workdir: Optional[str] = None, security_policy: Optional[dict] = None,
+                 rate_limit: Optional[dict] = None, circuit: Optional[dict] = None):
         self.db = db
         self.user_id = user_id
         self.session_id = session_id
@@ -55,6 +56,15 @@ class ToolExecutionManager:
         # 安全策略（blocked_tools/allowed_tools，与 AgentConfig.security_policy 对齐）：
         # 工具级护栏（纵深防御）——即使 LLM 尝试白名单外工具，也在此门强制拒绝。
         self._policy = security_policy or {}
+
+        # 限流配置（可选）：{"mode": "token_bucket"|"sliding_window", ...params, "key_by": "user"|"tool"}
+        self._rate_limit_cfg = rate_limit or {}
+        # 熔断配置（可选）：{"failure_threshold": N, "open_timeout": sec, "key_by": "tool"}
+        self._circuit_cfg = circuit or {}
+        # （懒构造）按 key 缓存限流器/熔断器实例
+        self._rate_limiters: Dict[str, Any] = {}
+        self._circuit_breakers: Dict[str, Any] = {}
+
         if tool_registry is None:
             from packages.agent.tools.registry import get_tool_registry
             tool_registry = get_tool_registry()
@@ -113,7 +123,7 @@ class ToolExecutionManager:
         sandbox_exec = self._sandbox_executors.get(tool_name)
         if sandbox_exec is not None:
             try:
-                from packages.agent.harness.sandbox.runtime import SandboxRuntime
+                from packages.agent.core.harness.sandbox.runtime import SandboxRuntime
                 sandbox = SandboxRuntime(
                     db=self.db, user_id=self.user_id or 1, session_id=self.session_id,
                     workdir=self.sandbox_workdir,
@@ -128,9 +138,62 @@ class ToolExecutionManager:
                 )
         return await self._registry.safe_invoke(tool, tool_input)
 
+    # ---------------- 限流 / 熔断 ----------------
+    def _limit_key(self, tool_name: str) -> str:
+        if self._rate_limit_cfg.get("key_by") == "tool":
+            return f"tool:{tool_name}"
+        return f"user:{self.user_id or 0}"
+
+    def _circuit_key(self, tool_name: str) -> str:
+        if self._circuit_cfg.get("key_by") == "user":
+            return f"user:{self.user_id or 0}"
+        return f"tool:{tool_name}"
+
+    def _rate_limited(self, tool_name: str) -> bool:
+        mode = self._rate_limit_cfg.get("mode")
+        if not mode:
+            return False
+        from packages.agent.core.harness.security.rate_limit import make_rate_limiter
+        key = self._limit_key(tool_name)
+        limiter = self._rate_limiters.get(key)
+        if limiter is None:
+            params = {k: v for k, v in self._rate_limit_cfg.items() if k not in ("mode", "key_by")}
+            limiter = make_rate_limiter(mode, **params)
+            self._rate_limiters[key] = limiter
+        if hasattr(limiter, "consume"):
+            return not limiter.consume()
+        return not limiter.allow()
+
+    def _get_circuit_breaker(self, tool_name: str):
+        key = self._circuit_key(tool_name)
+        cb = self._circuit_breakers.get(key)
+        if cb is None:
+            from packages.agent.core.harness.security.circuit_breaker import CircuitBreaker
+            cb = CircuitBreaker(
+                failure_threshold=self._circuit_cfg.get("failure_threshold", 5),
+                open_timeout=self._circuit_cfg.get("open_timeout", 30.0),
+            )
+            self._circuit_breakers[key] = cb
+        return cb
+
+    def _circuit_open(self, tool_name: str) -> bool:
+        if not self._circuit_cfg:
+            return False
+        return self._get_circuit_breaker(tool_name).is_open
+
+    def _record_success(self, tool_name: str) -> None:
+        if not self._circuit_cfg:
+            return
+        self._get_circuit_breaker(tool_name).record_success()
+
+    def _record_failure(self, tool_name: str) -> None:
+        if not self._circuit_cfg:
+            return
+        self._get_circuit_breaker(tool_name).record_failure()
+
     # ---------------- 唯一执行入口 ----------------
     async def execute_tool(self, tool, tool_input: dict) -> str:
-        """工具执行唯一入口：权限/参数校验 → 风险分级路由 → 执行 → 审计。"""
+        """工具执行唯一入口：权限/参数校验 → 限流 → 熔断 → 风险分级路由 → 执行 → 审计。"""
         tool_name = getattr(tool, "name", "?unknown?")
         if not isinstance(tool_input, dict):
             tool_input = {}
@@ -141,18 +204,38 @@ class ToolExecutionManager:
             self.audit(tool_name, tool_input, f"DENIED: {denied}")
             return f"[工具被拦截] {tool_name}: {denied}"
 
+        # 1.5 限流：超限直接拒绝（未配置时放行）
+        if self._rate_limited(tool_name):
+            self.audit(tool_name, tool_input, "RATE_LIMITED")
+            return f"[限流] {tool_name}: 请求过于频繁，请稍后再试"
+
+        # 1.6 熔断：OPEN 时降级拒绝（保护下游）
+        if self._circuit_open(tool_name):
+            self.audit(tool_name, tool_input, "CIRCUIT_OPEN")
+            return f"[熔断] {tool_name}: 服务暂不可用，请稍后再试"
+
         # 2. 参数清洗
         clean_input = self.param_clean(tool_name, tool_input)
 
-        # 3. 按风险分级路由
+        # 3. 按风险分级路由（执行异常计入熔断计数，仍向上抛出）
         risk = self.risk_of(tool_name)
         result = None
         sandbox = None
-        if risk in (ToolRisk.EXECUTE, ToolRisk.WRITE):
-            sandbox = "harness-sandbox"
-            result = await self._execute_in_sandbox(tool, clean_input)
+        try:
+            if risk in (ToolRisk.EXECUTE, ToolRisk.WRITE):
+                sandbox = "harness-sandbox"
+                result = await self._execute_in_sandbox(tool, clean_input)
+            else:
+                result = await self._registry.safe_invoke(tool, clean_input)
+        except Exception:
+            self._record_failure(tool_name)
+            raise
+
+        # 熔断成败判定：safe_invoke 已吞异常并以 `[工具执行失败]` 标记返回
+        if isinstance(result, str) and result.startswith("[工具执行失败]"):
+            self._record_failure(tool_name)
         else:
-            result = await self._registry.safe_invoke(tool, clean_input)
+            self._record_success(tool_name)
 
         # 4. 审计
         self.audit(tool_name, clean_input, str(result)[:500], sandbox)

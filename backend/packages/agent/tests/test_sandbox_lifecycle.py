@@ -10,8 +10,8 @@ import os
 
 import pytest
 
-from packages.agent.orchestrator.agent_loader import AgentLoader
-from packages.agent.harness.sandbox.runtime import SandboxRuntime, SandboxScope, check_code_safety
+from packages.agent.core.harness.agent.loader import AgentLoader
+from packages.agent.core.harness.sandbox.runtime import SandboxRuntime, SandboxScope, check_code_safety
 
 
 class FakeWs:

@@ -4,7 +4,7 @@ Harness 架构测试
 验证统一运行时（OrchestratorRuntime）与 TAO 图正常工作
 """
 import pytest
-from packages.agent.runtime import RuntimeConfig
+from packages.agent.core.harness.config import RuntimeConfig
 
 
 # ============================================================
@@ -104,7 +104,7 @@ class TestHarness:
 
     def test_harness_config_creation(self):
         """测试 HarnessConfig 创建"""
-        from packages.agent.harness.config import HarnessConfig, CollaborationMode
+        from packages.agent.core.harness.config import HarnessConfig, CollaborationMode
 
         config = HarnessConfig(
             enable_planning_tools=True,
@@ -117,7 +117,7 @@ class TestHarness:
 
     def test_collaboration_modes(self):
         """测试协作模式枚举"""
-        from packages.agent.harness.config import CollaborationMode
+        from packages.agent.core.harness.config import CollaborationMode
 
         assert CollaborationMode.SUPERVISOR == "supervisor"
         assert CollaborationMode.ROUND_ROBIN == "round_robin"

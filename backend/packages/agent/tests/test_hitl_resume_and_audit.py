@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import app.models  # noqa: F401  （满足 SQLAlchemy mapper 顺序）
 
 from packages.agent.orchestrator.graph import OrchestratorRuntime
-from packages.agent.orchestrator.agent_loader import LoadedAgentConfig
+from packages.agent.core.harness.agent.loader import LoadedAgentConfig
 
 
 def _loaded_config():

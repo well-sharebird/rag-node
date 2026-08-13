@@ -87,7 +87,7 @@ class TestListSubAgentsCatalog:
     @pytest.mark.asyncio
     async def test_merge_system_and_own_active(self):
         from unittest.mock import patch
-        from packages.agent.orchestrator.agent_loader import AgentLoader
+        from packages.agent.core.harness.agent.loader import AgentLoader
         from packages.agent.services.agent_config_service import AgentConfigService
 
         async def fake_list(self, **kwargs):

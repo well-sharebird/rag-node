@@ -1,5 +1,5 @@
 """
-标准化 Harness State - 所有子系统的共享数据通道
+标准化 Harness State - LangGraph 层共享数据通道
 
 使用 TypedDict 定义，LangGraph 可以正确处理。
 定义原子 reducer 与状态工具函数，供图节点复用。

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from packages.core.database import get_db
 from packages.core.auth import get_current_user
 from packages.core.system.models.user import User
-from packages.agent.runtime_engine.permission import PermissionEngine
+from packages.agent.core.harness.security.permission import PermissionEngine
 from packages.agent.orchestrator.graph import OrchestratorRuntime
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])

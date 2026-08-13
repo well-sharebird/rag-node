@@ -2,6 +2,7 @@
 
 - load_main_agent: 加载入口主 Agent（内置默认配置或默认 AgentConfig）
 - load_sub_agent: 按 sub_agent_id 从 DB 懒加载子 Agent 配置
+- security_policy_for: 从 LoadedAgentConfig 组装安全策略（模块级，供图装配复用）
 """
 import logging
 from dataclasses import dataclass, field
@@ -10,6 +11,20 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+def security_policy_for(cfg: "LoadedAgentConfig") -> Optional[Dict[str, Any]]:
+    """从 LoadedAgentConfig 组装安全策略 dict（allowed_tools / require_approval_tools）。
+
+    供子 Agent 图装配复用，避免各编排路径重复内联策略组装。
+    无任何约束时返回 None（= 继承/不限）。
+    """
+    policy: Dict[str, Any] = {}
+    if cfg.tools_whitelist:
+        policy["allowed_tools"] = cfg.tools_whitelist
+    if cfg.require_approval_tools:
+        policy["require_approval_tools"] = cfg.require_approval_tools
+    return policy or None
 
 
 @dataclass

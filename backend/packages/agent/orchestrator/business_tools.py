@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 # 统一沙箱安全检查（复用 Harness SandboxRuntime）
-from packages.agent.harness.sandbox.runtime import check_code_safety as _check_code_safety  # noqa: E402
+from packages.agent.core.harness.sandbox.runtime import check_code_safety as _check_code_safety  # noqa: E402
 
 # 允许保存的文件扩展名白名单（防写任意/二进制文件）
 ALLOWED_FILE_EXTENSIONS = (
@@ -73,7 +73,7 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
                 session_id: 会话 ID（产物关联）
             """
             # 统一经 Harness SandboxRuntime（安全检查→沙箱/降级→产物登记→审计）
-            from packages.agent.harness.sandbox.runtime import SandboxRuntime, check_code_safety
+            from packages.agent.core.harness.sandbox.runtime import SandboxRuntime, check_code_safety
 
             try:
                 rt = SandboxRuntime(db, user_id=current_user_id, session_id=session_id or None)

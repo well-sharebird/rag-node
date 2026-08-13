@@ -200,6 +200,48 @@ class PermissionEngine:
 
         return False, request
 
+    async def evaluate_tool_call(
+        self,
+        tool_name: str,
+        parameters: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """统一工具调用决策入口（治理收口进 Harness）。
+
+        封装批/拒策略判定，供权限检查节点调用——节点只消费决策结果，
+        不再内联 allowed/blocked/require_approval 等策略逻辑。
+
+        Returns:
+            {"action": "allow"}                              # 直接执行
+            {"action": "approve", "pending": {...}}          # 触发 HITL 审批
+            {"action": "deny", "reason": str}                # 拒绝
+        """
+        has_permission, request = await self.check_permission(
+            tool_name=tool_name,
+            operation="execute",
+            parameters=parameters or {},
+        )
+        if has_permission:
+            return {"action": "allow"}
+
+        if request is None:
+            return {"action": "deny", "reason": "权限不足"}
+
+        if request.permission_level in (
+            PermissionLevel.APPROVE_ONCE,
+            PermissionLevel.ASK_FIRST,
+        ):
+            return {
+                "action": "approve",
+                "pending": {
+                    "tool": tool_name,
+                    "args": parameters or {},
+                    "risk_level": request.risk_level,
+                    "request_id": request.id,
+                },
+            }
+
+        return {"action": "deny", "reason": f"权限不足：{request.reason}"}
+
     def _get_permission_level(
         self,
         tool_name: str,

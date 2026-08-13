@@ -10,7 +10,7 @@ Phase 4 #2: 子 Agent 统一经运行时 execute 接线测试
 import pytest
 
 from packages.agent.orchestrator.graph import OrchestratorRuntime
-from packages.agent.runtime.state import ExecutionResult
+from packages.agent.runtime_engine.state import ExecutionResult
 
 
 class _Cfg:

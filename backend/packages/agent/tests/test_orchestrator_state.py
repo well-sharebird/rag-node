@@ -36,7 +36,7 @@ class TestTempConfigLifecycle:
         rt.user_id = 1
         rt.session_id = None
 
-        from packages.agent.orchestrator.agent_loader import LoadedAgentConfig
+        from packages.agent.core.harness.agent.loader import LoadedAgentConfig
         cfg = LoadedAgentConfig(agent_id="sub-a", name="SubA",
                                 system_prompt="sys", tools_whitelist=[],
                                 sandbox_policy={}, require_approval_tools=[],
@@ -74,7 +74,7 @@ class TestRunStreamUnifiedState:
 
     @pytest.mark.asyncio
     async def test_run_stream_materializes_state(self, monkeypatch):
-        from packages.agent.orchestrator.agent_loader import LoadedAgentConfig
+        from packages.agent.core.harness.agent.loader import LoadedAgentConfig
 
         rt = OrchestratorRuntime.__new__(OrchestratorRuntime)
         rt.user_id = 1

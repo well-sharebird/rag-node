@@ -18,7 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langchain_core.messages import AIMessage, HumanMessage, BaseMessage
 from langgraph.prebuilt import ToolNode
 
-from packages.agent.runtime.state import TAOState
+from packages.agent.runtime_engine.state import TAOState
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def build_tao_graph(
         CompiledStateGraph: 编译后的图
     """
     # 中间件链（替换自研 hooks 系统）
-    from packages.agent.middlewares.base import MiddlewareChain
+    from packages.agent.core.harness.middleware.base import MiddlewareChain
     chain = MiddlewareChain(middlewares)
 
     graph = StateGraph(TAOState)
@@ -252,13 +252,16 @@ def create_act_node(tools: List[Any], permission_engine: Optional[Any] = None,
                 results.append({"tool": tool_name, "result": reason})
                 continue
 
-            # 执行工具：经 Harness 工具治理门面（设计文档 2.2）——权限→清洗→按风险分流→审计
+            # 执行工具：必须经 Harness 工具治理门面（设计文档 2.2）——权限→清洗→按风险分流→审计
+            # fail-closed：未装配治理门时拒绝执行，防止绕过治理。
             tool = tool_registry.get(tool_name)
             if tool:
                 if execution_manager is not None:
                     result = await execution_manager.execute_tool(tool, tool_input)
                 else:
-                    result = await tool_registry.safe_invoke(tool, tool_input)
+                    reason = f"[工具执行未配置治理门，已拒绝] {tool_name}"
+                    feedback_msgs.append(reason)
+                    result = reason
             else:
                 reason = f"[工具不存在] {tool_name}"
                 feedback_msgs.append(reason)
@@ -284,7 +287,11 @@ def create_act_node(tools: List[Any], permission_engine: Optional[Any] = None,
 
 
 def create_permission_check_node(permission_engine: Any):
-    """权限检查节点 - 插入在 act 节点之前"""
+    """权限检查节点 - 插入在 act 节点之前。
+
+    治理判定收口在 `PermissionEngine.evaluate_tool_call`（Harness 层）；
+    本节点只消费决策结果（allow/approve/deny）并基于 approve 构造 HITL 中断。
+    """
 
     async def permission_check(state: TAOState) -> dict:
         tool_calls = state.get("tool_calls", [])
@@ -298,38 +305,16 @@ def create_permission_check_node(permission_engine: Any):
             tool_name = tc["name"]
             tool_input = tc.get("args", {})
 
-            # 调用 PermissionEngine 检查权限
-            has_permission, request = await permission_engine.check_permission(
-                tool_name=tool_name,
-                operation="execute",
-                parameters=tool_input,
-            )
+            decision = await permission_engine.evaluate_tool_call(tool_name, tool_input)
 
-            if not has_permission and request:
-                from packages.agent.runtime_engine.permission import PermissionLevel
-
-                if request.permission_level == PermissionLevel.APPROVE_ONCE:
-                    # 需要审批
-                    pending_approvals.append({
-                        "tool": tool_name,
-                        "args": tool_input,
-                        "risk_level": request.risk_level,
-                        "request_id": request.id,
-                    })
-                elif request.permission_level == PermissionLevel.ASK_FIRST:
-                    # 首次询问，等待用户确认
-                    pending_approvals.append({
-                        "tool": tool_name,
-                        "args": tool_input,
-                        "risk_level": request.risk_level,
-                        "request_id": request.id,
-                    })
-                else:
-                    # 拒绝
-                    denied.append({
-                        "tool": tool_name,
-                        "reason": f"权限不足：{request.reason}",
-                    })
+            if decision["action"] == "approve":
+                pending_approvals.append(decision["pending"])
+            elif decision["action"] == "deny":
+                denied.append({
+                    "tool": tool_name,
+                    "reason": decision["reason"],
+                })
+            # action == "allow": 放行，交给 act 节点执行
 
         # 如果有需要审批的，触发中断
         if pending_approvals:
@@ -409,7 +394,7 @@ def _collect_todos(messages: list, state: dict) -> Dict[str, Any]:
     Runtime 职责：Agent 只负责"决定任务怎么拆"（在输出中表达），
     由 Runtime 解析并维护 State。
     """
-    from packages.agent.runtime.state import update_todos_from_message
+    from packages.agent.runtime_engine.state import update_todos_from_message
 
     todos = list(state.get("todos") or [])
     for msg in messages:
