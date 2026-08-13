@@ -28,12 +28,8 @@ from packages.rag.api.synonyms import router as synonyms_router
 from packages.rag.api.desensitization import router as desensitization_router
 from packages.model_gateway.api.model_gateway import router as model_gateway_router
 
-# Agent Runtime & Workspace (新增)
+# Agent Workspace (新增)
 from packages.agent.api.workspaces import router as workspaces_router
-from packages.agent.api.runtimes import router as runtimes_router
-from packages.agent.api.sessions import router as sessions_router
-from packages.agent.api.code_execution import router as code_execution_router
-from packages.agent.api.execution_traces import router as execution_traces_router
 from packages.agent.api.approvals import router as approvals_router
 
 # ============================================================
@@ -43,9 +39,6 @@ from packages.agent.api.approvals import router as approvals_router
 
 router = APIRouter()
 router.include_router(workspaces_router)
-router.include_router(runtimes_router)
-router.include_router(sessions_router)
-router.include_router(code_execution_router)
 router.include_router(approvals_router)
 router.include_router(dashboard_router)
 router.include_router(kb_router)
@@ -69,7 +62,6 @@ router.include_router(agent_runtime_router)
 router.include_router(conversations_router)
 router.include_router(feedback_router)
 router.include_router(tracing_router)
-router.include_router(execution_traces_router)
 router.include_router(evaluation_router)
 router.include_router(synonyms_router)
 router.include_router(desensitization_router)

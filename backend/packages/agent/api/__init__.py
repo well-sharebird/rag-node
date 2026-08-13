@@ -14,11 +14,7 @@ from packages.agent.api.skills import router as skills_router
 from packages.agent.api.feedback import router as feedback_router
 from packages.agent.api.tracing import router as tracing_router
 
-# 新增的 Runtime 和 Workspace API
 from packages.agent.api.workspaces import router as workspaces_router
-from packages.agent.api.runtimes import router as runtimes_router
-from packages.agent.api.sessions import router as sessions_router
-from packages.agent.api.code_execution import router as code_execution_router
 
 __all__ = [
     "agents_router",
@@ -30,7 +26,4 @@ __all__ = [
     "feedback_router",
     "tracing_router",
     "workspaces_router",
-    "runtimes_router",
-    "sessions_router",
-    "code_execution_router",
 ]
