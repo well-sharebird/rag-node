@@ -109,3 +109,101 @@ class TestListSubAgentsCatalog:
         assert "sys-file-1" in ids
         assert "own-1" in ids
         assert len(ids) == len(set(ids))  # 去重
+
+
+# ============================================================
+# #2 WRITE 沙箱化：写原语落沙箱 workdir + 受控提交工作区
+# ============================================================
+
+class _FakeAsyncDB:
+    """最小 AsyncSession mock：get 返用户、execute 无已存在文件、记录提交。"""
+    def __init__(self):
+        self.rollbacked = 0
+
+    async def get(self, model, pk):
+        from types import SimpleNamespace
+        return SimpleNamespace(id=1)
+
+    async def execute(self, *a, **k):
+        class _Result:
+            def scalar_one_or_none(self):
+                return None
+        return _Result()
+
+    async def rollback(self):
+        self.rollbacked += 1
+
+    async def commit(self):
+        pass
+
+
+class _FakeWorkspaceService:
+    """替换 WorkspaceService：get_or_create 返回临时工作区，登记/审计可断言。"""
+    def __init__(self, db, ws_root):
+        from types import SimpleNamespace
+        self.ws = SimpleNamespace(id="ws1", root_path=str(ws_root))
+        self.registered = None
+        self.logged = None
+
+    async def get_or_create_workspace(self, user):
+        return self.ws
+
+    async def register_file(self, workspace=None, **kw):
+        from types import SimpleNamespace
+        self.registered = dict(kw)
+        return SimpleNamespace(id="f1")
+
+    async def log_action(self, **kw):
+        self.logged = dict(kw)
+
+
+class TestSandboxSaveWorkspaceFile:
+
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        from packages.agent.core.harness.tools import ToolExecutionManager
+        ToolExecutionManager._sandbox_executors.clear()
+        yield
+        ToolExecutionManager._sandbox_executors.clear()
+
+    @pytest.mark.asyncio
+    async def test_write_lands_in_sandbox_then_workspace(self, tmp_path, monkeypatch):
+        import os
+        from types import SimpleNamespace
+
+        from packages.agent.core.harness.tools import ToolExecutionManager
+        from packages.agent.orchestrator.business_tools import ensure_business_tools
+
+        sandbox_dir = tmp_path / "sandbox"
+        ws_root = tmp_path / "ws"
+
+        fake_db = _FakeAsyncDB()
+        ws_svc = _FakeWorkspaceService(fake_db, ws_root)
+
+        monkeypatch.setattr(
+            "packages.agent.services.workspace_service.WorkspaceService",
+            lambda db: ws_svc,
+        )
+
+        # ensure_business_tools 注册沙箱执行器（save_workspace_file）
+        await ensure_business_tools(fake_db, user_id=1)
+
+        sandbox = SimpleNamespace(workdir=str(sandbox_dir), db=fake_db, user_id=1)
+        executor = ToolExecutionManager._sandbox_executors["save_workspace_file"]
+
+        res = await executor(
+            sandbox,
+            {"filename": "report.md", "content": "hello world", "folder": "docs",
+             "session_id": "s1"},
+        )
+
+        assert "文件已保存" in res
+        # 1) 写原语真落在沙箱隔离 workdir
+        sandbox_file = sandbox_dir / "generated" / "docs" / "report.md"
+        assert sandbox_file.read_text(encoding="utf-8") == "hello world"
+        # 2) 受控提交到用户工作区
+        ws_file = ws_root / "generated" / "docs" / "report.md"
+        assert ws_file.read_text(encoding="utf-8") == "hello world"
+        # 3) 登记 + 审计
+        assert ws_svc.registered["relative_path"].endswith("generated/docs/report.md")
+        assert ws_svc.logged["action"] == "generate_file"

@@ -99,3 +99,48 @@ class TestExecutionManagerRouting:
         assert run_tool_permission_check(
             "x", {}, {"allowed_tools": ["search"]}
         ) is not None
+
+
+class TestToolLevelGuardrailPolicy:
+    """#1：execute_tool 门内强制工具级白名单（纵深防御，非仅观测）。"""
+
+    @pytest.mark.asyncio
+    async def test_whitelist_blocks_out_of_whitelist_tool(self):
+        @tool
+        async def evil_tool(x: str = "") -> str:
+            """不该被允许执行"""
+            return "executed"
+
+        evil_tool.name = "evil_tool"
+        mgr = ToolExecutionManager(
+            security_policy={"allowed_tools": ["read_tool", "search"]},
+        )
+        res = await mgr.execute_tool(evil_tool, {"x": "hi"})
+        assert res.startswith("[工具被拦截]")
+        assert "不在授权白名单" in res
+
+    @pytest.mark.asyncio
+    async def test_blocked_tool_rejected_inside_gate(self):
+        @tool
+        async def a_tool(x: str = "") -> str:
+            """被阻断的工具"""
+            return "no"
+
+        a_tool.name = "a_tool"
+        mgr = ToolExecutionManager(security_policy={"blocked_tools": ["a_tool"]})
+        res = await mgr.execute_tool(a_tool, {"x": "hi"})
+        assert res.startswith("[工具被拦截]")
+        assert "阻断名单" in res
+
+    @pytest.mark.asyncio
+    async def test_no_policy_allows(self):
+        """无策略（None）时行为不变——放行而非误伤。"""
+        @tool
+        async def ok_tool(x: str = "") -> str:
+            """普通读取工具"""
+            return "ok"
+
+        ok_tool.name = "ok_tool"
+        mgr = ToolExecutionManager()  # 无 policy
+        res = await mgr.execute_tool(ok_tool, {"x": "hi"})
+        assert res == "ok"

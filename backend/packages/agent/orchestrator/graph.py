@@ -224,6 +224,75 @@ class OrchestratorRuntime:
         logger.info("中断请求 | thread=%s run=%s", thread_id, run_id)
         return True
 
+    async def resume_sub_agent(self, sub_agent_id: str, thread_id: str,
+                               main_prompt: Optional[str] = None) -> Dict[str, Any]:
+        """审批通过后从断点续跑子 Agent 图（完整 HITL 断点续跑，#3/#4）。
+
+        重载子 Agent 配置 → 同 policy/工具重建图（带 DB checkpointer）→
+        `graph.ainvoke(None, config)` 从 checkpointer 保存的中断点继续执行
+        （LangGraph 用 None 输入恢复；permission 层已短路放行已批工具）。
+        """
+        try:
+            cfg = await self.loader.load_sub_agent(sub_agent_id)
+        except Exception as e:
+            return {"success": False, "error": f"子Agent加载失败: {e}", "sub_agent_id": sub_agent_id}
+
+        sub_security = {}
+        if cfg.tools_whitelist:
+            sub_security["allowed_tools"] = cfg.tools_whitelist
+        if cfg.require_approval_tools:
+            sub_security["require_approval_tools"] = cfg.require_approval_tools
+
+        sub_llm = await self._create_llm()
+        tools = self._load_sub_tools(cfg.tools_whitelist)
+        if tools:
+            try:
+                sub_llm = sub_llm.bind_tools(tools)
+            except Exception as e:
+                logger.warning("[Orchestrator] 续跑子Agent=%s 工具绑定失败: %s", cfg.name, e)
+
+        graph = self._build_agent_graph(
+            llm=sub_llm, tools=tools,
+            system_prompt=cfg.system_prompt or "你是专业子 Agent。",
+            max_iterations=max(1, cfg.max_step),
+            security_policy=sub_security or None,
+            use_checkpointer=bool(sub_security),
+            checkpointer=self._get_checkpointer() if sub_security else None,
+        )
+        config = {
+            "configurable": {"thread_id": thread_id},
+            "recursion_limit": getattr(self.config, "recursion_limit", None) or 25,
+        }
+        start = datetime.utcnow()
+        try:
+            result = await asyncio.wait_for(
+                graph.ainvoke(None, config=config), timeout=self.config.timeout_seconds,
+            )
+            content = self._extract_final_content(result.get("messages", []))
+            if not content:
+                for m in result.get("messages", []):
+                    if getattr(m, "type", "") in ("ai", "assistant") and getattr(m, "reasoning", None):
+                        content = str(m.reasoning)
+                        break
+            return {
+                "success": True, "content": content,
+                "sub_agent_id": sub_agent_id, "thread_id": thread_id,
+                "duration_ms": int((datetime.utcnow() - start).total_seconds() * 1000),
+            }
+        except asyncio.TimeoutError:
+            return {"success": False, "sub_agent_id": sub_agent_id,
+                    "error": f"续跑超时（>{self.config.timeout_seconds}s）"}
+        except Exception as e:
+            from langgraph.errors import GraphInterrupt
+            if isinstance(e, GraphInterrupt):
+                approvals = self._extract_approvals(e)
+                for a in approvals:
+                    a["thread_id"] = thread_id
+                return {"success": True, "sub_agent_id": sub_agent_id,
+                        "content": "[需要审批] 仍有敏感工具待批准。", "approvals": approvals}
+            logger.exception("[Orchestrator] 子 Agent 续跑失败 | thread=%s", thread_id)
+            return {"success": False, "sub_agent_id": sub_agent_id, "error": str(e)}
+
     async def _create_llm(self):
         from packages.agent.schemas.chat import ModelConfig
         from packages.agent.services.agent_runtime_service import create_langchain_llm
@@ -375,10 +444,11 @@ class OrchestratorRuntime:
         checkpointer = checkpointer if use_checkpointer else None
 
         # Harness 工具治理门面（设计文档 2.2）：Phase 0 透传不接管，Phase 1 路由工具执行
+        # security_policy 注入门面，使工具级护栏强制白名单（纵深防御，与 permission_check 节点双层）。
         from packages.agent.core.harness.tools import ToolExecutionManager
         execution_manager = ToolExecutionManager(
             db=self.db, user_id=self.user_id, session_id=getattr(self, "session_id", None),
-            sandbox_workdir=sandbox_workdir,
+            sandbox_workdir=sandbox_workdir, security_policy=security_policy,
         )
 
         return build_tao_graph(
@@ -527,10 +597,26 @@ class OrchestratorRuntime:
 
     # ---------------- 执行追踪 ----------------
     async def _save_execution_trace(self, run_id: str, query: str, intent: str,
-                                    final_output: str, sub_agents: List[str], user_id: int) -> None:
-        """记录一次执行追踪（Harness 可观测性）。"""
+                                    final_output: str, sub_agents: List[str], user_id: int,
+                                    sub_results: Optional[List[Dict]] = None) -> None:
+        """记录一次执行追踪（Harness 可观测性）。
+
+        sub_results（#8）：每条子 Agent 独立审计条目（id/success/content 摘要/
+        error/approvals 数/thread_id），而非只记 id 列表。
+        """
         try:
             from packages.agent.models.execution_trace import ExecutionTrace
+            sub_entries = []
+            for r in (sub_results or []):
+                sub_entries.append({
+                    "sub_agent_id": r.get("sub_agent_id"),
+                    "success": bool(r.get("success")),
+                    "content_summary": str(r.get("content") or "")[:300],
+                    "error": r.get("error"),
+                    "approval_count": len(r.get("approvals") or []),
+                    "thread_id": (r.get("approvals") or [{}])[0].get("thread_id")
+                    if r.get("approvals") else None,
+                })
             trace = ExecutionTrace(
                 run_id=run_id,
                 thread_id=run_id,
@@ -542,7 +628,11 @@ class OrchestratorRuntime:
                 intent_type=intent,
                 status="success" if final_output else "failed",
                 latency_ms=0,
-                steps=[{"intent": intent, "sub_agents": sub_agents}],
+                steps=[{
+                    "intent": intent,
+                    "sub_agents": sub_agents,
+                    "sub_agent_results": sub_entries,
+                }],
                 input_summary=query[:500] if query else None,
                 output_summary=str(final_output)[:500] if final_output else None,
             )
@@ -554,11 +644,13 @@ class OrchestratorRuntime:
 
     # ---------------- 子 Agent 执行（ReAct 循环）---------------
     async def _exec_sub_task(self, llm: Any, sub_task: SubTask, main_prompt: str,
-                             state: Optional[Dict[str, Any]] = None) -> SubAgentResult:
+                             state: Optional[Dict[str, Any]] = None,
+                             history: Optional[List[Any]] = None) -> SubAgentResult:
         """执行单个子 Agent 任务。
 
         state（OrchestratorState）可选传入：进入时写入 temp_sub_config、退出时清空，
         让统一 State 真正承载"子临时配置"生命周期（Phase 4 #1）。不传则保持函数式局部（兼容旧调用）。
+        history（记忆回灌，#5）：inherit_main_context=True 时把会话历史并入子任务提示。
         """
         # 子 Agent 统一走 build_tao_graph（自带 middleware + 权限 + 工具循环 + 输出治理）
         try:
@@ -585,10 +677,18 @@ class OrchestratorRuntime:
                 except Exception as e:
                     logger.warning("[Orchestrator] 子Agent=%s 工具绑定失败，走纯 LLM: %s", cfg.name, e)
 
-            # 主上下文继承（Phase 3）：inherit_main_context=true 时注入主上下文到子任务提示
+            # 主上下文继承（Phase 3）+ 记忆回灌（#5）：inherit_main_context=true 时
+            # 注入主上下文与会话历史到子任务提示
             task_prompt = sub_task.task_prompt
             if cfg.inherit_main_context and main_prompt:
-                task_prompt = f"{main_prompt}\n\n[子任务]\n{task_prompt}"
+                hist_text = ""
+                if history:
+                    hist_text = "\n".join(
+                        f"{getattr(m, 'type', 'message')}: {getattr(m, 'content', '')}"
+                        for m in history
+                    )
+                    hist_text = f"\n[会话历史]\n{hist_text}\n"
+                task_prompt = f"{main_prompt}{hist_text}\n\n[子任务]\n{task_prompt}"
 
             sub_system = cfg.system_prompt or "你是专业子 Agent，请用工具（如需要）完成任务。"
             # 统一经 _build_agent_graph（middleware + 输出治理 + 权限全装配）
@@ -633,9 +733,13 @@ class OrchestratorRuntime:
             max_iterations=max(1, cfg.max_step),
             security_policy=sub_security or None,
             sandbox_workdir=sandbox_workdir,
+            # HITL 断点续跑（#4）：带审批策略时启用 DB checkpointer，中断点在
+            # 权限检查前保存断点；审批通过后按 thread_id 从断点续跑。
+            use_checkpointer=bool(sub_security),
+            checkpointer=self._get_checkpointer() if sub_security else None,
         )
 
-        thread_id = f"{self.user_id}:main:{int(__import__('time').time() * 1000)}"
+        thread_id = f"{self.user_id}:sub:{cfg.agent_id}:{int(__import__('time').time() * 1000)}"
         # 统一经运行时 execute（上下文压缩 + 重试 + 硬超时）
         res = await self.execute(
             graph, {"messages": [HumanMessage(content=task_prompt)]}, thread_id,
@@ -644,6 +748,8 @@ class OrchestratorRuntime:
             # 审批异常（GraphInterrupt）保留并提取；超时按 run_id 归因
             approvals = self._extract_approvals(res.error)
             if approvals:
+                for a in approvals:
+                    a["thread_id"] = thread_id
                 return SubAgentResult(
                     sub_agent_id=cfg.agent_id, success=True,
                     content="[需要审批] 敏感工具调用已发起审批请求，等待批准后可重试。",
@@ -662,6 +768,8 @@ class OrchestratorRuntime:
         state = res.result
         approvals = self._extract_approvals(state)
         if approvals:
+            for a in approvals:
+                a["thread_id"] = thread_id
             return SubAgentResult(
                 sub_agent_id=cfg.agent_id, success=True,
                 content="[需要审批] 敏感工具调用已发起审批请求，等待批准后可重试。",
@@ -853,6 +961,8 @@ class OrchestratorRuntime:
         except Exception as e:
             logger.warning("[Orchestrator] 业务工具注册失败，继续: %s", e)
         catalog = await self.loader.list_sub_agents(user_id)
+        # 记忆回灌（#5）：run 亦读历史供编排决策（quick 直答分支直接返回，不受影响）
+        history = await self._load_conversation_history(self.user_id, None)
 
         state: OrchestratorState = {
             "messages": [{"role": "user", "content": query}],
@@ -870,6 +980,7 @@ class OrchestratorRuntime:
             self, sink=NoopSink(), query=query, main_prompt=main_prompt, main_agent_cfg=main_agent_cfg,
             catalog=catalog, run_mode=run_mode, allow_sub_agents=True,
             session_id=None, redactor=None, direct_strategy="quick",
+            history=history,
         )
         thread_id = f"{self.user_id}:main:{int(__import__('time').time() * 1000)}"
         cfg = {"configurable": {"thread_id": thread_id},
@@ -962,6 +1073,8 @@ class OrchestratorRuntime:
         except Exception as e:
             logger.warning("[Orchestrator] 业务工具注册失败，继续: %s", e)
         catalog = await self.loader.list_sub_agents(user_id)
+        # 记忆回灌（#5）：多 Agent 编排也读历史（plan/dispatch/aggregate）
+        history = await self._load_conversation_history(self.user_id, session_id)
 
         # Supervisor 编排图（LangGraph 状态机）：plan →(按 State)→ direct/dispatch → aggregate
         # 共享 sink 队列承载流式事件；本门面后台跑图、drain 队列产出 SSE 事件（沿用直答流式模式）。
@@ -981,6 +1094,7 @@ class OrchestratorRuntime:
             self, sink=sink, query=query, main_prompt=main_prompt, main_agent_cfg=main_agent_cfg,
             catalog=catalog, run_mode=run_mode, allow_sub_agents=allow_sub_agents,
             session_id=session_id, redactor=redactor, direct_strategy="graph",
+            history=history,
         )
         thread_id = f"{self.user_id}:main:{int(__import__('time').time() * 1000)}"
         # supervisor 图手动构造 config（禁用 checkpointer/interrupt，避免 GraphInterrupt 冒泡挂死）
@@ -1027,6 +1141,7 @@ class OrchestratorRuntime:
             await self._save_execution_trace(
                 run_id=run_id, query=query, intent=intent,
                 final_output=final_answer, sub_agents=sub_ids, user_id=self.user_id,
+                sub_results=final_state.get("sub_agent_results") or [],
             )
         except Exception as e:
             logger.warning("[Orchestrator] 追踪保存异常: %s", e)

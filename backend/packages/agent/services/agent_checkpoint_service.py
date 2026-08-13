@@ -118,9 +118,11 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
         if not memory:
             return None
 
-        checkpoint_data = memory.content.get("checkpoint", {})
-        metadata = memory.content.get("metadata", {})
-        pending_writes = memory.content.get("pending_writes", [])
+        checkpoint_data = _deser_bytes(memory.content.get("checkpoint", {}))
+        metadata = _deser_bytes(memory.content.get("metadata", {}))
+        pending_writes = [
+            _deser_bytes(w) for w in (memory.content.get("pending_writes") or [])
+        ]
 
         return CheckpointTuple(
             checkpoint=checkpoint_data,
@@ -157,8 +159,8 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
         if memory:
             # 更新现有的 checkpoint
             memory.content = {
-                "checkpoint": checkpoint,
-                "metadata": metadata,
+                "checkpoint": _ser_bytes(checkpoint),
+                "metadata": _ser_bytes(metadata),
                 "pending_writes": [],
             }
             memory.updated_at = datetime.utcnow()
@@ -171,8 +173,8 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
                 thread_id=key,
                 memory_type="checkpoint",
                 content={
-                    "checkpoint": checkpoint,
-                    "metadata": metadata,
+                    "checkpoint": _ser_bytes(checkpoint),
+                    "metadata": _ser_bytes(metadata),
                     "pending_writes": [],
                 },
             )
@@ -203,9 +205,9 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
         ).scalar_one_or_none()
 
         if memory:
-            # 将 writes 合并到现有内容中
-            existing_writes = memory.content.get("pending_writes", [])
-            existing_writes.extend(writes)
+            # 将 writes 合并到现有内容中（writes 可能含 BaseMessage，需序列化）
+            existing_writes = memory.content.get("pending_writes", []) or []
+            existing_writes.append(_ser_bytes(writes))
             memory.content["pending_writes"] = existing_writes
             self.db.commit()
 
@@ -242,9 +244,11 @@ class DatabaseCheckpointSaver(BaseCheckpointSaver):
 
         for memory in results:
             yield CheckpointTuple(
-                checkpoint=memory.content.get("checkpoint", {}),
-                metadata=memory.content.get("metadata", {}),
-                pending_writes=memory.content.get("pending_writes", []),
+                checkpoint=_deser_bytes(memory.content.get("checkpoint", {})),
+                metadata=_deser_bytes(memory.content.get("metadata", {})),
+                pending_writes=[
+                    _deser_bytes(w) for w in (memory.content.get("pending_writes") or [])
+                ],
                 config=config,
             )
 

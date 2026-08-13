@@ -40,11 +40,14 @@ class FakeRuntime:
         self.direct_tokens = list(direct_tokens)
         self.aggregate_tokens = list(aggregate_tokens)
         self.dispatch_state_seen = None
+        self.dispatch_history_seen = None
+        self.orchestration_msgs = None
 
     async def _create_llm(self):
         return "llm"
 
     async def _orchestrate(self, llm, messages, main_prompt, catalog):
+        self.orchestration_msgs = messages
         return self.plan
 
     class _Loader:
@@ -56,8 +59,9 @@ class FakeRuntime:
         for tok in self.direct_tokens:
             yield tok
 
-    async def _exec_sub_task(self, llm, sub_task, main_prompt, state=None):
+    async def _exec_sub_task(self, llm, sub_task, main_prompt, state=None, history=None):
         self.dispatch_state_seen = state
+        self.dispatch_history_seen = history
         return self.sub_result
 
     async def _aggregate_stream(self, llm, results, main_prompt, redactor=None):
@@ -69,12 +73,12 @@ class FakeRuntime:
         return text if text is not None else ""
 
 
-async def _run(runtime, *, strategy="graph", allow_sub_agents=True):
+async def _run(runtime, *, strategy="graph", allow_sub_agents=True, history=None):
     sink = asyncio.Queue()
     g = build_supervisor_graph(
         runtime, sink=sink, query="hi", main_prompt="你是主", main_agent_cfg=object(),
         catalog=[], run_mode="serial", allow_sub_agents=allow_sub_agents,
-        session_id="s1", redactor=None, direct_strategy=strategy,
+        session_id="s1", redactor=None, direct_strategy=strategy, history=history,
     )
     final = await g.ainvoke(_initial_state(), config=None)
     events = []
@@ -122,9 +126,11 @@ async def test_route_dispatch_aggregate():
     assert final["sub_tasks"] == [{"sub_agent_id": "sub-a", "task_prompt": "do it"}]
     assert final["sub_agent_results"][0]["content"] == "ok"
     assert final["final_answer"] == "聚合"
-    # dispatch 用 per-task 私有 dict，图上 temp_sub_config 终态清空
+    # #7：dispatch 接真实 OrchestratorState（非一次性哑元），temp_sub_config 终态仍清空
     assert final["temp_sub_config"] is None
-    assert rt.dispatch_state_seen == {"temp_sub_config": None}
+    assert rt.dispatch_state_seen.get("session_id") == "s1"
+    assert rt.dispatch_state_seen.get("messages") == [{"role": "user", "content": "hi"}]
+    assert "temp_sub_config" in rt.dispatch_state_seen
 
 
 @pytest.mark.asyncio
@@ -161,3 +167,24 @@ async def test_noop_sink_discards_and_parallel_mode():
     final = await g.ainvoke(_initial_state(), config=None)
     assert final["final_answer"] == "聚合"
     assert len(final["sub_agent_results"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_memory_reinjected_to_plan_and_dispatch():
+    """#5：会话历史回灌到编排——plan_node 看到 history+query，dispatch 透传 history。"""
+    from types import SimpleNamespace
+
+    hist = [SimpleNamespace(type="user", content="之前的对话"),
+            SimpleNamespace(type="assistant", content="之前的回答")]
+    plan = OrchestrationPlan(
+        need_sub_agents=True, run_mode="serial",
+        plan=[SubTask(sub_agent_id="sub-a", task_prompt="do it")])
+    rt = FakeRuntime(plan, aggregate_tokens=["聚合"])
+    await _run(rt, history=hist)
+
+    assert rt.orchestration_msgs == [
+        {"role": "user", "content": "之前的对话"},
+        {"role": "assistant", "content": "之前的回答"},
+        {"role": "user", "content": "hi"},
+    ]
+    assert rt.dispatch_history_seen is hist

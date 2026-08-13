@@ -45,6 +45,7 @@ def build_supervisor_graph(
     session_id: Optional[str] = None,
     redactor: Optional[Any] = None,
     direct_strategy: str = "graph",
+    history: Optional[List[Any]] = None,
 ) -> Any:
     """构建 supervisor 编排图。
 
@@ -76,8 +77,14 @@ def build_supervisor_graph(
 
     async def plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
         llm = await runtime._create_llm()
+        # 记忆回灌（#5）：编排决策也看到会话历史（当前查询置于末尾）
+        orchestration_msgs = [
+            *([{"role": getattr(m, "type", "user"), "content": getattr(m, "content", "")}
+               for m in (history or [])]),
+            {"role": "user", "content": query},
+        ]
         plan: OrchestrationPlan = await runtime._orchestrate(
-            llm, [{"role": "user", "content": query}], main_prompt, catalog)
+            llm, orchestration_msgs, main_prompt, catalog)
         ctx["plan"] = plan
         if not allow_sub_agents:
             plan.need_sub_agents = False
@@ -124,10 +131,12 @@ def build_supervisor_graph(
         mode = ctx.get("run_mode") or run_mode
         results: List[SubAgentResult] = []
 
+        # #7：temp_sub_config 生命周期接到真实 OrchestratorState（而非一次性哑元）。
+        # _exec_sub_task 进入填 temp_sub_config、退出(finally)清空，终态仍为 None，隔离保持。
         if mode == "parallel":
             gathered = await asyncio.gather(
                 *[runtime._exec_sub_task(None, t, main_prompt,
-                                         state={"temp_sub_config": None})
+                                         state=state, history=history)
                   for t in sub_tasks]
             )
             for t, r in zip(sub_tasks, gathered):
@@ -139,7 +148,7 @@ def build_supervisor_graph(
                 sink.put_nowait({"type": "sub_agent", "data": {
                     "sub_agent_id": t.sub_agent_id, "status": "running"}})
                 r = await runtime._exec_sub_task(None, t, main_prompt,
-                                                 state={"temp_sub_config": None})
+                                                 state=state, history=history)
                 results.append(r)
                 for ev in _emit_events(t, r):
                     sink.put_nowait(ev)

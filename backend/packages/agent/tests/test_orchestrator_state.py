@@ -96,6 +96,10 @@ class TestRunStreamUnifiedState:
         rt._create_llm = AsyncMock(return_value="llm")
         rt._make_pii_redactor = lambda: None
 
+        async def no_history(*a, **k):
+            return []
+        rt._load_conversation_history = no_history
+
         async def fake_orchestrate(llm, messages, main_prompt, catalog):
             return OrchestrationPlan(
                 need_sub_agents=True, run_mode="serial",
@@ -103,7 +107,7 @@ class TestRunStreamUnifiedState:
             )
         rt._orchestrate = fake_orchestrate
 
-        async def fake_exec_sub_task(llm, sub_task, main_prompt, state=None):
+        async def fake_exec_sub_task(llm, sub_task, main_prompt, state=None, history=None):
             if state is not None:
                 state["temp_sub_config"] = {"agent_id": sub_task.sub_agent_id}
             return SubAgentResult(sub_agent_id=sub_task.sub_agent_id, success=True, content="ok")

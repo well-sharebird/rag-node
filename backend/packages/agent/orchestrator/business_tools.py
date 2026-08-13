@@ -246,6 +246,100 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
         if reg.get("save_workspace_file"):
             reg.unregister("save_workspace_file")
         reg.register(save_workspace_file, category="business")
+
+        # WRITE 沙箱化（设计文档 3.1）：写原语先落 SandboxScope 隔离 workdir（真沙箱），
+        # 再受控提交到用户持久工作区（可查看/下载）。工具本体保留为非沙箱降级路径。
+        from packages.agent.core.harness.tools import ToolExecutionManager
+
+        async def _sandbox_save_workspace_file(sandbox, tool_input: dict) -> str:
+            d = dict(tool_input or {})
+            filename = str(d.get("filename", "")).strip()
+            content = d.get("content", "") or ""
+            folder = str(d.get("folder", "") or "").strip().strip("/")
+            session_id = str(d.get("session_id", "") or "")
+
+            reason = _validate_workspace_target(filename, folder)
+            if reason:
+                return f"[参数错误] {reason}"
+            if len(content) > MAX_GENERATED_FILE_SIZE:
+                return f"[参数错误] 内容超过大小上限（{MAX_GENERATED_FILE_SIZE // 1024}KB）"
+
+            # 1. 写原语沙箱化：先落隔离 workdir（随会话销毁，防逃逸/残留）
+            if getattr(sandbox, "workdir", None):
+                try:
+                    sandbox_dir = os.path.join(sandbox.workdir, "generated", folder)
+                    os.makedirs(sandbox_dir, exist_ok=True)
+                    with open(os.path.join(sandbox_dir, filename), "w", encoding="utf-8") as f:
+                        f.write(content)
+                except Exception as e:
+                    logger.warning("[FileGenTool] 沙箱暂存失败: %s", e)
+
+            # 2. 受控提交：落用户工作区 + 登记 + 审计
+            db_ = getattr(sandbox, "db", None)
+            user_id_ = getattr(sandbox, "user_id", None) or current_user_id
+            from packages.core.system.models.user import User
+            from packages.agent.services.workspace_service import WorkspaceService
+
+            try:
+                user = await db_.get(User, user_id_)
+                if user is None:
+                    return "[错误] 用户不存在"
+                ws_svc = WorkspaceService(db_)
+                ws = await ws_svc.get_or_create_workspace(user)
+            except Exception as e:
+                return f"[错误] 工作区获取失败: {e}"
+
+            rel_dir = os.path.join("generated", folder) if folder else "generated"
+            abs_dir = os.path.join(ws.root_path, rel_dir)
+            try:
+                os.makedirs(abs_dir, exist_ok=True)
+                with open(os.path.join(abs_dir, filename), "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception as e:
+                return f"[错误] 文件写入失败: {e}"
+
+            rel_path = os.path.join(rel_dir, filename)
+            mime, _ = mimetypes.guess_type(filename)
+            size = len(content.encode("utf-8"))
+            try:
+                from sqlalchemy import select
+                from packages.agent.models.workspace import WorkspaceFile
+
+                existing = (
+                    await db_.execute(
+                        select(WorkspaceFile).where(
+                            WorkspaceFile.workspace_id == ws.id,
+                            WorkspaceFile.relative_path == rel_path,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if existing:
+                    existing.file_size = size
+                    existing.mime_type = mime
+                    existing.session_id = session_id or None
+                    file_id = str(existing.id)
+                else:
+                    wf = await ws_svc.register_file(
+                        workspace=ws, filename=filename, relative_path=rel_path,
+                        file_size=size, mime_type=mime,
+                        source_type="generated", session_id=session_id or None,
+                    )
+                    file_id = str(getattr(wf, "id", ""))
+                await ws_svc.log_action(
+                    workspace=ws, action="generate_file", file_path=rel_path,
+                    user_id=user_id_, session_id=session_id or None,
+                    file_size=size, success=True,
+                )
+            except Exception as e:
+                try:
+                    await db_.rollback()
+                except Exception:
+                    pass
+                return f"文件已写入磁盘，但登记失败：{e}（相对路径 {rel_path}）"
+
+            return f"文件已保存：{rel_path}（file_id={file_id}），可在工作空间查看/下载。"
+
+        ToolExecutionManager.register_sandbox_executor("save_workspace_file", _sandbox_save_workspace_file)
         logger.info("[BusinessTools] 注册文件生成工具 save_workspace_file (user=%s)", current_user_id)
         return save_workspace_file
 

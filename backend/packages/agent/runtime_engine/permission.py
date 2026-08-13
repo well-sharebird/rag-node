@@ -182,6 +182,13 @@ class PermissionEngine:
                 logger.debug(f"Permission DB-approved: {tool_name}")
                 return True, None
 
+        # HITL 续跑短路（#4）：中断重入时，同一工具+参数指纹 且 仍在有效期 的
+        # 已批准请求 → 放行（批准后从断点续跑即跳过已批工具）。APPROVE_ONCE 同样适用。
+        if permission_level in (PermissionLevel.ASK_FIRST, PermissionLevel.APPROVE_ONCE):
+            if await self._has_approved_match(tool_name, parameters):
+                logger.debug(f"Permission approved-match: {tool_name}")
+                return True, None
+
         # 4. Approve-once 级别每次都创建新请求
         # 5. Ask-first 级别如果没有缓存也创建请求
         request = await self._create_permission_request(
@@ -429,6 +436,52 @@ class PermissionEngine:
         except Exception as e:
             logger.warning(f"has_approval 查询失败: {e}")
             return False
+
+    async def _has_approved_match(
+        self,
+        tool_name: str,
+        parameters: Optional[Dict[str, Any]],
+    ) -> bool:
+        """续跑短路：最近一条该工具的已批准请求，参数指纹相同且在有效期内 → 放行。
+
+        用于 HITL 断点续跑——审批通过后重入 permission_check 时跳过已批工具，
+        避免同参数操作再次发起审批（对 APPROVE_ONCE 也生效）。
+        """
+        from sqlalchemy import select
+        from packages.agent.models.permission import PermissionRequest as DBT
+
+        try:
+            r = await self.db.execute(
+                select(DBT).where(
+                    DBT.requester_id == self.user_id,
+                    DBT.tool_name == tool_name,
+                    DBT.status == PermissionStatus.APPROVED.value,
+                ).order_by(DBT.approved_at.desc()).limit(1)
+            )
+            row = r.scalar_one_or_none()
+            if row is None:
+                return False
+            if row.expires_at and row.expires_at < datetime.utcnow():
+                return False
+            return (row.parameters or {}) == (parameters or {})
+        except Exception as e:
+            logger.warning(f"approved-match 查询失败: {e}")
+            return False
+
+    async def is_approved(self, request_id: str) -> bool:
+        """查询单个审批请求是否已批准（供 HITL 续跑前校验）。"""
+        import uuid as _uuid
+        from packages.agent.models.permission import PermissionRequest as DBT
+
+        try:
+            r = await self.db.get(DBT, _uuid.UUID(request_id))
+        except Exception:
+            return False
+        if not r:
+            return False
+        if r.expires_at and r.expires_at < datetime.utcnow():
+            return False
+        return r.status == PermissionStatus.APPROVED.value
 
     def clear_expired_cache(self) -> int:
         """清理过期的权限缓存"""

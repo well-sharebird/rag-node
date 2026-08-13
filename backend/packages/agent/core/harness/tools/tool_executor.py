@@ -47,11 +47,14 @@ class ToolExecutionManager:
     _sandbox_executors: Dict[str, Callable] = {}
 
     def __init__(self, db=None, user_id=None, session_id=None, tool_registry=None,
-                 sandbox_workdir: Optional[str] = None):
+                 sandbox_workdir: Optional[str] = None, security_policy: Optional[dict] = None):
         self.db = db
         self.user_id = user_id
         self.session_id = session_id
         self.sandbox_workdir = sandbox_workdir  # 任务级沙箱工作目录（SandboxScope 提供）
+        # 安全策略（blocked_tools/allowed_tools，与 AgentConfig.security_policy 对齐）：
+        # 工具级护栏（纵深防御）——即使 LLM 尝试白名单外工具，也在此门强制拒绝。
+        self._policy = security_policy or {}
         if tool_registry is None:
             from packages.agent.tools.registry import get_tool_registry
             tool_registry = get_tool_registry()
@@ -83,7 +86,7 @@ class ToolExecutionManager:
             clean_tool_params,
             run_tool_permission_check,
         )
-        denied = run_tool_permission_check(tool_name, tool_params)
+        denied = run_tool_permission_check(tool_name, tool_params, self._policy)
         if denied:
             return denied
         return None
