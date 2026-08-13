@@ -90,9 +90,8 @@ class OrchestratorRuntime:
         }
         if run_id:
             config["configurable"]["run_id"] = run_id
-        checkpointer = self._get_checkpointer()
-        if checkpointer and self.config.checkpointer != "none":
-            config["configurable"]["checkpoint_saver"] = checkpointer
+        # 注：checkpoint_saver 仅在编译期绑定（_build_agent_graph(use_checkpointer=True)），
+        # config 塞 configurable.checkpoint_saver 在现代 LangGraph 中无效，故不再注入。
         if self.config.interrupt_before:
             config["interrupt_before"] = self.config.interrupt_before
         if self.config.interrupt_after:
@@ -405,9 +404,11 @@ class OrchestratorRuntime:
         - PromptAssembler：SOUL/CLAUDE 分层提示词组装
         - TokenBudgetManager：Token 预算控制
 
-        主/子 Agent 执行默认不启用 checkpointer（即时任务；
-        DatabaseCheckpointSaver 尚未实现 LangChain 消息的特殊序列化，工具调用会产生
-        含 HumanMessage 的复杂状态而触发 JSONB 序列化错误）。断点持久化待其序列化修复后恢复。
+        主/子 Agent 执行默认不启用 checkpointer（即时任务状态无需持久化）；
+        需 HITL 断点续跑时（`resume_sub_agent`/`_run_sub_agent_graph` 携带
+        require_approval 工具的子图）才以 `use_checkpointer=True` 绑定
+        DatabaseCheckpointSaver（经 JsonPlusSerializer 序列化 LangChain 消息，见
+        test_checkpointer_serde.py）。
         """
         from packages.agent.output.governance import OutputGovernanceNode
         from packages.agent.runtime_engine.permission import PermissionEngine

@@ -129,6 +129,8 @@ export function QAChatView() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  // 记录当前流式 assistant 消息 id，供审批后从断点续跑回写终答
+  const assistantMsgIdRef = useRef<string | null>(null);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -291,6 +293,7 @@ export function QAChatView() {
 
     // Create assistant message placeholder
     const assistantMsgId = `msg_${Date.now()}`;
+    assistantMsgIdRef.current = assistantMsgId;
     const assistantMsg: ChatMessage = {
       role: 'assistant',
       content: '',
@@ -394,9 +397,15 @@ export function QAChatView() {
                 setOrchestratorStatus(`智能体「${parsed.agent_name}」为您服务`);
                 continue;
               }
-              // 人工审批需求（HITL）→ 弹窗
+              // 人工审批需求（HITL）→ 弹窗。pending 项补上 sub_agent_id/thread_id 定位信息，
+              // 用于批准后调 /approvals/{id}/resume 从断点续跑。
               if (parsed.type === 'approval_required' && parsed.data?.pending) {
-                setApprovalPending(parsed.data.pending);
+                const subAgentId = parsed.data?.sub_agent_id;
+                const next = (parsed.data.pending as any[]).map((p: any) => ({
+                  ...p,
+                  sub_agent_id: p?.sub_agent_id || subAgentId,
+                }));
+                setApprovalPending(next);
                 setShowApprovalModal(true);
                 continue;
               }
@@ -625,25 +634,70 @@ export function QAChatView() {
     }
   };
 
-  // 人工审批：批准/拒绝
-  const submitApproval = async (requestId: string, action: 'approve' | 'reject') => {
+  // 人工审批：批准/拒绝。pending 项 key 为后端下发的 request_id（非 id）。
+  // 全部批准后从断点续跑（POST /approvals/{id}/resume），把终答写回流式 assistant 消息。
+  const handleApproval = async (action: 'approve' | 'reject') => {
     setApproving(true);
     try {
-      const res = await fetch(getApiUrl(`/api/v1/approvals/${requestId}/${action}`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data?.detail || `审批失败`);
+      // 1) 逐个提交审批（approve/reject）
+      for (const p of approvalPending) {
+        const rid = (p as any)?.request_id;
+        if (!rid) continue;
+        const res = await fetch(getApiUrl(`/api/v1/approvals/${rid}/${action}`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          toast.error(data?.detail || `${action === 'approve' ? '批准' : '拒绝'}失败`);
+        }
+      }
+
+      if (action === 'reject') {
+        toast.success('已拒绝');
+        setApprovalPending([]);
+        setShowApprovalModal(false);
         return;
       }
-      toast.success(action === 'approve' ? '已批准，可重新提问' : '已拒绝');
-      setApprovalPending(prev => prev.filter(p => (p as any)?.id !== requestId));
-      if (approvalPending.length <= 1) setShowApprovalModal(false);
+
+      // 2) 批准后断点续跑：取同一 thread 的定位信息调 /resume，拿真实终答
+      const first = approvalPending[0] as any;
+      toast.success('已批准，正在从断点续跑…');
+      if (first?.request_id && first?.thread_id && first?.sub_agent_id) {
+        const res = await fetch(getApiUrl(`/api/v1/approvals/${first.request_id}/resume`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            sub_agent_id: first.sub_agent_id,
+            thread_id: first.thread_id,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data?.content) {
+          const targetId = assistantMsgIdRef.current;
+          setMessages(prev => prev.map(msg =>
+            msg.messageId === targetId
+              ? { ...msg, content: data.content, isStreaming: false }
+              : msg
+          ));
+          setLoading(false);
+        } else {
+          toast.warning(data?.detail || data?.error || '续跑未返回内容，请重新提问');
+          setLoading(false);
+        }
+      } else {
+        toast.warning('缺少续跑定位信息（thread_id/sub_agent_id），请重新提问');
+        setLoading(false);
+      }
+
+      setApprovalPending([]);
+      setShowApprovalModal(false);
     } catch (e: any) {
       toast.error(`审批失败：${e?.message || ''}`);
     } finally {
@@ -1097,13 +1151,13 @@ export function QAChatView() {
         footer={
           <div className="flex gap-2 justify-end">
             <button
-              onClick={() => approvalPending.forEach(p => submitApproval(p?.id, 'reject'))}
+              onClick={() => handleApproval('reject')}
               disabled={approving}
               className="px-3 py-1.5 rounded-lg text-xs border hover:bg-gray-50"
               style={{ borderColor: '#e2e1dd' }}
             >拒绝</button>
             <button
-              onClick={() => approvalPending.forEach(p => submitApproval(p?.id, 'approve'))}
+              onClick={() => handleApproval('approve')}
               disabled={approving}
               className="px-3 py-1.5 rounded-lg text-xs text-white"
               style={{ background: '#534ab7' }}
