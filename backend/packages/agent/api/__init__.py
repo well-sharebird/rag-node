@@ -5,7 +5,6 @@ Agent API 模块
 """
 
 from packages.agent.api.agents import router as agents_router
-from packages.agent.api.agent_runtime import router as agent_runtime_router
 # chat.py 已废弃，不再导入
 # from packages.agent.api.chat import router as chat_router
 from packages.agent.api.conversations import router as conversations_router
@@ -18,7 +17,6 @@ from packages.agent.api.workspaces import router as workspaces_router
 
 __all__ = [
     "agents_router",
-    "agent_runtime_router",
     # "chat_router",  # 已废弃
     "conversations_router",
     "conversation_history_router",
