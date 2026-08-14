@@ -10,7 +10,6 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,8 +20,7 @@ from packages.agent.orchestrator.state import (
     SubAgentResult,
     SubTask,
 )
-from packages.agent.core.harness.config import RuntimeConfig
-from packages.agent.runtime_engine.state import ExecutionResult
+from packages.agent.core.harness.config import DEFAULT_USER_ID, RuntimeConfig
 from packages.agent.orchestrator.text_utils import (
     extract_final_content,
     make_pii_redactor,
@@ -33,6 +31,7 @@ from packages.agent.orchestrator.repositories import (
     ExecutionTraceRepository,
 )
 from packages.agent.orchestrator.graph_builder import AgentGraphBuilder
+from packages.agent.orchestrator.graph_runtime import GraphRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -66,176 +65,21 @@ AGGREGATE_PROMPT = """你根据以下多个子 Agent 的执行结果，综合整
 请给出清晰、完整的最终回答。
 """
 
-class OrchestratorRuntime:
-    """主从编排执行运行时（MVP 函数式，便于测试与集成）。"""
+class OrchestratorRuntime(GraphRuntime):
+    """主从编排运行时时：继承通用图运行时门面，专精主 Agent 编排。"""
 
     def __init__(self, db: AsyncSession, model_name: Optional[str] = None,
                  user_id: Optional[int] = None, config: Optional[RuntimeConfig] = None):
+        super().__init__(config)
         self.db = db
         self.loader = AgentLoader(db)
         self.model_name = model_name
-        self.user_id = user_id or 1
-        self.config = config or RuntimeConfig()
-        self._checkpointer = None  # 惰性初始化（断点持久化）
+        self.user_id = user_id or DEFAULT_USER_ID
         # 数据访问仓库（隔离存储细节，Repository 模式）
         self._conversations = ConversationRepository(db)
         self._traces = ExecutionTraceRepository(db)
         # 图构建器（装配 Harness 组件并编译 TAO 图，Factory 模式）
         self._graph_builder = AgentGraphBuilder(db, self.user_id)
-
-    def _get_checkpointer(self):
-        """惰性创建数据库 checkpointer（断点/会话恢复，Harness 运行时增强）。"""
-        if self._checkpointer is None:
-            try:
-                from packages.agent.runtime_engine.checkpointer import create_async_checkpointer
-                self._checkpointer = create_async_checkpointer()
-            except Exception as e:
-                logger.warning("[Orchestrator] checkpointer 初始化失败: %s", e)
-                self._checkpointer = None
-        return self._checkpointer
-
-    # ---------------- 通用执行 API（运行时完整性：原 AgentRuntime 并入）----------------
-    def _build_config(self, thread_id: str, run_id: Optional[str] = None,
-                      callbacks: Optional[list] = None) -> dict:
-        """构建 LangGraph 配置：thread_id/递归上限/checkpointer/中断/回调。"""
-        config = {
-            "configurable": {"thread_id": thread_id},
-            "recursion_limit": self.config.recursion_limit,
-        }
-        if run_id:
-            config["configurable"]["run_id"] = run_id
-        # 注：checkpoint_saver 仅在编译期绑定（_build_agent_graph(use_checkpointer=True)），
-        # config 塞 configurable.checkpoint_saver 在现代 LangGraph 中无效，故不再注入。
-        if self.config.interrupt_before:
-            config["interrupt_before"] = self.config.interrupt_before
-        if self.config.interrupt_after:
-            config["interrupt_after"] = self.config.interrupt_after
-        if callbacks:
-            config["callbacks"] = callbacks
-        return config
-
-    @property
-    def _compressor(self):
-        from packages.agent.core.harness.context import ContextCompressor
-        return ContextCompressor(
-            max_tokens=self.config.token_budget,
-            reserve_tokens=self.config.reserve_tokens,
-        )
-
-    def _prepare_state(self, state: dict) -> dict:
-        """执行前用 Token 预算压缩超预算 messages（运行时上下文管理）。"""
-        messages = state.get("messages")
-        if not messages:
-            return state
-        compressor = self._compressor
-        if not compressor.should_compress(messages):
-            return state
-        compressed = compressor.compress(messages)
-        if len(compressed) != len(messages):
-            logger.info("上下文压缩 | %d -> %d 条消息", len(messages), len(compressed))
-            return {**state, "messages": compressed}
-        return state
-
-    def _retry_policy(self):
-        from packages.agent.core.harness.security.retry import RetryPolicy
-        return RetryPolicy(
-            max_retries=self.config.max_retries,
-            delay_seconds=self.config.retry_delay_seconds,
-        )
-
-    async def execute(self, graph, state: dict, thread_id: str, run_id: Optional[str] = None,
-                      callbacks: Optional[list] = None) -> ExecutionResult:
-        """批量执行给定编译图：上下文压缩 + 重试 + 硬超时。"""
-        from packages.agent.core.harness.security.retry import with_retry
-        start = datetime.utcnow()
-        run_id = run_id or str(uuid4())
-        prepared = self._prepare_state(state)
-        config = self._build_config(thread_id, run_id, callbacks)
-        policy = self._retry_policy()
-        async def _run():
-            return await graph.ainvoke(prepared, config=config)
-        try:
-            result = await asyncio.wait_for(with_retry(_run, policy), timeout=self.config.timeout_seconds)
-            duration = int((datetime.utcnow() - start).total_seconds() * 1000)
-            return ExecutionResult.ok(result, duration, {"run_id": run_id})
-        except asyncio.TimeoutError:
-            return ExecutionResult.error(
-                f"执行超时（>{self.config.timeout_seconds}s）",
-                int((datetime.utcnow() - start).total_seconds() * 1000),
-                metadata={"run_id": run_id, "timeout": True})
-        except Exception as e:
-            logger.exception("图执行失败 | run=%s", run_id)
-            # 保留原始异常（审批 GraphInterrupt 等由此提取）
-            return ExecutionResult.error(
-                str(e), int((datetime.utcnow() - start).total_seconds() * 1000),
-                error=e, metadata={"run_id": run_id})
-
-    async def execute_stream(self, graph, state: dict, thread_id: str, run_id: Optional[str] = None,
-                             stream_mode: str = "messages", callbacks: Optional[list] = None):
-        """流式执行给定编译图（事件契约：token/complete/error）。"""
-        run_id = run_id or str(uuid4())
-        config = self._build_config(thread_id, run_id, callbacks)
-        try:
-            async for event in graph.astream(state, config=config, stream_mode=stream_mode):
-                yield self._format_execution_event(event, run_id)
-            yield {"type": "complete", "run_id": run_id}
-        except Exception as e:
-            logger.exception("流式执行失败 | run=%s", run_id)
-            yield {"type": "error", "run_id": run_id, "error": str(e)}
-
-    @staticmethod
-    def _format_execution_event(event, run_id: str) -> dict:
-        from langchain_core.messages import BaseMessage, AIMessage
-        if isinstance(event, AIMessage):
-            return {"type": "token", "run_id": run_id, "content": event.content or ""}
-        if isinstance(event, BaseMessage):
-            return {"type": "token", "run_id": run_id, "content": getattr(event, "content", str(event)) or ""}
-        if isinstance(event, dict):
-            return {"type": event.get("type", "unknown"), "run_id": run_id, **event}
-        if hasattr(event, "type"):
-            return {"type": event.type, "run_id": run_id, "data": event}
-        return {"type": "token", "run_id": run_id, "content": str(event)}
-
-    async def get_state(self, graph, thread_id: str) -> Optional[dict]:
-        """状态快照（时间旅行）。"""
-        config = {"configurable": {"thread_id": thread_id}}
-        try:
-            state = await graph.aget_state(config)
-            return state.values if state else None
-        except Exception as e:
-            logger.error("获取状态失败 | thread=%s error=%s", thread_id, e)
-            return None
-
-    async def patch_state(self, graph, thread_id: str, values: dict) -> bool:
-        """修补状态（时间旅行修改）。"""
-        config = {"configurable": {"thread_id": thread_id}}
-        try:
-            await graph.aupdate_state(config, values)
-            return True
-        except Exception as e:
-            logger.error("修补状态失败 | thread=%s error=%s", thread_id, e)
-            return False
-
-    async def resume(self, graph, thread_id: str, values: dict, run_id: Optional[str] = None) -> ExecutionResult:
-        """恢复中断执行。"""
-        from packages.agent.core.harness.security.retry import with_retry
-        start = datetime.utcnow()
-        run_id = run_id or str(uuid4())
-        config = self._build_config(thread_id, run_id)
-        policy = self._retry_policy()
-        async def _run():
-            return await graph.ainvoke(values, config=config)
-        try:
-            result = await asyncio.wait_for(with_retry(_run, policy), timeout=self.config.timeout_seconds)
-            duration = int((datetime.utcnow() - start).total_seconds() * 1000)
-            return ExecutionResult.ok(result, duration, {"run_id": run_id, "resumed": True})
-        except Exception as e:
-            return ExecutionResult.error(str(e), int((datetime.utcnow() - start).total_seconds() * 1000))
-
-    def interrupt(self, thread_id: str, run_id: Optional[str] = None) -> bool:
-        """请求中断（埋点；实际中断由 LangGraph 中断机制完成）。"""
-        logger.info("中断请求 | thread=%s run=%s", thread_id, run_id)
-        return True
 
     async def resume_sub_agent(self, sub_agent_id: str, thread_id: str,
                                main_prompt: Optional[str] = None) -> Dict[str, Any]:
@@ -306,12 +150,12 @@ class OrchestratorRuntime:
         from packages.agent.schemas.chat import ModelConfig
         from packages.agent.services.agent_runtime_service import create_langchain_llm
 
-        model_name = self.model_name or "qwen3.5-397b-a17b"
+        model_name = self.model_name or self.config.default_model
         config = ModelConfig(
             provider=model_name,  # 会作为 model_id 反查真实 provider
             model=model_name,
-            temperature=0.3,
-            max_tokens=2048,
+            temperature=self.config.llm_temperature,
+            max_tokens=self.config.llm_max_tokens,
         )
         return await create_langchain_llm(config, self.db)
 
@@ -886,9 +730,13 @@ class OrchestratorRuntime:
                 gtask.cancel()
 
         # 图完成后取终态做副作用（会话记忆 + 追踪）
+        # gtask 被取消（正常中止路径）是预期内，静默回退；其余真实异常记审计日志而非无痕迹吞掉。
         try:
             final_state = gtask.result()
-        except Exception:
+        except asyncio.CancelledError:
+            final_state = state
+        except Exception as e:
+            logger.warning("[Audit] 编排图终态获取异常，回退初始 state: %s", e, exc_info=True)
             final_state = state
         self._last_orchestrator_state = dict(final_state)
         final_answer = (final_state.get("final_answer") or "")[:500]

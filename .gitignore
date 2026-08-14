@@ -20,3 +20,6 @@ __pycache__/
 .workbuddy/
 *.db
 *.sqlite
+
+# Agent 沙箱运行产物（勿入库）
+backend/data/workspaces/

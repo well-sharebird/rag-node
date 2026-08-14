@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Union, Literal
 from enum import Enum
 
+# 未显式传入 user_id 时的兜底用户（收敛分散在各处的 `or 1` 魔法数）
+DEFAULT_USER_ID = 1
+
 
 class RuntimeConfig(BaseModel):
     """Agent 运行时执行治理配置（生产环境基础设施需求：超时/重试/预算/检查点）。"""
@@ -31,6 +34,11 @@ class RuntimeConfig(BaseModel):
     # 重试配置
     max_retries: int = 3                   # 最大重试次数
     retry_delay_seconds: float = 1.0       # 重试延迟
+
+    # LLM 默认（未显式指定模型/参数时的兜底，收敛 _create_llm 中的魔法数）
+    default_model: str = "qwen3.5-397b-a17b"   # 默认模型
+    llm_temperature: float = 0.3               # 默认采样温度
+    llm_max_tokens: int = 2048                 # 默认最大生成长度
 
     model_config = {
         "json_schema_extra": {

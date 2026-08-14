@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.agent.core.harness.config import DEFAULT_USER_ID
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,7 +19,7 @@ class AgentGraphBuilder:
 
     def __init__(self, db: AsyncSession, user_id: Optional[int] = None):
         self.db = db
-        self.user_id = user_id or 1
+        self.user_id = user_id or DEFAULT_USER_ID
 
     def _build_middlewares(self, security_policy: Optional[dict] = None) -> List[Any]:
         """装配 harness 管控中间件（日志/审计/安全/上下文，全链路管控）。"""
