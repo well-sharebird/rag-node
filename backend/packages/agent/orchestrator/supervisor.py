@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
+from packages.agent.orchestrator.text_utils import redact_block
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def build_supervisor_graph(
                 "sub_agent_id": t.sub_agent_id, "pending": r.approvals}})
         evs.append({"type": "sub_agent", "data": {
             "sub_agent_id": t.sub_agent_id, "status": "done",
-            "success": r.success, "content": runtime._redact_block(redactor, r.content)}})
+            "success": r.success, "content": redact_block(redactor, r.content)}})
         return evs
 
     async def plan_node(state: Dict[str, Any]) -> Dict[str, Any]:

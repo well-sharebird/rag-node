@@ -10,11 +10,17 @@ import pytest
 from langchain_core.messages import HumanMessage, AIMessage
 
 from packages.agent.orchestrator.graph import OrchestratorRuntime
+from packages.agent.orchestrator.repositories import (
+    ConversationRepository,
+    ExecutionTraceRepository,
+)
 
 
 def _runtime(db):
     rt = OrchestratorRuntime.__new__(OrchestratorRuntime)
     rt.db = db
+    rt._conversations = ConversationRepository(db)
+    rt._traces = ExecutionTraceRepository(db)
     return rt
 
 

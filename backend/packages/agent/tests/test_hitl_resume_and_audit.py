@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock
 import app.models  # noqa: F401  （满足 SQLAlchemy mapper 顺序）
 
 from packages.agent.orchestrator.graph import OrchestratorRuntime
+from packages.agent.orchestrator.repositories import ExecutionTraceRepository
 from packages.agent.core.harness.agent.loader import LoadedAgentConfig
 
 
@@ -107,6 +108,7 @@ async def test_execution_trace_has_per_sub_audit_entries():
     rt = OrchestratorRuntime.__new__(OrchestratorRuntime)
     db = _TraceDB()
     rt.db = db
+    rt._traces = ExecutionTraceRepository(db)
 
     await rt._save_execution_trace(
         run_id="r1", query="q", intent="intent", final_output="终答",

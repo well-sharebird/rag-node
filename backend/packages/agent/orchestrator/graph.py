@@ -23,7 +23,16 @@ from packages.agent.orchestrator.state import (
 )
 from packages.agent.core.harness.config import RuntimeConfig
 from packages.agent.runtime_engine.state import ExecutionResult
-from packages.agent.runtime_engine.tao_graph import build_tao_graph
+from packages.agent.orchestrator.text_utils import (
+    extract_final_content,
+    make_pii_redactor,
+    redact_block,
+)
+from packages.agent.orchestrator.repositories import (
+    ConversationRepository,
+    ExecutionTraceRepository,
+)
+from packages.agent.orchestrator.graph_builder import AgentGraphBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +77,11 @@ class OrchestratorRuntime:
         self.user_id = user_id or 1
         self.config = config or RuntimeConfig()
         self._checkpointer = None  # 惰性初始化（断点持久化）
+        # 数据访问仓库（隔离存储细节，Repository 模式）
+        self._conversations = ConversationRepository(db)
+        self._traces = ExecutionTraceRepository(db)
+        # 图构建器（装配 Harness 组件并编译 TAO 图，Factory 模式）
+        self._graph_builder = AgentGraphBuilder(db, self.user_id)
 
     def _get_checkpointer(self):
         """惰性创建数据库 checkpointer（断点/会话恢复，Harness 运行时增强）。"""
@@ -263,7 +277,7 @@ class OrchestratorRuntime:
             result = await asyncio.wait_for(
                 graph.ainvoke(None, config=config), timeout=self.config.timeout_seconds,
             )
-            content = self._extract_final_content(result.get("messages", []))
+            content = extract_final_content(result.get("messages", []))
             if not content:
                 for m in result.get("messages", []):
                     if getattr(m, "type", "") in ("ai", "assistant") and getattr(m, "reasoning", None):
@@ -366,26 +380,7 @@ class OrchestratorRuntime:
             return all_tools
         return [t for t in all_tools if t.name in whitelist]
 
-    # ---------------- middleware 装配 ----------------
-    def _build_middlewares(self, security_policy: Optional[dict] = None) -> List[Any]:
-        """装配 harness 管控中间件（与单 Agent 路径一致，实现全链路管控）。
-
-        复用 middlewares/builtin 的四个中间件（日志/审计/安全/上下文）。
-        """
-        from packages.agent.core.harness.middleware.builtin import (
-            AuditLoggerMiddleware,
-            ContextInitMiddleware,
-            SecurityGuardMiddleware,
-            ToolLoggingMiddleware,
-        )
-        return [
-            ContextInitMiddleware(),
-            ToolLoggingMiddleware(),
-            AuditLoggerMiddleware(),
-            SecurityGuardMiddleware(policy=security_policy or {}),
-        ]
-
-    # ---------------- 统一图构建（单一内核）----------------
+    # ---------------- 统一图构建（单一内核，装配委托 GraphBuilder）----------------
     def _build_agent_graph(self, llm: Any, tools: Optional[List[Any]] = None,
                            system_prompt: Optional[str] = None, max_iterations: int = 10,
                            on_token: Optional[Any] = None,
@@ -394,251 +389,39 @@ class OrchestratorRuntime:
                            use_checkpointer: bool = False,
                            agent_config: Optional[dict] = None,
                            sandbox_workdir: Optional[str] = None):
-        """统一构建 TAO Graph：middleware + 权限引擎 + 输出治理 + checkpointer + Harness 上下文工程。
-
-        集成 Harness 上下文工程子系统（设计文档 2.1）：
-        - PromptAssembler：SOUL/CLAUDE 分层提示词组装 + Token 预算裁剪
-
-        主/子 Agent 执行默认不启用 checkpointer（即时任务状态无需持久化）；
-        需 HITL 断点续跑时（`resume_sub_agent`/`_run_sub_agent_graph` 携带
-        require_approval 工具的子图）才以 `use_checkpointer=True` 绑定
-        DatabaseCheckpointSaver（经 JsonPlusSerializer 序列化 LangChain 消息，见
-        test_checkpointer_serde.py）。
-        """
-        from packages.agent.output.governance import OutputGovernanceNode
-        from packages.agent.core.harness.security.permission import PermissionEngine
-        from packages.agent.core.harness.context import PromptAssembler
-
-        # Harness 上下文工程：使用 PromptAssembler 组装系统提示词（设计文档 11.4）
-        prompt_assembler = None
-        if agent_config:
-            soul = agent_config.get("soul", "")
-            claude = agent_config.get("claude", "")
-            token_budget = agent_config.get("token_budget", 8192)
-            prompt_assembler = PromptAssembler(
-                system_prompt="\n\n".join(filter(None, [soul, claude])) or system_prompt,
-                max_tokens=token_budget,
-                reserve_tokens=512,
-            )
-        elif system_prompt:
-            prompt_assembler = PromptAssembler(
-                system_prompt=system_prompt,
-                max_tokens=8192,
-                reserve_tokens=512,
-            )
-
-        # 权限引擎（Harness 管控层：工具白名单/审批/拒绝）
-        permission_engine = None
-        if security_policy:
-            try:
-                permission_engine = PermissionEngine(db=self.db, user_id=self.user_id, policy=security_policy)
-            except Exception as e:
-                logger.warning("[Orchestrator] 权限引擎初始化失败: %s", e)
-
-        middlewares = self._build_middlewares(security_policy)
-        output_gov = OutputGovernanceNode(llm=llm, enable_structured=False)
-        checkpointer = checkpointer if use_checkpointer else None
-
-        # Harness 工具治理门面（设计文档 2.2）：Phase 0 透传不接管，Phase 1 路由工具执行
-        # security_policy 注入门面，使工具级护栏强制白名单（纵深防御，与 permission_check 节点双层）。
-        from packages.agent.core.harness.tools import ToolExecutionManager
-        execution_manager = ToolExecutionManager(
-            db=self.db, user_id=self.user_id, session_id=getattr(self, "session_id", None),
-            sandbox_workdir=sandbox_workdir, security_policy=security_policy,
-            rate_limit=(agent_config or {}).get("rate_limit"),
-            circuit=(agent_config or {}).get("circuit"),
+        """统一构建 TAO Graph（装配职责委托 AgentGraphBuilder）。"""
+        return self._graph_builder.build(
+            llm=llm, tools=tools, system_prompt=system_prompt,
+            max_iterations=max_iterations, on_token=on_token,
+            security_policy=security_policy, checkpointer=checkpointer,
+            use_checkpointer=use_checkpointer, agent_config=agent_config,
+            sandbox_workdir=sandbox_workdir,
         )
-
-        return build_tao_graph(
-            llm=llm,
-            tools=tools or [],
-            system_prompt=system_prompt or "你是助手。",
-            max_iterations=max_iterations,
-            permission_engine=permission_engine,
-            enable_output_governance=True,
-            output_governance_node=output_gov,
-            on_token=on_token,
-            checkpointer=checkpointer,
-            middlewares=middlewares,
-            prompt_assembler=prompt_assembler,
-            execution_manager=execution_manager,
-        )
-
-    @staticmethod
-    def _maybe_compress(text: Optional[str], budget: int = 12000) -> Optional[str]:
-        """上下文压缩保护：超长输入截断到预算内（ContextCompressor 兜底）。
-
-        多轮历史压缩由 runtime/context.py 的 ContextCompressor 提供；
-        此处对超长 system/输入做硬保护。
-        """
-        if not text or len(text) <= budget:
-            return text
-        try:
-            return text[:budget]
-        except Exception:
-            return text[:budget]
-
-    @staticmethod
-    def _make_pii_redactor():
-        """流式 PII 脱敏器（滑动窗口；不可用时降级恒等）。"""
-        try:
-            from packages.agent.output.filters import PIIFilter
-            pii = PIIFilter()
-        except Exception as e:
-            logger.warning("[Orchestrator] PII 脱敏不可用: %s", e)
-            return None
-
-        class _R:
-            def __init__(self, window: int = 40):
-                self.buf = ""
-                self.window = window
-            def push(self, text: str) -> str:
-                if not text:
-                    return ""
-                self.buf += text
-                if len(self.buf) > self.window:
-                    safe, self.buf = self.buf[:-self.window], self.buf[-self.window:]
-                    return pii.check(safe)[0]
-                return ""
-            def flush(self) -> str:
-                if not self.buf:
-                    return ""
-                out = pii.check(self.buf)[0]
-                self.buf = ""
-                return out
-        return _R()
-
-    @staticmethod
-    def _redact_block(redactor, text) -> str:
-        """一次性把完整文本块脱敏（push 处理主体 + flush 收尾缓冲）。"""
-        if redactor is None or not text:
-            return str(text) if text is not None else ""
-        return redactor.push(str(text)) + redactor.flush()
 
     # ---------------- 会话保存（记忆/Harness 5 大核心-记忆）----------------
     async def _save_conversation(self, user_id: int, session_id: Optional[str],
                                  query: str, final_output: str,
                                  agent_id: Optional[str] = None) -> None:
-        """持久化一轮用户会话到 conversations 表（会话记忆）。"""
-        if not session_id:
-            return
-        try:
-            from packages.agent.services.conversation_service import (
-                create_or_update_conversation_from_agent,
-            )
-            await create_or_update_conversation_from_agent(
-                db=self.db,
-                user_id=user_id,
-                session_id=session_id,
-                agent_id=agent_id,
-                messages=[
-                    {"role": "user", "content": query},
-                    {"role": "assistant", "content": final_output or ""},
-                ],
-            )
-        except Exception as e:
-            logger.warning("[Orchestrator] 会话保存失败: %s", e)
-            await self.db.rollback()
+        """持久化一轮用户会话到 conversations 表（数据访问委托 Repository）。"""
+        await self._conversations.save(
+            user_id=user_id, session_id=session_id, query=query,
+            final_output=final_output, agent_id=agent_id,
+        )
 
     async def _load_conversation_history(self, user_id: int, session_id: Optional[str],
                                          limit: int = 6) -> List[Any]:
-        """读取会话历史（记忆回灌，Phase 4）：返回 LangChain 消息序列（旧→新）。
-
-        通过 metadata_json.session_id 定位会话（与 _save_conversation 写入约定一致），
-        仅取最近 N 轮，超长由 think 节点的 PromptAssembler 做 Token 预算压缩。
-        """
-        if not session_id:
-            return []
-        import json as _json
-        from sqlalchemy import select
-        from langchain_core.messages import HumanMessage, AIMessage
-        from packages.agent.models.conversation import Conversation, ConversationMessage
-        try:
-            convs = (
-                await self.db.execute(
-                    select(Conversation)
-                    .where(Conversation.user_id == user_id, Conversation.is_active.is_(True))
-                    .order_by(Conversation.last_message_at.desc())
-                    .limit(50)
-                )
-            ).scalars().all()
-            target = None
-            for c in convs:
-                if not c.metadata_json:
-                    continue
-                try:
-                    if (_json.loads(c.metadata_json) or {}).get("session_id") == session_id:
-                        target = c
-                        break
-                except Exception:
-                    continue
-            if target is None:
-                return []
-            msgs = (
-                await self.db.execute(
-                    select(ConversationMessage)
-                    .where(ConversationMessage.conversation_id == target.id)
-                    .order_by(ConversationMessage.message_index.asc())
-                    .limit(limit)
-                )
-            ).scalars().all()
-            out: List[Any] = []
-            for m in msgs:
-                if m.role == "user":
-                    out.append(HumanMessage(content=m.content))
-                elif m.role == "assistant":
-                    out.append(AIMessage(content=m.content))
-            return out[-limit:]
-        except Exception as e:
-            logger.warning("[Orchestrator] 会话历史读取失败: %s", e)
-            return []
+        """读取会话历史（记忆回灌）：返回 LangChain 消息序列（委托 Repository）。"""
+        return await self._conversations.load_history(user_id, session_id, limit=limit)
 
     # ---------------- 执行追踪 ----------------
     async def _save_execution_trace(self, run_id: str, query: str, intent: str,
                                     final_output: str, sub_agents: List[str], user_id: int,
                                     sub_results: Optional[List[Dict]] = None) -> None:
-        """记录一次执行追踪（Harness 可观测性）。
-
-        sub_results（#8）：每条子 Agent 独立审计条目（id/success/content 摘要/
-        error/approvals 数/thread_id），而非只记 id 列表。
-        """
-        try:
-            from packages.agent.models.execution_trace import ExecutionTrace
-            sub_entries = []
-            for r in (sub_results or []):
-                sub_entries.append({
-                    "sub_agent_id": r.get("sub_agent_id"),
-                    "success": bool(r.get("success")),
-                    "content_summary": str(r.get("content") or "")[:300],
-                    "error": r.get("error"),
-                    "approval_count": len(r.get("approvals") or []),
-                    "thread_id": (r.get("approvals") or [{}])[0].get("thread_id")
-                    if r.get("approvals") else None,
-                })
-            trace = ExecutionTrace(
-                run_id=run_id,
-                thread_id=run_id,
-                user_id=user_id,
-                tenant_id=None,
-                agent_id=None,
-                agent_name="main_agent",
-                agent_type="main_agent",
-                intent_type=intent,
-                status="success" if final_output else "failed",
-                latency_ms=0,
-                steps=[{
-                    "intent": intent,
-                    "sub_agents": sub_agents,
-                    "sub_agent_results": sub_entries,
-                }],
-                input_summary=query[:500] if query else None,
-                output_summary=str(final_output)[:500] if final_output else None,
-            )
-            self.db.add(trace)
-            await self.db.commit()
-        except Exception as e:
-            logger.warning("[Orchestrator] 执行追踪保存失败: %s", e)
-            await self.db.rollback()
+        """记录一次执行追踪（数据访问委托 Repository）。"""
+        await self._traces.save_trace(
+            run_id=run_id, query=query, intent=intent, final_output=final_output,
+            sub_agents=sub_agents, user_id=user_id, sub_results=sub_results,
+        )
 
     # ---------------- 子 Agent 执行（ReAct 循环）---------------
     async def _exec_sub_task(self, llm: Any, sub_task: SubTask, main_prompt: str,
@@ -769,7 +552,7 @@ class OrchestratorRuntime:
                 content="[需要审批] 敏感工具调用已发起审批请求，等待批准后可重试。",
                 approvals=approvals,
             )
-        content = self._extract_final_content(state.get("messages", []))
+        content = extract_final_content(state.get("messages", []))
         # 若内容为空且有 reasoning，则使用 reasoning 兜底
         if not content:
             for m in state.get("messages", []):
@@ -797,17 +580,6 @@ class OrchestratorRuntime:
             pass
         return []
 
-    @staticmethod
-    def _extract_final_content(messages: list) -> str:
-        """从 TAO 图结果中提取最终 AI 回答内容。"""
-        content = ""
-        for m in messages:
-            if getattr(m, "type", "") in ("ai", "assistant"):
-                c = getattr(m, "content", "") or ""
-                if c:
-                    content = str(c)
-        return content
-
     # ---------------- 指定智能体执行（meta/MCP 工具复用，替代 HarnessEngine）----
     async def execute_agent(self, agent_id: str, query: str,
                             user_id: Optional[int] = None) -> str:
@@ -830,7 +602,7 @@ class OrchestratorRuntime:
         from langchain_core.messages import HumanMessage
 
         main_llm = await self._create_llm()
-        redactor = self._make_pii_redactor()
+        redactor = make_pii_redactor()
         q: asyncio.Queue = asyncio.Queue()
 
         async def on_token(chunk):
@@ -1017,13 +789,7 @@ class OrchestratorRuntime:
             parts = [f"【{r.sub_agent_id}】{r.content if r.success else '执行失败: ' + str(r.error)}"
                      for r in results]
             block = "以下为子 Agent 执行结果汇总：\n" + "\n".join(parts)
-            yield self._redact_block(redactor, block)
-
-    @staticmethod
-    def _chunk_text(text: str, size: int = 2):
-        """把一段文本切成小块逐段产出（伪流式打字机）。"""
-        for i in range(0, len(text), size):
-            yield text[i:i + size]
+            yield redact_block(redactor, block)
 
     # ---------------- 流式统一入口 ----------------
     async def run_stream(
@@ -1060,7 +826,7 @@ class OrchestratorRuntime:
             tools=["save_workspace_file"],
         )
         main_prompt = main_agent_cfg.system_prompt or "你是通用助手，可协调多个子 Agent 完成任务。"
-        redactor = self._make_pii_redactor()
+        redactor = make_pii_redactor()
 
         try:
             await ensure_business_tools(self.db, user_id=self.user_id)
