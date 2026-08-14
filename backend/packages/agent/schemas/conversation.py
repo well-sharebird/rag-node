@@ -38,7 +38,7 @@ class MessageResponse(BaseModel):
 class ConversationResponse(BaseModel):
     """对话响应"""
     id: str
-    user_id: Optional[str]
+    user_id: Optional[int]
     title: str
     kb_ids: Optional[List[str]] = None
     is_active: bool

@@ -62,7 +62,11 @@ async def list_conversations(
     if not include_archived:
         query = query.where(Conversation.is_archived == False)
 
-    query = query.order_by(Conversation.last_message_at.desc()).limit(limit).offset(offset)
+    # DESC 默认 NULLS FIRST，会把 last_message_at 为空的占位会话顶到最前，
+    # 真实会话（有时间戳）被挤出 limit，前端历史列表永远看不到。改 NULLS LAST。
+    query = query.order_by(
+        Conversation.last_message_at.desc().nullslast()
+    ).limit(limit).offset(offset)
 
     result = await db.execute(query)
     return list(result.scalars().all())

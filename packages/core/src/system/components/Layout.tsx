@@ -35,7 +35,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'dashboard', icon: LayoutDashboard, section: 'workspace', sectionKey: 'nav.workspace' },
   { id: 'qa-chat', icon: MessageSquare, section: 'ai-chat', sectionKey: 'nav.ai-chat' },
   { id: 'agent-plaza', icon: Bot, section: 'ai-chat', sectionKey: 'nav.ai-chat' },
-  { id: 'agent-chat', icon: Bot, section: 'ai-chat', sectionKey: 'nav.ai-chat' },
   { id: 'conversation-history', icon: History, section: 'ai-chat', sectionKey: 'nav.ai-chat' },
   { id: 'knowledge-bases', icon: Database, section: 'knowledge', sectionKey: 'nav.knowledge' },
   { id: 'data-ingestion', icon: Plug, section: 'knowledge', sectionKey: 'nav.knowledge' },

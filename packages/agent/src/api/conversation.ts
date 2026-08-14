@@ -41,7 +41,7 @@ export const chatCompletions = async (data: ChatCompletionRequest) => {
 
 export interface ConversationResponse {
   id: string;
-  user_id?: string;
+  user_id?: number;
   title: string;
   kb_ids?: string[];
   is_active: boolean;
