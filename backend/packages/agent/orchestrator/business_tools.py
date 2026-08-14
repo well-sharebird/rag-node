@@ -61,23 +61,27 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
         from langchain_core.tools import tool
 
         @tool
-        async def execute_code(code: str, language: str = "python", session_id: str = "") -> str:
+        async def execute_code(code: str, language: str = "python", session_id: str = "",
+                               requirements: str = "") -> str:
             """在安全沙箱中执行代码，产物保存到你的工作空间。
 
             当需要运行计算、脚本、生成文件时使用。代码在隔离沙箱执行，
+            运行前会自动安装代码 import 的缺失依赖（隔离 venv），
             生成的产物会自动存放到你的工作空间（可查看/下载）。
 
             Args:
                 code: 要执行的代码
                 language: 语言，python/ nodejs/ bash
                 session_id: 会话 ID（产物关联）
+                requirements: 期望额外安装的依赖（可选，如 "pandas numpy"）
             """
             # 统一经 Harness SandboxRuntime（安全检查→沙箱/降级→产物登记→审计）
             from packages.agent.core.harness.sandbox.runtime import SandboxRuntime, check_code_safety
 
+            reqs = [r for r in (requirements or "").replace(",", " ").split() if r]
             try:
                 rt = SandboxRuntime(db, user_id=current_user_id, session_id=session_id or None)
-                res = await rt.execute(code, language)
+                res = await rt.execute(code, language, requirements=reqs or None)
             except Exception as e:
                 logger.warning("[SandboxTool] 沙箱执行失败: %s", e)
                 return f"[错误] 沙箱执行失败: {e}"
@@ -99,9 +103,11 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
         from packages.agent.core.harness.tools import ToolExecutionManager
 
         async def _sandbox_execute_code(sandbox, tool_input: dict) -> str:
+            reqs = [r for r in str(tool_input.get("requirements", "") or "").replace(",", " ").split() if r]
             res = await sandbox.execute(
                 tool_input.get("code", ""),
                 tool_input.get("language", "python"),
+                requirements=reqs or None,
             )
             if res.blocked:
                 return f"[安全拦截] {res.blocked}"

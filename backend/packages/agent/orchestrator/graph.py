@@ -561,7 +561,7 @@ class OrchestratorRuntime(GraphRuntime):
 
         main_agent_cfg = self.loader.load_main_agent(
             system_prompt=main_prompt or None,
-            tools=["save_workspace_file"],
+            tools=["save_workspace_file", "execute_code"],
         )
         main_prompt = main_agent_cfg.system_prompt or "你是通用助手，可协调多个子 Agent 完成任务。"
 
@@ -667,7 +667,7 @@ class OrchestratorRuntime(GraphRuntime):
         # API 显式传入 main_prompt 时作覆盖（兜底保持兼容）。
         main_agent_cfg = self.loader.load_main_agent(
             system_prompt=main_prompt or None,
-            tools=["save_workspace_file"],
+            tools=["save_workspace_file", "execute_code"],
         )
         main_prompt = main_agent_cfg.system_prompt or "你是通用助手，可协调多个子 Agent 完成任务。"
         redactor = make_pii_redactor()
