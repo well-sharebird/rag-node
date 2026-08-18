@@ -244,9 +244,27 @@ class TestStepRuntime:
         class FakeOrch:
             def __init__(self, events):
                 self.events = events
+                self.loader = type('obj', (object,), {'resolve_sub_agent_id': lambda s, id, cat: id})()
             async def run_stream(self, query, **kw):
                 for e in self.events:
                     yield e
+            async def _create_llm(self):
+                return None
+            async def _orchestrate(self, llm, messages, prompt, catalog):
+                return type('OrchestrationPlan', (object,), {
+                    'need_sub_agents': False, 'run_mode': 'serial', 'plan': [], 'direct_answer': 'ok'
+                })()
+            async def _direct_answer_stream(self, query, prompt, cfg=None, session_id=None):
+                # Extract token from events if available
+                for e in self.events:
+                    if e.get('type') == 'token' and isinstance(e.get('data'), dict):
+                        yield 'token', e['data'].get('content', 'ok')
+                        return
+                yield 'token', 'ok'
+            async def _exec_sub_task(self, llm, task, prompt, state=None, history=None):
+                return type('Result', (object,), {'success': True, 'content': 'sub', 'sub_agent_id': 'x'})()
+            async def _aggregate_stream(self, llm, results, prompt, redactor=None):
+                yield 'token', 'agg' 
         return FakeOrch(events), []
 
     async def test_runtime_emits_structured_events_and_logs(self):
@@ -326,9 +344,25 @@ class TestExecutionOrchestratorIntegration:
         ]
 
         class FakeRuntime:
+            def __init__(self):
+                self.loader = type('obj', (object,), {'resolve_sub_agent_id': lambda s, id, cat: id})()
             async def run_stream(self, query, **kw):
                 for e in events_out:
                     yield e
+            async def _create_llm(self):
+                return None
+            async def _orchestrate(self, llm, messages, prompt, catalog):
+                return type('OrchestrationPlan', (object,), {
+                    'need_sub_agents': False, 'run_mode': 'serial', 'plan': [], 'direct_answer': 'hi'
+                })()
+            async def _direct_answer_stream(self, query, prompt, cfg=None, session_id=None):
+                for e in events_out:
+                    if e.get('type') == 'token':
+                        yield 'token', e.get('content', '')
+            async def _exec_sub_task(self, llm, task, prompt, state=None, history=None):
+                return type('Result', (object,), {'success': True, 'content': 'sub', 'sub_agent_id': 'x'})()
+            async def _aggregate_stream(self, llm, results, prompt, redactor=None):
+                yield 'token', 'agg' 
 
         # 替换内部 runtime 为假实现
         orch._runtime = FakeRuntime()
@@ -369,9 +403,23 @@ class TestExecutionOrchestratorIntegration:
         assert len(orch._execution_hooks.pre_step) == 1
 
         class FakeRuntime:
+            def __init__(self):
+                self.loader = type('obj', (object,), {'resolve_sub_agent_id': lambda s, id, cat: id})()
             async def run_stream(self, query, **kw):
                 yield {"type": "orchestrator_plan", "data": {"need_sub_agents": False, "plan": []}}
                 yield {"type": "token", "content": "ok"}
+            async def _create_llm(self):
+                return None
+            async def _orchestrate(self, llm, messages, prompt, catalog):
+                return type('OrchestrationPlan', (object,), {
+                    'need_sub_agents': False, 'run_mode': 'serial', 'plan': [], 'direct_answer': 'ok'
+                })()
+            async def _direct_answer_stream(self, query, prompt, cfg=None, session_id=None):
+                yield 'token', 'ok'
+            async def _exec_sub_task(self, llm, task, prompt, state=None, history=None):
+                return type('Result', (object,), {'success': True, 'content': 'sub', 'sub_agent_id': 'x'})()
+            async def _aggregate_stream(self, llm, results, prompt, redactor=None):
+                yield 'token', 'agg' 
 
         orch._runtime = FakeRuntime()
         await orch.start()
