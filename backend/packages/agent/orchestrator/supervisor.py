@@ -19,6 +19,13 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 from packages.agent.orchestrator.text_utils import redact_block
+from packages.agent.schemas.stream import (
+    ev_approval,
+    ev_plan,
+    ev_reasoning,
+    ev_sub_agent,
+    ev_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +76,10 @@ def build_supervisor_graph(
         """子 Agent 结果 → 事件（审批需求 → approval_required；内容统一脱敏）。"""
         evs: List[Dict[str, Any]] = []
         if getattr(r, "approvals", None):
-            evs.append({"type": "approval_required", "data": {
-                "sub_agent_id": t.sub_agent_id, "pending": r.approvals}})
-        evs.append({"type": "sub_agent", "data": {
-            "sub_agent_id": t.sub_agent_id, "status": "done",
-            "success": r.success, "content": redact_block(redactor, r.content)}})
+            evs.append(ev_approval(sub_agent_id=t.sub_agent_id, pending=r.approvals))
+        evs.append(ev_sub_agent(
+            sub_agent_id=t.sub_agent_id, status="done",
+            success=r.success, content=redact_block(redactor, r.content)))
         return evs
 
     async def plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -98,14 +104,11 @@ def build_supervisor_graph(
                 getattr(t, "sub_agent_id", ""), catalog) or t.sub_agent_id
             tasks.append(SubTask(sub_agent_id=real_id, task_prompt=t.task_prompt))
 
-        sink.put_nowait({
-            "type": "orchestrator_plan",
-            "data": {
-                "need_sub_agents": plan.need_sub_agents,
-                "run_mode": plan.run_mode,
-                "plan": [t.model_dump() for t in tasks],
-            },
-        })
+        sink.put_nowait(ev_plan(
+            need_sub_agents=plan.need_sub_agents,
+            run_mode=plan.run_mode,
+            plan=[t.model_dump() for t in tasks],
+        ))
         return {"sub_tasks": [t.model_dump() for t in tasks]}
 
     async def direct_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -113,10 +116,13 @@ def build_supervisor_graph(
             text = (ctx["plan"].direct_answer if ctx["plan"] is not None else None) or ""
             return {"final_answer": text[:500] if text else ""}
         collected: List[str] = []
-        async for tok in runtime._direct_answer_stream(
+        async for kind, tok in runtime._direct_answer_stream(
                 query, main_prompt, main_agent_cfg, session_id=session_id):
-            collected.append(tok)
-            sink.put_nowait({"type": "token", "content": tok})
+            if kind == "reasoning":
+                sink.put_nowait(ev_reasoning(content=tok))
+            else:
+                collected.append(tok)
+                sink.put_nowait(ev_token(content=tok))
         final = "".join(collected)
         return {"final_answer": final[:500]}
 
@@ -146,8 +152,7 @@ def build_supervisor_graph(
                     sink.put_nowait(ev)
         else:
             for t in sub_tasks:
-                sink.put_nowait({"type": "sub_agent", "data": {
-                    "sub_agent_id": t.sub_agent_id, "status": "running"}})
+                sink.put_nowait(ev_sub_agent(sub_agent_id=t.sub_agent_id, status="running"))
                 r = await runtime._exec_sub_task(None, t, main_prompt,
                                                  state=state, history=history)
                 results.append(r)
@@ -167,7 +172,7 @@ def build_supervisor_graph(
         collected: List[str] = []
         async for tok in runtime._aggregate_stream(llm, results, main_prompt, redactor=redactor):
             collected.append(tok)
-            sink.put_nowait({"type": "token", "content": tok})
+            sink.put_nowait(ev_token(content=tok))
         final = "".join(collected)
         return {"final_answer": final[:500]}
 

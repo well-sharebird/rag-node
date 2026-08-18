@@ -94,6 +94,12 @@ class AgentSession(Base):
         cascade="all, delete-orphan",
         order_by="AgentSessionMessage.created_at"
     )
+    events = relationship(
+        "AgentEvent",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="AgentEvent.seq"
+    )
 
     # 索引
     __table_args__ = (

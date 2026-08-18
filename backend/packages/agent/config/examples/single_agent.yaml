@@ -1,0 +1,47 @@
+# 单 Agent 配置示例
+# 最简单的配置，适用于直接问答场景
+
+id: "qa-agent-001"
+name: "问答助手"
+version: "1.0.0"
+description: "用于直接问答的单 Agent"
+
+agent_type: "single"
+run_mode: "serial"
+
+model:
+  provider: "deepseek"
+  model: "deepseek-v4-flash"
+  temperature: 0.7
+  max_tokens: 2000
+
+system_prompt: |
+  你是一个友好的 AI 助手。
+  请用简洁、准确的语言回答用户的问题。
+  如果不知道答案，请诚实告知。
+
+tools:
+  - name: "web_search"
+    enabled: true
+    permission_mode: "auto"
+  - name: "calculator"
+    enabled: true
+    permission_mode: "auto"
+
+tao_loop:
+  max_iterations: 10
+  enable_think: true
+  enable_act: true
+  enable_observe: true
+
+security:
+  sandbox_type: "nsjail"
+  network_enabled: false
+  max_memory_mb: 512
+  timeout_seconds: 30
+
+runtime:
+  timeout_seconds: 300
+  enable_streaming: true
+  enable_checkpointer: false
+  redact_pii: true

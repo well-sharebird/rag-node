@@ -10,6 +10,7 @@
 LangChain/节点不直接执行，统一经此入口（文档 11.5.2）。
 """
 import asyncio
+import glob
 import logging
 import os
 import re
@@ -77,6 +78,9 @@ class SandboxRuntime:
         self.auto_install = bool(policy.get("auto_install", True))
         self.install_index = policy.get("install_index") or None
         self.install_timeout = float(policy.get("install_timeout_seconds", 180))
+        # nsjail 执行后端：auto=本机 nsjail 优先，缺失则 docker-nsjail（mac 无 nsjail）
+        self.sandbox_mode = policy.get("sandbox_mode", "auto")
+        self.docker_image = policy.get("docker_image", "rag-nsjail:py310") or "rag-nsjail:py310"
 
     @staticmethod
     def _interpreter(language: str) -> tuple[str, str]:
@@ -136,6 +140,50 @@ class SandboxRuntime:
                 pass
         except Exception as e:
             logger.warning("[SandboxRuntime] 依赖安装异常: %s", e)
+
+    # ---------------- docker-nsjail 执行后端（本机无 nsjail 时，mac 经 docker） ----------------
+    _docker_image_ok: Optional[bool] = None  # 类级缓存，避免每次执行都 inspect 镜像
+
+    async def _docker_available(self) -> bool:
+        if SandboxRuntime._docker_image_ok is not None:
+            return SandboxRuntime._docker_image_ok
+        ok = False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "image", "inspect", self.docker_image,
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.communicate()
+            ok = proc.returncode == 0
+        except FileNotFoundError:
+            ok = False
+        SandboxRuntime._docker_image_ok = ok
+        return ok
+
+    @staticmethod
+    def _venv_site_packages(env_dir: str) -> Optional[str]:
+        """定位 venv 的 site-packages（容器内挂载到 /sb/env/lib/python*/site-packages）。"""
+        matches = glob.glob(os.path.join(env_dir, "lib", "python*", "site-packages"))
+        return matches[0] if matches else None
+
+    async def _run_in_docker(self, sandbox_root: str, script_name: str,
+                             site_packages: str, timeout: int = 90):
+        """经 rag-nsjail 镜像用 nsjail 执行：docker run --rm --privileged -v <sandbox_root>:/sb。"""
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "run", "--rm", "--privileged",
+            "-v", f"{sandbox_root}:/sb",
+            "-w", "/sb/work",
+            self.docker_image,
+            script_name, site_packages,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            return (out or b"").decode(errors="replace"), (err or b"").decode(errors="replace"), \
+                (proc.returncode if proc.returncode is not None else 0), False
+        except asyncio.TimeoutError:
+            proc.kill()
+            return "", "执行超时", 0, True
 
     async def _promote_products(self, ws, work_dir: str, ext: str, run_id: str,
                                 stdout: str) -> List[dict]:
@@ -222,10 +270,25 @@ class SandboxRuntime:
                     sandbox_label = "venv"
 
             py_ready = not (language in ("python", "py") and env_python is None)
+            import shutil
+            # 执行后端解析：auto=nsjail(本机)→docker-nsjail→venv；docker/nsjail/venv 强制单后端
+            docker_site = None
+            use_docker = False
+            has_local_nsjail = False
+            if py_ready:
+                has_local_nsjail = shutil.which("nsjail") is not None
+                if self.sandbox_mode in ("docker", "auto") and not has_local_nsjail:
+                    if await self._docker_available():
+                        docker_site = self._venv_site_packages(env_dir)
+                        use_docker = docker_site is not None
             try:
                 if py_ready:
-                    import shutil
-                    if env_python is not None and shutil.which("nsjail"):
+                    if use_docker:
+                        sandbox_label = "docker-nsjail"
+                        stdout, stderr, exit_code, timed_out = await self._run_in_docker(
+                            sandbox_root, os.path.basename(script_path), docker_site,
+                        )
+                    elif has_local_nsjail and self.sandbox_mode in ("auto", "nsjail"):
                         sandbox_label = "nsjail"
                         from packages.agent.sandbox.nsjail import NsJailSandboxManager
                         cfg = None
@@ -239,9 +302,9 @@ class SandboxRuntime:
                         )
                         stdout, stderr, exit_code = res.stdout, res.stderr, res.exit_code
                     else:
-                        cmd = env_python if env_python is not None else interpreter
+                        # 仅 venv 隔离（无 nsjail/docker 时的降级）
                         proc = await asyncio.create_subprocess_exec(
-                            cmd, script_path, cwd=work_dir,
+                            env_python, script_path, cwd=work_dir,
                             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                         )
                         try:

@@ -109,6 +109,9 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
                 tool_input.get("language", "python"),
                 requirements=reqs or None,
             )
+            # 透出产物与执行后端，供 ToolExecutionManager 的 tool_event 前端渲染
+            sandbox._last_products = list(res.files) if res.files else []
+            sandbox._last_sandbox = res.sandbox or ""
             if res.blocked:
                 return f"[安全拦截] {res.blocked}"
             return (f"[{res.sandbox}] exit={res.exit_code} {'(超时)' if res.timed_out else ''}\n"
@@ -343,6 +346,9 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
                     pass
                 return f"文件已写入磁盘，但登记失败：{e}（相对路径 {rel_path}）"
 
+            # 透出产物供 tool_event 前端渲染
+            sandbox._last_products = [{"filename": filename, "relative_path": rel_path}]
+            sandbox._last_sandbox = getattr(sandbox, "_last_sandbox", "") or "workspace"
             return f"文件已保存：{rel_path}（file_id={file_id}），可在工作空间查看/下载。"
 
         ToolExecutionManager.register_sandbox_executor("save_workspace_file", _sandbox_save_workspace_file)

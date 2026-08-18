@@ -57,7 +57,8 @@ class FakeRuntime:
 
     async def _direct_answer_stream(self, query, main_prompt, main_agent_cfg, session_id=None):
         for tok in self.direct_tokens:
-            yield tok
+            # 支持 (kind, text) 元组（含 reasoning），或纯字符串（视为 content）
+            yield tok if isinstance(tok, tuple) else ("content", tok)
 
     async def _exec_sub_task(self, llm, sub_task, main_prompt, state=None, history=None):
         self.dispatch_state_seen = state
@@ -106,6 +107,20 @@ async def test_route_direct_graph_streams_tokens():
     assert final["final_answer"] == "你好"
     assert [e["type"] for e in events] == ["orchestrator_plan", "token", "token"]
     assert [e["content"] for e in events[1:]] == ["你", "好"]
+
+
+@pytest.mark.asyncio
+async def test_route_direct_graph_reasoning_and_answer_events():
+    # 直答流产生的元组：reasoning 独立成 reasoning 事件，content 才进 token 事件与 final_answer
+    rt = FakeRuntime(OrchestrationPlan(need_sub_agents=False, plan=[]),
+                     direct_tokens=[("reasoning", "想"), ("content", "答"),
+                                    ("reasoning", "再想"), ("content", "案")])
+    events, final = await _run(rt, strategy="graph")
+    assert final["final_answer"] == "答案"  # 仅累计 content
+    assert [e["type"] for e in events] == ["orchestrator_plan", "reasoning", "token", "reasoning", "token"]
+    assert [e for e in events if e["type"] == "reasoning"] == [
+        {"type": "reasoning", "content": "想"}, {"type": "reasoning", "content": "再想"}]
+    assert [e["content"] for e in events if e["type"] == "token"] == ["答", "案"]
 
 
 @pytest.mark.asyncio

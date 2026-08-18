@@ -39,6 +39,7 @@ class AgentGraphBuilder:
     def build(self, llm: Any, tools: Optional[List[Any]] = None,
               system_prompt: Optional[str] = None, max_iterations: int = 10,
               on_token: Optional[Any] = None,
+              on_tool_event: Optional[Any] = None,
               security_policy: Optional[dict] = None,
               checkpointer: Optional[Any] = None,
               use_checkpointer: bool = False,
@@ -94,6 +95,7 @@ class AgentGraphBuilder:
             sandbox_workdir=sandbox_workdir, security_policy=security_policy,
             rate_limit=(agent_config or {}).get("rate_limit"),
             circuit=(agent_config or {}).get("circuit"),
+            on_tool_event=on_tool_event,
         )
 
         return build_tao_graph(

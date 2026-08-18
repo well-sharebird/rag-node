@@ -356,14 +356,22 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                             if not choices:
                                 continue
                             delta = choices[0].get("delta") or {}
-                            # 标准 OpenAI 流用 content 字段；
-                            # 部分本地/推理模型（如 Qwen）把输出放在 reasoning 字段
-                            content = delta.get("content")
-                            if not content:
-                                content = delta.get("reasoning")
-                            if content:
+                            # 标准 OpenAI 流用 content 字段（最终答案）；推理模型
+                            # （如 Qwen/deepseek-reasoner）把思考放在 reasoning_content
+                            # / reasoning 字段。两类分开产出并打标，使前端能把"思考过程"
+                            # 与"最终答案"分开渲染（思考块走独立 reasoning 事件）。
+                            reason_text = delta.get("reasoning_content") or delta.get("reasoning")
+                            answer_text = delta.get("content")
+                            if reason_text and not answer_text:
                                 yield ChatGenerationChunk(
-                                    message=AIMessageChunk(content=content)
+                                    message=AIMessageChunk(
+                                        content=reason_text,
+                                        additional_kwargs={"reasoning": True},
+                                    )
+                                )
+                            if answer_text:
+                                yield ChatGenerationChunk(
+                                    message=AIMessageChunk(content=answer_text)
                                 )
                             # 工具调用片段（SSE 按 index 分片）：转成 langchain tool_call_chunks，
                             # think 节点合并 chunk 后 .tool_calls 即可得到完整调用并被 ToolNode 执行。

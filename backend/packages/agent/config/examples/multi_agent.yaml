@@ -1,0 +1,94 @@
+# 多 Agent 配置示例
+# 适用于复杂任务，需要多个子 Agent 协作
+
+id: "research-agent-001"
+name: "研究助手"
+version: "1.0.0"
+description: "用于复杂研究任务的多 Agent 系统"
+
+agent_type: "supervisor"
+run_mode: "parallel"
+
+model:
+  provider: "deepseek"
+  model: "deepseek-v4"
+  temperature: 0.5
+  max_tokens: 4000
+
+system_prompt: |
+  你是一个研究任务的编排者。
+  根据用户需求，合理分配给子 Agent 执行。
+  最后综合所有子 Agent 的结果，给出完整回答。
+
+main_agent:
+  orchestrator_prompt: |
+    你是研究任务的编排主 Agent。
+    分析用户需求，制定研究计划，分配给子 Agent 执行。
+    输出 JSON 格式的执行计划。
+  
+  aggregate_prompt: |
+    综合以下子 Agent 的研究结果，撰写一份完整的研究报
+    告。
+    
+    子 Agent 结果：
+    {results}
+    
+    要求：
+    1. 结构清晰，逻辑连贯
+    2. 引用各子 Agent 的关键发现
+    3. 给出综合性的结论和建议
+
+  sub_agents:
+    - id: "search-agent"
+      task_prompt: "负责网络搜索，收集相关信息"
+      tools_whitelist: ["web_search", "crawl_page"]
+      timeout_seconds: 60
+    
+    - id: "analysis-agent"
+      task_prompt: "负责分析收集到的信息，提取关键点"
+      tools_whitelist: ["text_analysis", "summarize"]
+      timeout_seconds: 90
+    
+    - id: "writing-agent"
+      task_prompt: "负责撰写最终报告"
+      tools_whitelist: ["file_write", "format_document"]
+      timeout_seconds: 120
+
+tools:
+  - name: "web_search"
+    enabled: true
+    permission_mode: "auto"
+  - name: "crawl_page"
+    enabled: true
+    permission_mode: "auto"
+  - name: "text_analysis"
+    enabled: true
+    permission_mode: "auto"
+  - name: "summarize"
+    enabled: true
+    permission_mode: "auto"
+  - name: "file_write"
+    enabled: true
+    permission_mode: "hitl"
+  - name: "format_document"
+    enabled: true
+    permission_mode: "auto"
+
+tao_loop:
+  max_iterations: 15
+  enable_think: true
+  enable_act: true
+  enable_observe: true
+
+security:
+  sandbox_type: "nsjail"
+  network_enabled: true
+  max_memory_mb: 1024
+  timeout_seconds: 60
+
+runtime:
+  timeout_seconds: 600
+  recursion_limit: 50
+  enable_streaming: true
+  enable_checkpointer: true
+  redact_pii: true

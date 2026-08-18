@@ -83,7 +83,7 @@ class GraphRuntime:
             delay_seconds=self.config.retry_delay_seconds,
         )
 
-    # ---------------- 执行（批量 / 流式）----------------
+    # ---------------- 执行（批量）----------------
     async def execute(self, graph, state: dict, thread_id: str, run_id: Optional[str] = None,
                       callbacks: Optional[list] = None) -> ExecutionResult:
         """批量执行给定编译图：上下文压缩 + 重试 + 硬超时。"""
@@ -110,32 +110,6 @@ class GraphRuntime:
             return ExecutionResult.error(
                 str(e), int((datetime.utcnow() - start).total_seconds() * 1000),
                 error=e, metadata={"run_id": run_id})
-
-    async def execute_stream(self, graph, state: dict, thread_id: str, run_id: Optional[str] = None,
-                             stream_mode: str = "messages", callbacks: Optional[list] = None):
-        """流式执行给定编译图（事件契约：token/complete/error）。"""
-        run_id = run_id or str(uuid4())
-        config = self._build_config(thread_id, run_id, callbacks)
-        try:
-            async for event in graph.astream(state, config=config, stream_mode=stream_mode):
-                yield self._format_execution_event(event, run_id)
-            yield {"type": "complete", "run_id": run_id}
-        except Exception as e:
-            logger.exception("流式执行失败 | run=%s", run_id)
-            yield {"type": "error", "run_id": run_id, "error": str(e)}
-
-    @staticmethod
-    def _format_execution_event(event, run_id: str) -> dict:
-        from langchain_core.messages import BaseMessage, AIMessage
-        if isinstance(event, AIMessage):
-            return {"type": "token", "run_id": run_id, "content": event.content or ""}
-        if isinstance(event, BaseMessage):
-            return {"type": "token", "run_id": run_id, "content": getattr(event, "content", str(event)) or ""}
-        if isinstance(event, dict):
-            return {"type": event.get("type", "unknown"), "run_id": run_id, **event}
-        if hasattr(event, "type"):
-            return {"type": event.type, "run_id": run_id, "data": event}
-        return {"type": "token", "run_id": run_id, "content": str(event)}
 
     # ---------------- 状态 / 断点 / 中断（时间旅行 + HITL）----------------
     async def get_state(self, graph, thread_id: str) -> Optional[dict]:

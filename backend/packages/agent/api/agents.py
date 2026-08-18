@@ -38,6 +38,7 @@ from packages.agent.schemas.chat import (
 )
 from packages.agent.services.agent_config_service import AgentConfigService
 from packages.agent.services.agent_builder_service import AgentBuilderService
+from packages.agent.schemas.stream import ev_done, ev_error, serialize_stream_event
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
@@ -333,7 +334,7 @@ async def execute_agent_unified_stream(
     current_user: User = Depends(get_current_user),
 ):
     """
-    流式执行入口 (SSE) - Harness 架构
+    流式执行入口 (SSE) - Phase 7 集成架构
 
     支持：
     - Harness 自主决策 (不传 agent_id)
@@ -341,31 +342,65 @@ async def execute_agent_unified_stream(
     - 多 Agent 协作调度
     - RAG 检索增强
     - 实时 token 流式返回
+    - 事件驱动扩展
+    - 服务容器管理
+    - 统一错误处理
+    - 完整可观测性
+    - 热更新能力
     """
     from sse_starlette.sse import EventSourceResponse
-    import json
 
     async def event_generator():
         try:
-            # 统一由主 Agent 调度（一切请求走 OrchestratorRuntime）
-            from packages.agent.orchestrator.graph import OrchestratorRuntime
+            # Phase 7: 使用 ExecutionOrchestrator 包装 OrchestratorRuntime
+            from packages.agent.integration.execution_chain import create_execution_orchestrator
 
-            rt = OrchestratorRuntime(db, model_name=data.model_name, user_id=current_user.id)
-            # orchestrator 字段语义：是否允许主 Agent 派生子 Agent（不传=允许自主）
-            allow_sub = True if data.orchestrator is None else bool(data.orchestrator)
-            async for event in rt.run_stream(
-                query=data.query,
-                main_prompt=data.main_prompt,
-                run_mode="serial",
+            # 创建编排器（包装 OrchestratorRuntime，添加横切关注点支持）
+            orchestrator = create_execution_orchestrator(
+                db=db,  # 传入数据库会话
                 user_id=current_user.id,
-                allow_sub_agents=allow_sub,
-                session_id=data.session_id,
-            ):
-                if event:
-                    yield json.dumps(event, ensure_ascii=False)
-            yield json.dumps({"type": "done"})
+                model_name=data.model_name or "qwen3.5-397b-a17b"
+            )
+            
+            # 启动优化系统（事件总线、服务容器、错误处理、可观测性、热更新）
+            await orchestrator.start()
+            
+            try:
+                # 执行流式请求（委托给 OrchestratorRuntime 执行业务逻辑）
+                async for event in orchestrator.execute_stream(
+                    query=data.query,
+                    main_prompt=data.main_prompt,
+                    run_mode="serial",
+                    allow_sub_agents=True if data.orchestrator is None else bool(data.orchestrator),
+                    session_id=data.session_id,
+                    agent_id=data.agent_id,
+                ):
+                    if event:
+                        yield serialize_stream_event(event)
+                # 干净停顿语义 + 运行验收单：不再只发裸 done，带上终止原因/轮数/工具/产物文件
+                metrics = getattr(orchestrator.runtime, "_run_metrics", None) or {}
+                yield serialize_stream_event(ev_done(
+                    reason=metrics.get("reason", "completed"),
+                    rounds=metrics.get("rounds", 0),
+                    tools_used=list(metrics.get("tools", [])),
+                    files=metrics.get("files", []),
+                ))
+            finally:
+                # 停止优化系统
+                await orchestrator.stop()
+                
         except Exception as e:
-            yield json.dumps({"type": "error", "error": str(e)})
+            # 统一错误处理（Phase 5）
+            from packages.agent.errors.types import AgentError
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Execute stream error: {e}", exc_info=True)
+            
+            yield serialize_stream_event(ev_error(
+                error=str(e),
+                error_code=getattr(e, "code", "unknown"),
+                error_category=getattr(e, "category", "unknown"),
+            ))
 
     return EventSourceResponse(event_generator())
 

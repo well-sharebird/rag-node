@@ -9,7 +9,21 @@ import { SourcePanel } from '@/src/components/SourcePanel';
 import { cn } from '@/lib/utils';
 import { submitFeedback, createConversation, addMessageToConversation } from '@/lib/api-client';
 import { getApiUrl } from '@/src/lib/env';
-import { ChatMessageList, type ChatMessage as ChatMessageType } from '@/src/components/ChatMessageList';
+import { ChatMessageList, type ChatMessage as ChatMessageType, type Step, type RunSummary } from '@/src/components/ChatMessageList';
+import {
+  isAgentSelected,
+  isApprovalRequired,
+  isCitations,
+  isComplete,
+  isDone,
+  isErrorEvent,
+  isOrchestratorPlan,
+  isReasoning,
+  isSubAgent,
+  isToken,
+  isToolEvent,
+  type AgentStreamEvent,
+} from '@/src/api/stream-events';
 import { Modal } from '@/src/components/enterprise/Modal';
 
 interface Citation {
@@ -29,12 +43,30 @@ interface ChatMessageSource {
   chunk_id?: string;
 }
 
+interface ToolEventFile {
+  filename: string;
+  relative_path: string;
+}
+
+interface ToolCall {
+  tool: string;
+  status: 'running' | 'success' | 'error' | 'denied' | 'limited' | 'circuit' | 'blocked';
+  input?: Record<string, unknown>;
+  result?: string;
+  files?: ToolEventFile[];
+  sandbox?: string;
+  collapsed?: boolean;
+}
+
 interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   reasoning?: string;
   showReasoning?: boolean;
   sources?: ChatMessageSource[];
+  toolEvents?: ToolCall[];
+  steps?: Step[];
+  runSummary?: RunSummary;
   messageId?: string;
   isStreaming?: boolean;
 }
@@ -360,6 +392,16 @@ export function QAChatView() {
       let accumulatedReasoning = '';
       let sources: Citation[] = [];
       let messageId = assistantMsgId;
+      // 线性时间线：按事件到达顺序累积（思考/工具/总结），替代按类型聚合
+      const steps: Step[] = [];
+      let round = 0;
+      const patchSteps = () => {
+        flushSync(() => {
+          setMessages(prev => prev.map(msg =>
+            msg.messageId === messageId ? { ...msg, steps: [...steps] } : msg
+          ));
+        });
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -376,15 +418,15 @@ export function QAChatView() {
             if (data.startsWith('[DEBUG:')) continue;
 
             try {
-              const parsed = JSON.parse(data);
+              const ev = JSON.parse(data) as AgentStreamEvent;
 
               // 编排状态事件（主从编排进度反馈；不渲染则安全忽略）
-              if (parsed.type === 'orchestrator_plan') {
+              if (isOrchestratorPlan(ev)) {
                 setOrchestratorStatus('编排中…');
                 continue;
               }
-              if (parsed.type === 'sub_agent' && parsed.data) {
-                const sd = parsed.data;
+              if (isSubAgent(ev) && ev.data) {
+                const sd = ev.data;
                 setOrchestratorStatus(
                   sd.status === 'done'
                     ? `子Agent「${sd.sub_agent_id}」完成`
@@ -392,16 +434,16 @@ export function QAChatView() {
                 );
                 continue;
               }
-              if (parsed.type === 'agent_selected' && parsed.agent_name) {
+              if (isAgentSelected(ev) && ev.agent_name) {
                 // 指定智能体接管提示（不强制展示，token 仍正常）
-                setOrchestratorStatus(`智能体「${parsed.agent_name}」为您服务`);
+                setOrchestratorStatus(`智能体「${ev.agent_name}」为您服务`);
                 continue;
               }
               // 人工审批需求（HITL）→ 弹窗。pending 项补上 sub_agent_id/thread_id 定位信息，
               // 用于批准后调 /approvals/{id}/resume 从断点续跑。
-              if (parsed.type === 'approval_required' && parsed.data?.pending) {
-                const subAgentId = parsed.data?.sub_agent_id;
-                const next = (parsed.data.pending as any[]).map((p: any) => ({
+              if (isApprovalRequired(ev) && ev.data?.pending) {
+                const subAgentId = ev.data?.sub_agent_id;
+                const next = ev.data.pending.map((p: any) => ({
                   ...p,
                   sub_agent_id: p?.sub_agent_id || subAgentId,
                 }));
@@ -410,24 +452,109 @@ export function QAChatView() {
                 continue;
               }
 
-              // Handle Agent API stream format: {"type": "token", "content": "..."}
-              if (parsed.type === 'token' && parsed.content) {
-                accumulatedContent += parsed.content;
+              // 工具调用链事件（tool_event）：实时渲染"哪个工具在跑/结果/产物文件"
+              if (isToolEvent(ev) && ev.data) {
+                const te = ev.data;
+                const tc: ToolCall = {
+                  tool: te.tool,
+                  status: te.phase === 'start' ? 'running' : (te.status || 'success'),
+                  input: te.input,
+                  result: te.result,
+                  files: te.files,
+                  sandbox: te.sandbox,
+                };
                 flushSync(() => {
                   setMessages(prev => prev.map(msg =>
                     msg.messageId === messageId
-                      ? { ...msg, content: accumulatedContent }
+                      ? {
+                          ...msg,
+                          toolEvents: (() => {
+                            const list = msg.toolEvents ? [...msg.toolEvents] : [];
+                            if (te.phase === 'start') {
+                              list.push(tc);
+                            } else {
+                              // done：优先更新同名 running 条目，其次同名已结束条目，否则追加
+                              const runIdx = list.findIndex(t => t.tool === te.tool && t.status === 'running');
+                              const anyIdx = list.findIndex(t => t.tool === te.tool);
+                              const at = runIdx >= 0 ? runIdx : anyIdx;
+                              if (at >= 0) list[at] = { ...list[at], ...tc };
+                              else list.push({ ...tc });
+                            }
+                            return list;
+                          })(),
+                        }
+                      : msg
+                  ));
+                });
+                // 线性时间线：工具步骤。start 推新 step，done 回填对应 step
+                if (te.phase === 'start') {
+                  steps.push({ kind: 'tool', tool: te.tool, status: 'running', input: te.input });
+                } else {
+                  const status = te.status || 'success';
+                  let tIdx = -1;
+                  for (let k = steps.length - 1; k >= 0; k--) {
+                    const s = steps[k];
+                    if (s.kind === 'tool' && s.tool === te.tool) { tIdx = k; break; }
+                  }
+                  const toolStep = { kind: 'tool' as const, tool: te.tool, status, result: te.result, files: te.files, sandbox: te.sandbox, input: te.input };
+                  if (tIdx >= 0) steps[tIdx] = toolStep;
+                  else steps.push(toolStep);
+                }
+                patchSteps();
+                continue;
+              }
+
+              // Handle reasoning (thinking process) - 独立于答案渲染成思考块
+              if (isReasoning(ev) && ev.content) {
+                accumulatedReasoning += ev.content;
+                const lastR = steps[steps.length - 1];
+                if (lastR && lastR.kind === 'reasoning') {
+                  lastR.content += ev.content;
+                } else {
+                  round += 1;
+                  steps.push({ kind: 'reasoning', round, content: ev.content, show: false });
+                }
+                flushSync(() => {
+                  setMessages(prev => prev.map(msg =>
+                    msg.messageId === messageId
+                      ? { ...msg, reasoning: accumulatedReasoning, showReasoning: true, steps: [...steps] }
                       : msg
                   ));
                 });
                 continue;
               }
 
-              // Handle done event
-              if (parsed.type === 'done') {
+              // Handle Agent API stream format: {"type": "token", "content": "..."}
+              if (isToken(ev) && ev.content) {
+                accumulatedContent += ev.content;
+                const lastA = steps[steps.length - 1];
+                if (lastA && lastA.kind === 'answer') {
+                  lastA.content += ev.content;
+                } else {
+                  steps.push({ kind: 'answer', content: ev.content });
+                }
+                flushSync(() => {
+                  setMessages(prev => prev.map(msg =>
+                    msg.messageId === messageId
+                      ? { ...msg, content: accumulatedContent, steps: [...steps] }
+                      : msg
+                  ));
+                });
+                continue;
+              }
+
+              // Handle done event — 干净停顿语义 + 运行验收单
+              if (isDone(ev)) {
+                const d = ev.data;
+                const runSummary: RunSummary | undefined = d ? {
+                  reason: d.reason === 'max_iterations' ? 'max_iterations' : 'completed',
+                  rounds: d.rounds ?? 0,
+                  toolsUsed: d.tools_used ?? [],
+                  files: (d.files ?? []) as RunSummary['files'],
+                } : undefined;
                 setMessages(prev => prev.map(msg =>
                   msg.messageId === messageId
-                    ? { ...msg, isStreaming: false }
+                    ? { ...msg, isStreaming: false, ...(runSummary ? { runSummary } : {}) }
                     : msg
                 ));
                 setLoading(false);
@@ -445,14 +572,14 @@ export function QAChatView() {
               }
 
               // Handle error event - 只在没有收到任何内容时才删除消息
-              if (parsed.type === 'error' && parsed.error) {
+              if (isErrorEvent(ev) && ev.error) {
                 // 如果已经有内容了，说明是后续的错误（如 checkpoint 保存失败），不删除消息
                 if (accumulatedContent.trim().length === 0) {
-                  toast.error(parsed.error);
+                  toast.error(ev.error);
                   setMessages(prev => prev.filter(msg => msg.messageId !== messageId));
                 } else {
                   // 已经有成功内容，只显示 toast 警告，不删除消息
-                  console.warn('Stream completed with content, but got trailing error:', parsed.error);
+                  console.warn('Stream completed with content, but got trailing error:', ev.error);
                   setMessages(prev => prev.map(msg =>
                     msg.messageId === messageId
                       ? { ...msg, isStreaming: false }
@@ -465,14 +592,14 @@ export function QAChatView() {
               }
 
               // Handle complete event (Meta Agent 执行完成)
-              if (parsed.type === 'complete') {
+              if (isComplete(ev)) {
                 // 只是标记完成，不改变 UI
                 continue;
               }
 
               // Handle custom citations event (sent before streaming)
-              if (parsed.type === 'citations' && parsed.citations) {
-                sources = parsed.citations;
+              if (isCitations(ev) && ev.citations) {
+                sources = ev.citations as typeof sources;
                 setMessages(prev => prev.map(msg =>
                   msg.messageId === assistantMsgId
                     ? { ...msg, sources }
@@ -490,6 +617,9 @@ export function QAChatView() {
                 });
                 continue;
               }
+
+              // Legacy / OpenAI 直连格式兜底（非 /execute/stream 协议，不纳入统一 schema）
+              const parsed = ev as any;
 
               // Handle OpenAI-style chat.completion.chunk (fallback for direct LLM calls)
               if (parsed.object === 'chat.completion.chunk' && parsed.choices) {
@@ -934,6 +1064,9 @@ export function QAChatView() {
           reasoning: m.reasoning,
           showReasoning: m.showReasoning,
           sources: m.sources,
+          toolEvents: m.toolEvents,
+          steps: m.steps,
+          runSummary: m.runSummary,
           isStreaming: m.isStreaming,
         }))}
         loading={loading}
@@ -941,6 +1074,20 @@ export function QAChatView() {
           setMessages(prev => prev.map(m =>
             m.messageId === messageId
               ? { ...m, showReasoning: m.showReasoning === false }
+              : m
+          ));
+        }}
+        onStepToggle={(messageId, stepIndex) => {
+          setMessages(prev => prev.map(m =>
+            m.messageId === messageId && m.steps && m.steps[stepIndex] && m.steps[stepIndex].kind === 'reasoning'
+              ? {
+                  ...m,
+                  steps: m.steps.map((s, si) =>
+                    si === stepIndex && s.kind === 'reasoning'
+                      ? { ...s, show: s.show === false }
+                      : s
+                  ),
+                }
               : m
           ));
         }}

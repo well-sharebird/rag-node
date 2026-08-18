@@ -27,6 +27,7 @@ class AgentCreate(BaseModel):
     retrieval_enabled: Optional[bool] = False
     multi_agent_config: Optional[dict] = None
     security_policy: Optional[dict] = None
+    sandbox_policy: Optional[dict] = None
     is_public: Optional[bool] = Field(False, description="是否公开分享到广场")
 
 
@@ -47,6 +48,7 @@ class AgentUpdate(BaseModel):
     retrieval_enabled: Optional[bool] = None
     multi_agent_config: Optional[dict] = None
     security_policy: Optional[dict] = None
+    sandbox_policy: Optional[dict] = None
     is_public: Optional[bool] = None
     changelog: Optional[str] = None  # 版本更新说明
 

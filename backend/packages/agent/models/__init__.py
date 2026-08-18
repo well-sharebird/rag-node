@@ -51,6 +51,14 @@ from packages.agent.models.session import (
     AgentSessionMessage,
     AgentSessionCheckpoint,
 )
+
+# Event 事件溯源模型 (新增)
+from packages.agent.models.event import (
+    AgentEvent,
+    AgentEventType,
+    AgentEventStream,
+)
+
 from packages.agent.models.permission import PermissionRequest
 
 __all__ = [
@@ -85,6 +93,11 @@ __all__ = [
     "AgentSession",
     "AgentSessionMessage",
     "AgentSessionCheckpoint",
+
+    # Event (新增)
+    "AgentEvent",
+    "AgentEventType",
+    "AgentEventStream",
 
     # Permission (新增)
     "PermissionRequest",

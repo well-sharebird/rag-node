@@ -4,6 +4,36 @@ import { Bot, User, Loader2, Brain, ChevronDown, ChevronRight, BookOpen } from '
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/src/components/MarkdownRenderer';
 
+export interface ToolCallFile {
+  filename: string;
+  relative_path: string;
+}
+
+export interface ToolCall {
+  tool: string;
+  status: 'running' | 'success' | 'error' | 'denied' | 'limited' | 'circuit' | 'blocked';
+  input?: Record<string, unknown>;
+  result?: string;
+  files?: ToolCallFile[];
+  sandbox?: string;
+}
+
+export type ToolStatus = ToolCall['status'];
+
+/** 线性时间线步骤：思考/工具/总结，按执行时序排列 */
+export type Step =
+  | { kind: 'reasoning'; round: number; content: string; show?: boolean }
+  | { kind: 'tool'; tool: string; status: ToolStatus; input?: Record<string, unknown>; result?: string; files?: ToolCallFile[]; sandbox?: string }
+  | { kind: 'answer'; content: string };
+
+/** 运行验收单：干净停顿语义 + 本次运行产物汇总（来自流末 done 事件） */
+export interface RunSummary {
+  reason: 'completed' | 'max_iterations' | 'interrupted';
+  rounds: number;
+  toolsUsed: string[];
+  files: ToolCallFile[];
+}
+
 export interface ChatMessage {
   id?: string;
   role: 'user' | 'assistant';
@@ -16,8 +46,201 @@ export interface ChatMessage {
     doc_id?: string;
     chunk_id?: string;
   }>;
+  toolEvents?: ToolCall[];
+  steps?: Step[];
+  runSummary?: RunSummary;
   timestamp?: string;
   isStreaming?: boolean;
+}
+
+const TOOL_STATUS_LABEL: Record<ToolCall['status'], string> = {
+  running: '运行中',
+  success: '完成',
+  error: '失败',
+  denied: '已拒绝',
+  limited: '限流',
+  circuit: '熔断',
+  blocked: '安全拦截',
+};
+
+/** 状态圆点颜色：成功绿、运行紫脉冲、错误/拒绝/拦截红、限流琥珀、熔断橙 */
+const TOOL_STATUS_COLOR: Record<ToolCall['status'], string> = {
+  running: '#9b6bff',
+  success: '#22c55e',
+  error: '#ef4444',
+  denied: '#ef4444',
+  blocked: '#ef4444',
+  limited: '#f59e0b',
+  circuit: '#f97316',
+};
+
+function ToolStepCard({ tool, status, input, result, files, sandbox }: {
+  tool: string;
+  status: ToolStatus;
+  input?: Record<string, unknown>;
+  result?: string;
+  files?: ToolCallFile[];
+  sandbox?: string;
+}) {
+  return (
+    <div
+      className="rounded-lg px-3 py-2 text-[12px]"
+      style={{ background: '#f6f7f8', border: '0.5px solid #e5e5e5' }}
+    >
+      <div className="flex items-center gap-2">
+        {status === 'running' ? (
+          <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: TOOL_STATUS_COLOR.running }} />
+        ) : (
+          <span className="inline-block w-2 h-2 rounded-full" style={{ background: TOOL_STATUS_COLOR[status] || '#ef4444' }} />
+        )}
+        <span className="font-medium" style={{ color: '#333' }}>{tool}</span>
+        <span className="text-[11px]" style={{ color: '#9b9b9b' }}>
+          {TOOL_STATUS_LABEL[status]} {sandbox ? `· ${sandbox}` : ''}
+        </span>
+      </div>
+
+      {status === 'running' && (
+        <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: '#9b6bff' }}>
+          <span>工具执行中…</span>
+        </div>
+      )}
+
+      {result !== undefined && (
+        <pre
+          className="mt-1.5 rounded-md px-2.5 py-1.5 text-[11px] text-left overflow-auto max-h-32 whitespace-pre-wrap break-words"
+          style={{ background: '#fff', border: '0.5px solid #eee', color: '#444' }}
+        >
+          {result.length > 1200 ? `${result.slice(0, 1200)}\n…(已截断)` : result}
+        </pre>
+      )}
+
+      {files && files.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {files.map(f => (
+            <span
+              key={f.relative_path}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]"
+              style={{ background: '#eeedfe', color: '#534ab7' }}
+              title={`工作空间 ${f.relative_path}`}
+            >
+              {f.filename}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ThinkingBlock({ round, rounds, content, show, onToggle }: {
+  round: number;
+  rounds: number;
+  content: string;
+  show?: boolean;
+  onToggle?: () => void;
+}) {
+  return (
+    <div className="mb-1.5">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-1.5 text-[11px] font-medium hover:opacity-70 transition-opacity"
+        style={{ color: '#9b6bff' }}
+      >
+        <Brain className="w-3.5 h-3.5" />
+        {rounds > 1 ? `思考过程 · 第 ${round} 轮` : '思考过程'}
+        {show ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      </button>
+      {show && (
+        <div
+          className="rounded-lg px-3 py-2 text-[12px] leading-relaxed italic overflow-auto max-h-48"
+          style={{
+            background: '#f8f7ff',
+            borderLeft: '2px solid #9b6bff',
+            color: '#6b5b8a',
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCallChain({ tools }: { tools: ToolCall[] }) {
+  return (
+    <div className="mt-2 space-y-1.5">
+      {tools.map((tc, idx) => (
+        <ToolStepCard
+          key={`${tc.tool}_${idx}`}
+          tool={tc.tool}
+          status={tc.status}
+          input={tc.input}
+          result={tc.result}
+          files={tc.files}
+          sandbox={tc.sandbox}
+        />
+      ))}
+    </div>
+  );
+}
+
+const RUN_REASON_META: Record<RunSummary['reason'], { label: string; color: string; bg: string }> = {
+  completed: { label: '任务完成', color: '#16a34a', bg: '#f0fdf4' },
+  max_iterations: { label: '已达最大执行轮次，自动停止（可能未完成任务）', color: '#b45309', bg: '#fffbeb' },
+  interrupted: { label: '已中断', color: '#6b7280', bg: '#f3f4f6' },
+};
+
+/** 运行验收单：干净停顿语义 + 本次运行的工具/轮数/产物文件汇总 */
+function RunSummaryCard({ summary }: { summary: RunSummary }) {
+  const meta = RUN_REASON_META[summary.reason] || RUN_REASON_META.interrupted;
+  return (
+    <div
+      className="mt-2 rounded-lg px-3 py-2 text-[12px] leading-relaxed"
+      style={{ background: meta.bg, border: `0.5px solid ${meta.color}33` }}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block w-2 h-2 rounded-full shrink-0"
+          style={{ background: meta.color }}
+        />
+        <span className="font-medium" style={{ color: meta.color }}>{meta.label}</span>
+      </div>
+      <div className="mt-1.5 text-[11px]" style={{ color: '#6b7280' }}>
+        共 {summary.rounds ?? 0} 轮 · 使用 {summary.toolsUsed?.length ?? 0} 个工具
+      </div>
+      {summary.toolsUsed && summary.toolsUsed.length > 0 && (
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {summary.toolsUsed.map(t => (
+            <span
+              key={t}
+              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px]"
+              style={{ background: 'rgba(255,255,255,0.7)', color: '#444', border: '0.5px solid #e5e5e5' }}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      {summary.files && summary.files.length > 0 && (
+        <div className="mt-1.5">
+          <div className="text-[11px]" style={{ color: meta.color }}>产出文件</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {summary.files.map(f => (
+              <span
+                key={f.relative_path}
+                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]"
+                style={{ background: 'rgba(255,255,255,0.7)', color: '#534ab7', border: '0.5px solid #e5e5e5' }}
+                title={`工作空间 ${f.relative_path}`}
+              >
+                {f.filename}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface ChatMessageListProps {
@@ -25,6 +248,7 @@ interface ChatMessageListProps {
   loading?: boolean;
   showReasoningToggle?: boolean;
   onReasoningToggle?: (messageId: string) => void;
+  onStepToggle?: (messageId: string, stepIndex: number) => void;
   onSourceClick?: (sources: ChatMessage['sources']) => void;
   emptyState?: {
     icon?: React.ReactNode;
@@ -39,6 +263,7 @@ export function ChatMessageList({
   loading = false,
   showReasoningToggle = true,
   onReasoningToggle,
+  onStepToggle,
   onSourceClick,
   emptyState,
   className,
@@ -88,39 +313,71 @@ export function ChatMessageList({
                     : { background: '#fff', border: '0.5px solid #e2e1dd' }
                 }
               >
-                {/* Reasoning / Thinking Process Toggle */}
-                {msg.role === 'assistant' && msg.reasoning && showReasoningToggle && (
-                  <div className="mb-2">
-                    <button
-                      onClick={() => onReasoningToggle?.(msg.id || `msg_${i}`)}
-                      className="flex items-center gap-1.5 text-[11px] font-medium mb-1.5 hover:opacity-70 transition-opacity"
-                      style={{ color: '#9b6bff' }}
-                    >
-                      <Brain className="w-3.5 h-3.5" />
-                      {t('qa.reasoning')}
-                      {msg.showReasoning !== false ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                    </button>
-                    {msg.showReasoning !== false && (
-                      <div
-                        className="rounded-lg px-3 py-2 text-[12px] leading-relaxed italic overflow-auto max-h-48"
-                        style={{
-                          background: '#f8f7ff',
-                          borderLeft: '2px solid #9b6bff',
-                          color: '#6b5b8a',
-                          whiteSpace: 'pre-wrap',
-                        }}
-                      >
-                        {msg.reasoning}
+                {/* 线性时间线（首选）：思考 → 执行 → … → 总结，按事件到达顺序排列 */}
+                {msg.role === 'assistant' && msg.steps && msg.steps.length > 0 ? (
+                  <>
+                    {msg.steps.map((s, si) => {
+                      if (s.kind === 'reasoning') {
+                        return (
+                          <ThinkingBlock
+                            key={si}
+                            round={s.round}
+                            rounds={msg.steps!.filter(x => x.kind === 'reasoning').length}
+                            content={s.content}
+                            show={s.show}
+                            onToggle={() => onStepToggle?.(msg.id || `msg_${i}`, si)}
+                          />
+                        );
+                      }
+                      if (s.kind === 'tool') {
+                        return (
+                          <ToolStepCard key={si} tool={s.tool} status={s.status} input={s.input} result={s.result} files={s.files} sandbox={s.sandbox} />
+                        );
+                      }
+                      return <MarkdownRenderer key={si} content={s.content} />;
+                    })}
+                    {msg.runSummary && <RunSummaryCard summary={msg.runSummary} />}
+                  </>
+                ) : (
+                  <>
+                    {/* 兼容：无 steps 的聚合渲染（历史消息/直接回答） */}
+                    {msg.role === 'assistant' && msg.reasoning && showReasoningToggle && (
+                      <div className="mb-2">
+                        <button
+                          onClick={() => onReasoningToggle?.(msg.id || `msg_${i}`)}
+                          className="flex items-center gap-1.5 text-[11px] font-medium mb-1.5 hover:opacity-70 transition-opacity"
+                          style={{ color: '#9b6bff' }}
+                        >
+                          <Brain className="w-3.5 h-3.5" />
+                          {t('qa.reasoning')}
+                          {msg.showReasoning !== false ? (
+                            <ChevronDown className="w-3 h-3" />
+                          ) : (
+                            <ChevronRight className="w-3 h-3" />
+                          )}
+                        </button>
+                        {msg.showReasoning !== false && (
+                          <div
+                            className="rounded-lg px-3 py-2 text-[12px] leading-relaxed italic overflow-auto max-h-48"
+                            style={{
+                              background: '#f8f7ff',
+                              borderLeft: '2px solid #9b6bff',
+                              color: '#6b5b8a',
+                              whiteSpace: 'pre-wrap',
+                            }}
+                          >
+                            {msg.reasoning}
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
+                    {msg.role === 'assistant' && msg.toolEvents && msg.toolEvents.length > 0 && (
+                      <ToolCallChain tools={msg.toolEvents} />
+                    )}
+                    <MarkdownRenderer content={msg.content} />
+                  </>
                 )}
-                {/* Answer content */}
-                <MarkdownRenderer content={msg.content} />
+                {/* 来源引用（线性与聚合两种渲染共用） */}
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="mt-2 pt-2 flex flex-wrap gap-1.5" style={{ borderTop: '0.5px solid #e2e1dd' }}>
                     {msg.sources.map((s, j) => (

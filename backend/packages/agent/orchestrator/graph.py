@@ -32,6 +32,7 @@ from packages.agent.orchestrator.repositories import (
 )
 from packages.agent.orchestrator.graph_builder import AgentGraphBuilder
 from packages.agent.orchestrator.graph_runtime import GraphRuntime
+from packages.agent.schemas.stream import ev_tool
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,7 @@ class OrchestratorRuntime(GraphRuntime):
     def _build_agent_graph(self, llm: Any, tools: Optional[List[Any]] = None,
                            system_prompt: Optional[str] = None, max_iterations: int = 10,
                            on_token: Optional[Any] = None,
+                           on_tool_event: Optional[Any] = None,
                            security_policy: Optional[dict] = None,
                            checkpointer: Optional[Any] = None,
                            use_checkpointer: bool = False,
@@ -237,10 +239,39 @@ class OrchestratorRuntime(GraphRuntime):
         return self._graph_builder.build(
             llm=llm, tools=tools, system_prompt=system_prompt,
             max_iterations=max_iterations, on_token=on_token,
+            on_tool_event=on_tool_event,
             security_policy=security_policy, checkpointer=checkpointer,
             use_checkpointer=use_checkpointer, agent_config=agent_config,
             sandbox_workdir=sandbox_workdir,
         )
+
+    def _make_tool_event_cb(self):
+        """构造流向 run_stream 共享 sink 的 tool_event 回调；无活跃流时返回 None。
+
+        用独立 PII redactor 实例脱敏 result，避免与 token 流共用缓冲相互污染。
+        """
+        sink = getattr(self, "_stream_sink", None)
+        if sink is None:
+            return None
+        redactor = None
+        if getattr(self, "_tool_event_redactor", None) is not None:
+            from packages.agent.orchestrator.text_utils import make_pii_redactor
+            redactor = make_pii_redactor()
+
+        def _redact_str(v: str) -> str:
+            if redactor is None:
+                return v[:2000]
+            head = redactor.push(v) or ""
+            tail = redactor.flush() or ""
+            return (head + tail)[:2000]
+
+        async def on_tool_event(ev):
+            data = dict(ev.get("data") or {})
+            if isinstance(data.get("result"), str):
+                data["result"] = _redact_str(data["result"])
+            sink.put_nowait(ev_tool(data))
+
+        return on_tool_event
 
     # ---------------- 会话保存（记忆/Harness 5 大核心-记忆）----------------
     async def _save_conversation(self, user_id: int, session_id: Optional[str],
@@ -353,6 +384,7 @@ class OrchestratorRuntime(GraphRuntime):
             system_prompt=sub_system,
             max_iterations=max(1, cfg.max_step),
             security_policy=sub_security or None,
+            on_tool_event=self._make_tool_event_cb(),
             sandbox_workdir=sandbox_workdir,
             # HITL 断点续跑（#4）：带审批策略时启用 DB checkpointer，中断点在
             # 权限检查前保存断点；审批通过后按 thread_id 从断点续跑。
@@ -450,7 +482,9 @@ class OrchestratorRuntime(GraphRuntime):
         q: asyncio.Queue = asyncio.Queue()
 
         async def on_token(chunk):
-            q.put_nowait(chunk)
+            # 区分模型思考（打标 reasoning）与最终答案，前端可分别渲染
+            kind = "reasoning" if chunk.additional_kwargs.get("reasoning") else "content"
+            q.put_nowait((kind, getattr(chunk, "content", "") or ""))
 
         # 直答工具集：由主 Agent 配置白名单驱动（Phase 2），从注册表解析可用工具
         #（含 save_workspace_file 写文件能力 + 其他白名单内可用工具）。
@@ -493,6 +527,7 @@ class OrchestratorRuntime(GraphRuntime):
             agent_config=agent_config,
             max_iterations=10,
             on_token=on_token,
+            on_tool_event=self._make_tool_event_cb(),
             sandbox_workdir=sandbox_workdir,
         )
 
@@ -518,26 +553,26 @@ class OrchestratorRuntime(GraphRuntime):
         try:
             while True:
                 try:
-                    chunk = await asyncio.wait_for(q.get(), timeout=0.1)
-                    c = _redact(getattr(chunk, "content", "") or "")
+                    kind, raw = await asyncio.wait_for(q.get(), timeout=0.1)
+                    c = _redact(raw) or ""
                     if c:
-                        yield c
+                        yield (kind, c)
                 except asyncio.TimeoutError:
                     if gtask.done():
                         if not gtask.cancelled() and gtask.exception() is not None and \
                                 not isinstance(gtask.exception(), asyncio.CancelledError):
                             logger.warning("[Orchestrator] 直答图执行结束（含异常）: %s", gtask.exception())
                         while not q.empty():
-                            chunk = q.get_nowait()
-                            c = _redact(getattr(chunk, "content", "") or "")
+                            kind, raw = q.get_nowait()
+                            c = _redact(raw) or ""
                             if c:
-                                yield c
+                                yield (kind, c)
                         break
                     continue
             if redactor is not None:
                 tail = redactor.flush()
                 if tail:
-                    yield tail
+                    yield ("content", tail)
         finally:
             if not gtask.done():
                 gtask.cancel()
@@ -644,6 +679,7 @@ class OrchestratorRuntime(GraphRuntime):
         user_id: Optional[int] = None,
         allow_sub_agents: bool = True,
         session_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ):
         """主 Agent 统一调度流式入口（async generator）——一切请求由主 Agent 调度。
 
@@ -654,6 +690,9 @@ class OrchestratorRuntime(GraphRuntime):
 
         Args:
             allow_sub_agents: 是否允许主 Agent 派生子 Agent（False 时仅直接回答）
+            agent_id: 指定直接用某 Agent 配置执行（DB agent_configs 表），
+                而非默认主 Agent（config/default_main_agent/agent.yaml）。传入时
+                以该 Agent 的 system_prompt/tools_whitelist/sandbox_policy 为准。
         """
         from packages.agent.orchestrator.business_tools import ensure_business_tools
         from packages.agent.orchestrator.supervisor import build_supervisor_graph
@@ -663,12 +702,20 @@ class OrchestratorRuntime(GraphRuntime):
         if user_id is not None:
             self.user_id = user_id
 
-        # 主 Agent 配置化（Phase 2）：本地文件 soul/claude/agent.yaml 驱动；
+        # 主 Agent 配置化（Phase 2）：
+        # - 指定 agent_id（点选专属 Agent）→ 以 DB agent_configs 该 Agent 配置执行
+        # - 否则 → 本地文件 soul/claude/agent.yaml 驱动
         # API 显式传入 main_prompt 时作覆盖（兜底保持兼容）。
-        main_agent_cfg = self.loader.load_main_agent(
-            system_prompt=main_prompt or None,
-            tools=["save_workspace_file", "execute_code"],
-        )
+        if agent_id:
+            main_agent_cfg = await self.loader.load_sub_agent(agent_id)
+            # 指定执行专属 Agent 时默认不派生子 Agent（single 语义），除非显式开启
+            if main_prompt:
+                main_agent_cfg.system_prompt = main_prompt
+        else:
+            main_agent_cfg = self.loader.load_main_agent(
+                system_prompt=main_prompt or None,
+                tools=["save_workspace_file", "execute_code"],
+            )
         main_prompt = main_agent_cfg.system_prompt or "你是通用助手，可协调多个子 Agent 完成任务。"
         redactor = make_pii_redactor()
 
@@ -705,6 +752,31 @@ class OrchestratorRuntime(GraphRuntime):
         cfg = {"configurable": {"thread_id": thread_id},
                "recursion_limit": getattr(self.config, "recursion_limit", None) or 25}
 
+        # 挂载共享 sink 与 PII redactor：子/直答图内的 tool_event 经 _make_tool_event_cb
+        # 汇入本流（主+子 Agent 工具调用链统一吃这条 SSE 流）
+        self._stream_sink = sink
+        self._tool_event_redactor = redactor
+        # 运行指标（验收单来源）：drain 时累计工具/产物，图完成后补轮数与终止原因
+        tools: set = set()
+        files: list = []
+
+        def _acc(ev):
+            if isinstance(ev, dict) and ev.get("type") == "tool_event":
+                d = ev.get("data") or {}
+                if d.get("phase") == "start" and d.get("tool"):
+                    tools.add(d["tool"])
+                elif d.get("phase") == "done":
+                    for f in (d.get("files") or []):
+                        rp = f.get("relative_path") if isinstance(f, dict) else None
+                        if rp and rp not in files:
+                            files.append(f)
+
+        def _emit(ev):
+            if ev is not None:
+                _acc(ev)
+                return ev
+            return None
+
         gtask = asyncio.create_task(supervisor.ainvoke(state, config=cfg))
         try:
             while True:
@@ -716,18 +788,27 @@ class OrchestratorRuntime(GraphRuntime):
                             break
                         exc = gtask.exception()
                         while not sink.empty():
-                            ev = sink.get_nowait()
+                            ev = _emit(sink.get_nowait())
                             if ev is not None:
                                 yield ev
                         if exc is not None:
                             logger.warning("[Orchestrator] 编排图异常: %s", exc)
                         break
                     continue
+                ev = _emit(ev)
                 if ev is not None:
                     yield ev
         finally:
-            if not gtask.done():
-                gtask.cancel()
+            try:
+                if not gtask.done():
+                    gtask.cancel()
+            finally:
+                try:
+                    await gtask
+                except Exception:
+                    pass
+                self._stream_sink = None
+                self._tool_event_redactor = None
 
         # 图完成后取终态做副作用（会话记忆 + 追踪）
         # gtask 被取消（正常中止路径）是预期内，静默回退；其余真实异常记审计日志而非无痕迹吞掉。
@@ -739,6 +820,14 @@ class OrchestratorRuntime(GraphRuntime):
             logger.warning("[Audit] 编排图终态获取异常，回退初始 state: %s", e, exc_info=True)
             final_state = state
         self._last_orchestrator_state = dict(final_state)
+        # 验收单指标：终止原因 + 轮数 + 工具 + 产物文件（供 /execute/stream 的 done 事件使用）
+        iteration = final_state.get("iteration") or 0
+        self._run_metrics = {
+            "reason": "max_iterations" if iteration >= 10 else "completed",
+            "rounds": iteration,
+            "tools": sorted(tools),
+            "files": files,
+        }
         final_answer = (final_state.get("final_answer") or "")[:500]
         sub_ids = [t.get("sub_agent_id", "") for t in (final_state.get("sub_tasks") or [])]
         intent = "direct_answer" if not sub_ids else "orchestrator"
