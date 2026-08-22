@@ -71,7 +71,8 @@ class SessionLog:
                     content = f"[reasoning] {reasoning}\n" + content
                 messages.append({"role": "assistant", "content": content})
             elif et == "tool/result":
-                messages.append({"role": "tool", "content": p.get("content", "")[:2000]})
+                # 保留完整内容，不截断
+                messages.append({"role": "tool", "content": p.get("content", "")})
         return messages
 
 

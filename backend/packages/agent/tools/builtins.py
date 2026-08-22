@@ -5,6 +5,7 @@
 - present_files: 展示输出文件
 - ask_clarification: 请求澄清
 - view_image: 查看图像
+- subagent_spawn: 调用子 Agent（编排专用）
 """
 import logging
 from typing import Any
@@ -117,6 +118,28 @@ def view_image(image_path: str) -> str:
         return f"Error reading image: {str(e)}"
 
 
+@tool
+async def subagent_spawn(agent_id: str, task_prompt: str) -> str:
+    """
+    调用子 Agent 执行特定任务（主编排器专用工具）。
+
+    Use this tool when:
+    - 需要将任务委派给专业子 Agent
+    - 需要多 Agent 协作完成复杂任务
+    - 需要并行/串行执行多个子任务
+
+    Args:
+        agent_id: 子 Agent 的唯一标识符（必须从可用子 Agent 列表中选择）
+        task_prompt: 给子 Agent 的具体任务描述
+
+    Returns:
+        子 Agent 执行结果（由编排器拦截并实际执行）
+    """
+    # 这个工具实际由编排器拦截处理，不会真正执行
+    # 返回占位符，实际结果由 orchestrator 执行子 Agent 后填充
+    return f"[子 Agent {agent_id} 执行中...]"
+
+
 def _get_mime_type(suffix: str) -> str:
     """Get MIME type for image file extension"""
     mime_types = {
@@ -141,4 +164,5 @@ async def get_basic_tools() -> list:
         present_files,
         ask_clarification,
         view_image,
+        subagent_spawn,
     ]

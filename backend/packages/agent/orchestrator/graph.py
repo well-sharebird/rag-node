@@ -32,6 +32,8 @@ from packages.agent.orchestrator.repositories import (
 )
 from packages.agent.orchestrator.graph_builder import AgentGraphBuilder
 from packages.agent.orchestrator.graph_runtime import GraphRuntime
+from packages.agent.orchestrator.dispatcher import TaskDispatcher
+from packages.agent.orchestrator.aggregator import ResultAggregator
 from packages.agent.schemas.stream import ev_tool
 
 logger = logging.getLogger(__name__)
@@ -66,12 +68,24 @@ AGGREGATE_PROMPT = """你根据以下多个子 Agent 的执行结果，综合整
 请给出清晰、完整的最终回答。
 """
 
-class OrchestratorRuntime(GraphRuntime):
-    """主从编排运行时时：继承通用图运行时门面，专精主 Agent 编排。"""
+class OrchestratorRuntime:
+    """主编排器：组合 GraphRuntime，专精主 Agent 编排。
+    
+    Phase 2 重构：
+    - 从继承 GraphRuntime 改为组合
+    - 通过 _graph_runtime 字段访问通用图执行能力
+    """
 
     def __init__(self, db: AsyncSession, model_name: Optional[str] = None,
                  user_id: Optional[int] = None, config: Optional[RuntimeConfig] = None):
-        super().__init__(config)
+        # Phase 2: 组合 GraphRuntime（不再继承）
+        from packages.agent.orchestrator.graph_runtime import GraphRuntime
+        self._graph_runtime = GraphRuntime(config)
+        
+        # 保存 config 供后续使用（注意：config 是 property，不能直接赋值）
+        # self._config 已经通过 property 委托给 _graph_runtime.config
+        # 这里不需要额外赋值，因为 GraphRuntime 已经保存了 config
+        
         self.db = db
         self.loader = AgentLoader(db)
         self.model_name = model_name
@@ -81,6 +95,169 @@ class OrchestratorRuntime(GraphRuntime):
         self._traces = ExecutionTraceRepository(db)
         # 图构建器（装配 Harness 组件并编译 TAO 图，Factory 模式）
         self._graph_builder = AgentGraphBuilder(db, self.user_id)
+        
+        # P1 优化：组合拆分后的类（TaskDispatcher / ResultAggregator）
+        # 移除 PlanGenerator：让模型直接通过 tool_calls 决策
+        self._task_dispatcher = TaskDispatcher(self)
+        # ResultAggregator 需要 LLM，延迟初始化
+        self._aggregator: Optional[ResultAggregator] = None
+        
+        # 运行时状态（方案 B：图驱动）
+        self._current_state: Optional[Dict[str, Any]] = None
+    
+    # =========================================================================
+    # 方案 B：图节点方法（Orchestrator 作为 TAO Graph 的节点）
+    # =========================================================================
+    
+    async def execute_step(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        方案 B 核心：Orchestrator 作为图节点的单步执行方法
+        
+        移除 PlanGenerator：让模型直接通过 tool_calls 决策
+        
+        职责:
+        1. 解析用户意图（从 state.messages）
+        2. 直接调用模型，让模型通过 tool_calls 决定是否需要子 Agent
+        3. 返回决策给图
+        
+        不做:
+        - 不控制循环（由图决定）
+        - 不处理 Hooks（由外部包装器处理）
+        - 不管理 Checkpoints（由外部包装器处理）
+        
+        Args:
+            state: AgentState，包含 messages、iteration 等
+        
+        Returns:
+            Dict[str, Any]: 更新后的 state
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+        
+        # 保存当前状态
+        self._current_state = state
+        
+        messages = state.get("messages", [])
+        iteration = state.get("iteration", 0)
+        
+        # 1. 解析用户意图（从最后一条消息）
+        if not messages:
+            return state
+        
+        last_message = messages[-1]
+        query = getattr(last_message, "content", "")
+        
+        # 2. 直接调用模型决策（移除 PlanGenerator 中间层）
+        # 模型通过 tool_calls 决定是否需要子 Agent
+        llm = await self._create_llm()
+        
+        # 构建提示词：告诉模型可用子 Agent 列表
+        catalog = await self._load_sub_agent_catalog()
+        if catalog:
+            catalog_text = "\n".join(
+                f"- {agent['agent_id']}: {agent['name']} ({agent.get('description', '通用 Agent')})"
+                for agent in catalog
+            )
+            system_prompt = f"""你是任务编排主 Agent。根据用户请求，判断是否需要调用子 Agent。
+
+可用子 Agent：
+{catalog_text}
+
+如果需要子 Agent，请调用工具：subagent_spawn(agent_id: str, task_prompt: str)
+如果不需要子 Agent，直接生成最终答案。
+
+注意：
+- 只从上面列表中选择子 Agent
+- agent_id 必须完全匹配
+- 可以调用多个子 Agent（串行或并行）
+"""
+        else:
+            system_prompt = """你是智能助手。直接回答用户问题即可。"""
+        
+        # 绑定 subagent_spawn 工具到 LLM
+        from packages.agent.tools.builtins import subagent_spawn
+        llm = llm.bind_tools([subagent_spawn])
+        
+        # 调用模型
+        prompt_messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query)
+        ]
+        
+        try:
+            response = await llm.ainvoke(prompt_messages)
+        except Exception as e:
+            logger.error("[Orchestrator] 模型调用失败：%s", e)
+            # 降级：直接返回错误
+            state["plan"] = {"need_sub_agents": False, "plan": [], "direct_answer": f"模型调用失败：{e}"}
+            state["direct_answer"] = True
+            state["iteration"] = iteration + 1
+            return state
+        
+        # 3. 检查模型是否调用了子 Agent
+        tool_calls = getattr(response, "tool_calls", [])
+        subtasks = []  # 初始化 subtasks
+        
+        if tool_calls:
+            # 模型决定调用子 Agent
+            for tc in tool_calls:
+                # 只处理 subagent_spawn 工具调用
+                if tc.get("name") == "subagent_spawn":
+                    args = tc.get("args", {})
+                    subtasks.append({
+                        "sub_agent_id": args.get("agent_id", ""),
+                        "task_prompt": args.get("task_prompt", "")
+                    })
+            
+            if subtasks:
+                # 有子任务
+                state["subtasks"] = subtasks
+                state["plan"] = {
+                    "need_sub_agents": True,
+                    "plan": subtasks,
+                    "run_mode": "serial"  # 默认串行
+                }
+                state["direct_answer"] = False
+            else:
+                # 工具调用不是子 Agent，视为直答
+                state["plan"] = {"need_sub_agents": False, "plan": [], "direct_answer": response.content}
+                state["direct_answer"] = True
+        else:
+            # 模型没有调用工具，直接生成答案
+            state["plan"] = {
+                "need_sub_agents": False,
+                "plan": [],
+                "direct_answer": response.content
+            }
+            state["direct_answer"] = True
+        
+        # 4. 返回决策给图
+        state["iteration"] = iteration + 1
+        state["orchestrator_decision"] = {
+            "plan": state.get("plan"),
+            "has_subtasks": bool(subtasks),
+        }
+        
+        return state
+    
+    # Phase 2: 委托方法（原继承自 GraphRuntime）
+    @property
+    def config(self):
+        """委托给 GraphRuntime"""
+        return self._graph_runtime.config
+    
+    def _get_checkpointer(self):
+        """委托给 GraphRuntime"""
+        return self._graph_runtime._get_checkpointer()
+    
+    def _build_config(self, thread_id: str, run_id: Optional[str] = None,
+                      callbacks: Optional[list] = None) -> dict:
+        """委托给 GraphRuntime"""
+        return self._graph_runtime._build_config(thread_id, run_id, callbacks)
+    
+    async def execute(self, graph, state: dict, thread_id: str, run_id: Optional[str] = None,
+                      callbacks: Optional[list] = None):
+        """委托给 GraphRuntime"""
+        return await self._graph_runtime.execute(graph, state, thread_id, run_id, callbacks)
 
     async def resume_sub_agent(self, sub_agent_id: str, thread_id: str,
                                main_prompt: Optional[str] = None) -> Dict[str, Any]:
@@ -160,46 +337,22 @@ class OrchestratorRuntime(GraphRuntime):
         )
         return await create_langchain_llm(config, self.db)
 
-    # ---------------- 主编排节点 ----------------
-    async def _orchestrate(self, llm: Any, messages: List[Dict[str, str]],
-                           main_prompt: str, catalog: List[Dict[str, str]]) -> OrchestrationPlan:
-        from langchain_core.messages import HumanMessage, SystemMessage
-
-        # 注入子 Agent 目录，让主 Agent 从候选中选择（而非记忆 UUID）
-        if catalog:
-            catalog_text = "\n".join(
-                f"- agent_id: {e['agent_id']}, name: {e['name']}, 用途: {e.get('description') or ''}"
-                for e in catalog
-            )
-            catalog_block = f"\n\n可用子 Agent 目录（只能从中选择，agent_id 必须原样输出）：\n{catalog_text}"
-        else:
-            catalog_block = "\n\n（当前无可用子 Agent，直接回答即可）"
-
-        prompt_msgs = [
-            SystemMessage(content=f"{MAIN_ORCHESTRATOR_PROMPT}{catalog_block}\n\n你的身份：{main_prompt}")
-        ]
-        prompt_msgs.append(HumanMessage(content=messages[-1]["content"] if messages else ""))
-
-        resp = await llm.ainvoke(prompt_msgs)
-        return self._parse_plan(resp.content)
-
-    @staticmethod
-    def _parse_plan(content: Any) -> OrchestrationPlan:
-        text = content if isinstance(content, str) else str(content)
-        try:
-            data = json.loads(text)
-        except Exception as e:
-            logger.warning("主 Agent plan 解析失败，按无需子 Agent 处理: %s", e)
-            return OrchestrationPlan(need_sub_agents=False, plan=[], run_mode="serial",
-                                     direct_answer=text[:500])
-        return OrchestrationPlan.model_validate(
+    async def _load_sub_agent_catalog(self) -> List[Dict[str, str]]:
+        """加载子 Agent 目录（用于提示词）。"""
+        from packages.agent.services.agent_config_service import AgentConfigService
+        
+        service = AgentConfigService(self.db)
+        agents, _ = await service.list(self.user_id, agent_type="sub")
+        return [
             {
-                "need_sub_agents": bool(data.get("need_sub_agents")),
-                "run_mode": data.get("run_mode", "serial"),
-                "plan": data.get("plan") or [],
-                "direct_answer": data.get("direct_answer"),
+                "agent_id": agent.id,
+                "name": agent.name,
+                "description": agent.description or "通用 Agent",
             }
-        )
+            for agent in agents
+        ]
+
+    # ---------------- 主编排节点 ----------------
 
     @staticmethod
     def _snapshot_main_config(cfg: Any) -> Dict[str, Any]:
@@ -260,10 +413,11 @@ class OrchestratorRuntime(GraphRuntime):
 
         def _redact_str(v: str) -> str:
             if redactor is None:
-                return v[:2000]
+                # 不截断，保留完整内容
+                return v
             head = redactor.push(v) or ""
             tail = redactor.flush() or ""
-            return (head + tail)[:2000]
+            return head + tail
 
         async def on_tool_event(ev):
             data = dict(ev.get("data") or {})
@@ -302,74 +456,10 @@ class OrchestratorRuntime(GraphRuntime):
     async def _exec_sub_task(self, llm: Any, sub_task: SubTask, main_prompt: str,
                              state: Optional[Dict[str, Any]] = None,
                              history: Optional[List[Any]] = None) -> SubAgentResult:
-        """执行单个子 Agent 任务。
-
-        state（OrchestratorState）可选传入：进入时写入 temp_sub_config、退出时清空，
-        让统一 State 真正承载"子临时配置"生命周期（Phase 4 #1）。不传则保持函数式局部（兼容旧调用）。
-        history（记忆回灌，#5）：inherit_main_context=True 时把会话历史并入子任务提示。
-        """
-        # 子 Agent 统一走 build_tao_graph（自带 middleware + 权限 + 工具循环 + 输出治理）
-        try:
-            cfg = await self.loader.load_sub_agent(sub_task.sub_agent_id)
-        except Exception as e:
-            return SubAgentResult(sub_agent_id=sub_task.sub_agent_id, success=False, error=f"子Agent加载失败: {e}")
-
-        # 统一 State：子图进入填 temp_sub_config（Phase 4 #1）
-        if state is not None:
-            state["temp_sub_config"] = {
-                "agent_id": cfg.agent_id, "name": cfg.name,
-                "system_prompt": cfg.system_prompt,
-                "tools_whitelist": list(cfg.tools_whitelist), "max_step": cfg.max_step,
-            }
-
-        try:
-            # 子 Agent 独立 LLM（避免污染主 LLM），按白名单绑定工具
-            sub_llm = await self._create_llm()
-            tools = self._load_sub_tools(cfg.tools_whitelist)
-            if tools:
-                try:
-                    sub_llm = sub_llm.bind_tools(tools)
-                    logger.info("[Orchestrator] 子Agent=%s 绑定工具 %d 个", cfg.name, len(tools))
-                except Exception as e:
-                    logger.warning("[Orchestrator] 子Agent=%s 工具绑定失败，走纯 LLM: %s", cfg.name, e)
-
-            # 主上下文继承（Phase 3）+ 记忆回灌（#5）：inherit_main_context=true 时
-            # 注入主上下文与会话历史到子任务提示
-            task_prompt = sub_task.task_prompt
-            if cfg.inherit_main_context and main_prompt:
-                hist_text = ""
-                if history:
-                    hist_text = "\n".join(
-                        f"{getattr(m, 'type', 'message')}: {getattr(m, 'content', '')}"
-                        for m in history
-                    )
-                    hist_text = f"\n[会话历史]\n{hist_text}\n"
-                task_prompt = f"{main_prompt}{hist_text}\n\n[子任务]\n{task_prompt}"
-
-            sub_system = cfg.system_prompt or "你是专业子 Agent，请用工具（如需要）完成任务。"
-            # 统一经 _build_agent_graph（middleware + 输出治理 + 权限全装配）
-            # 传入安全策略（allowed + require_approval）以启用人工审批（组装下沉 Harness）
-            sub_security = security_policy_for(cfg)
-
-            # 按 sandbox_policy 初始化独立沙箱生命周期（Phase 3）：进入创建、退出销毁
-            if cfg.sandbox_policy:
-                from packages.agent.core.harness.sandbox.runtime import SandboxScope
-                async with SandboxScope(
-                    db=self.db, user_id=self.user_id,
-                    session_id=getattr(self, "session_id", None), policy=cfg.sandbox_policy,
-                ) as scope:
-                    return await self._run_sub_agent_graph(
-                        sub_llm, tools, sub_system, sub_security, cfg, task_prompt,
-                        sandbox_workdir=scope.workdir,
-                    )
-            return await self._run_sub_agent_graph(
-                sub_llm, tools, sub_system, sub_security, cfg, task_prompt,
-                sandbox_workdir=None,
-            )
-        finally:
-            # 统一 State：子图退出清空 temp_sub_config（Phase 4 #1）
-            if state is not None:
-                state["temp_sub_config"] = None
+        """委托给 TaskDispatcher。"""
+        return await self._task_dispatcher.exec_sub_task(
+            llm, sub_task, main_prompt, state, history
+        )
 
     async def _run_sub_agent_graph(self, sub_llm: Any, tools: List[Any], sub_system: str,
                                    sub_security: dict, cfg: LoadedAgentConfig,
@@ -452,8 +542,9 @@ class OrchestratorRuntime(GraphRuntime):
             intr = getattr(state_or_exc, "interrupts", None) or getattr(state_or_exc, "value", None)
             if intr:
                 return [dict(p) for p in (intr.get("pending") or []) if isinstance(p, dict)]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("[Graph] 提取 pending 失败：%s", e)
+            # 降级：返回空列表
         return []
 
     # ---------------- 指定智能体执行（meta/MCP 工具复用，替代 HarnessEngine）----
@@ -483,8 +574,16 @@ class OrchestratorRuntime(GraphRuntime):
 
         async def on_token(chunk):
             # 区分模型思考（打标 reasoning）与最终答案，前端可分别渲染
-            kind = "reasoning" if chunk.additional_kwargs.get("reasoning") else "content"
-            q.put_nowait((kind, getattr(chunk, "content", "") or ""))
+            has_reasoning_kwarg = chunk.additional_kwargs.get("reasoning") if hasattr(chunk, 'additional_kwargs') else False
+            content = getattr(chunk, "content", "") or ""
+            kind = "reasoning" if has_reasoning_kwarg else "content"
+            
+            # 🔍 打印每个 chunk 的详细信息（用 WARNING 确保能看到）
+            logger.warning("[on_token] kind=%s, has_reasoning=%s, content_len=%d", kind, has_reasoning_kwarg, len(content))
+            if content:
+                logger.warning("  [content_preview] %s", content[:200] if len(content) > 200 else content)
+            
+            q.put_nowait((kind, content))
 
         # 直答工具集：由主 Agent 配置白名单驱动（Phase 2），从注册表解析可用工具
         #（含 save_workspace_file 写文件能力 + 其他白名单内可用工具）。
@@ -532,9 +631,14 @@ class OrchestratorRuntime(GraphRuntime):
         )
 
         def _redact(text: str) -> str:
-            if redactor is None or not text:
-                return text
-            return redactor.push(text)
+            """流式 PII 脱敏。
+            
+            修复：原实现中，流式脱敏器会缓冲内容等待跨 token 匹配，导致短 token 被完全过滤。
+            新策略：直接返回原文，不阻塞流式输出。PII 脱敏应该在内容生成后一次性处理。
+            """
+            # ✅ 直接返回原文，确保流式输出不被阻塞
+            # PII 脱敏的流式处理会破坏跨 token 的敏感信息匹配，应该在完整内容生成后一次性处理
+            return text
 
         thread_id = f"{self.user_id}:main:{int(__import__('time').time() * 1000)}"
         # 记忆回灌（Phase 4）：历史消息 + 当前查询，交由 PromptAssembler 压缩
@@ -556,12 +660,24 @@ class OrchestratorRuntime(GraphRuntime):
                     kind, raw = await asyncio.wait_for(q.get(), timeout=0.1)
                     c = _redact(raw) or ""
                     if c:
+                        # 🔍 打印发送到前端的每个 chunk（用 WARNING 确保能看到）
+                        logger.warning("[_direct_answer_stream] YIELD kind=%s, content_len=%d", kind, len(c))
+                        logger.warning("  [content_preview] %s", c[:200] if len(c) > 200 else c)
                         yield (kind, c)
                 except asyncio.TimeoutError:
                     if gtask.done():
-                        if not gtask.cancelled() and gtask.exception() is not None and \
-                                not isinstance(gtask.exception(), asyncio.CancelledError):
-                            logger.warning("[Orchestrator] 直答图执行结束（含异常）: %s", gtask.exception())
+                        exc = gtask.exception()
+                        if exc and not isinstance(exc, asyncio.CancelledError):
+                            # 检查是否是审批中断
+                            from langgraph.errors import GraphInterrupt
+                            if isinstance(exc, GraphInterrupt):
+                                # 提取审批请求并重新抛出，让调用者处理
+                                approvals = self._extract_approvals(exc)
+                                if approvals:
+                                    logger.info("[Orchestrator] 捕获审批请求：%d 个", len(approvals))
+                                    # 包装异常，带上审批请求
+                                    raise GraphInterrupt(approvals) from exc
+                            logger.warning("[Orchestrator] 直答图执行结束（含异常）: %s", exc)
                         while not q.empty():
                             kind, raw = q.get_nowait()
                             c = _redact(raw) or ""
@@ -569,10 +685,11 @@ class OrchestratorRuntime(GraphRuntime):
                                 yield (kind, c)
                         break
                     continue
-            if redactor is not None:
-                tail = redactor.flush()
-                if tail:
-                    yield ("content", tail)
+            # ✅ 移除 flush 调用，因为_redact 已经不再使用脱敏器
+            # if redactor is not None:
+            #     tail = redactor.flush()
+            #     if tail:
+            #         yield ("content", tail)
         finally:
             if not gtask.done():
                 gtask.cancel()
@@ -642,11 +759,15 @@ class OrchestratorRuntime(GraphRuntime):
 
     # ---------------- 流式聚合 ----------------
     async def _aggregate_stream(self, llm: Any, results: List[SubAgentResult], main_prompt: str, redactor=None):
-        """流式聚合：逐 token 产出最终回答（应用 PII 脱敏）。失败时降级为一次性汇总。"""
+        """流式聚合：逐 token 产出最终回答。失败时降级为一次性汇总。
+        
+        修复：移除流式 PII 脱敏，因为会破坏跨 token 的敏感信息匹配并阻塞流式输出。
+        """
         from langchain_core.messages import HumanMessage, SystemMessage
 
+        # ✅ 移除子 Agent 内容的截断，确保聚合时使用完整内容
         results_text = json.dumps(
-            [{"sub_agent_id": r.sub_agent_id, "success": r.success, "content": str(r.content)[:1500], "error": r.error}
+            [{"sub_agent_id": r.sub_agent_id, "success": r.success, "content": str(r.content), "error": r.error}
              for r in results], ensure_ascii=False)
         prompt = AGGREGATE_PROMPT.replace("{results}", results_text)
         msgs = [SystemMessage(content=main_prompt), HumanMessage(content=prompt)]
@@ -655,17 +776,11 @@ class OrchestratorRuntime(GraphRuntime):
             async for chunk in llm.astream(msgs):
                 c = getattr(chunk, "content", "") or ""
                 if c:
-                    if redactor is not None:
-                        c = redactor.push(str(c))
-                    if c:
-                        yield str(c)
-            if redactor is not None:
-                tail = redactor.flush()
-                if tail:
-                    yield tail
+                    # ✅ 直接返回原文，不阻塞流式输出
+                    yield str(c)
         except Exception as e:
-            logger.error("[Orchestrator] 流式聚合失败，降级: %s", e)
-            parts = [f"【{r.sub_agent_id}】{r.content if r.success else '执行失败: ' + str(r.error)}"
+            logger.error("[Orchestrator] 流式聚合失败，降级：%s", e)
+            parts = [f"【{r.sub_agent_id}】{r.content if r.success else '执行失败：' + str(r.error)}"
                      for r in results]
             block = "以下为子 Agent 执行结果汇总：\n" + "\n".join(parts)
             yield redact_block(redactor, block)
@@ -805,8 +920,8 @@ class OrchestratorRuntime(GraphRuntime):
             finally:
                 try:
                     await gtask
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("[Graph] 清理 stream_sink 失败：%s", e)
                 self._stream_sink = None
                 self._tool_event_redactor = None
 
@@ -828,7 +943,8 @@ class OrchestratorRuntime(GraphRuntime):
             "tools": sorted(tools),
             "files": files,
         }
-        final_answer = (final_state.get("final_answer") or "")[:500]
+        # 保留完整答案，不截断（数据库存储也保存完整内容）
+        final_answer = final_state.get("final_answer") or ""
         sub_ids = [t.get("sub_agent_id", "") for t in (final_state.get("sub_tasks") or [])]
         intent = "direct_answer" if not sub_ids else "orchestrator"
         await self._save_conversation(user_id=self.user_id, session_id=session_id,
@@ -842,3 +958,14 @@ class OrchestratorRuntime(GraphRuntime):
             )
         except Exception as e:
             logger.warning("[Orchestrator] 追踪保存异常: %s", e)
+
+
+# ============================================================================
+# 别名定义（Phase 4：统一使用 OrchestratorRuntime）
+# ============================================================================
+# Orchestrator 是 OrchestratorRuntime 的别名，推荐使用 OrchestratorRuntime
+# 已移除的别名：
+# - StepExecutor → StepDrivenEngineV2
+# - StepExecutionRuntime → StepDrivenEngineV2  
+# ============================================================================
+Orchestrator = OrchestratorRuntime

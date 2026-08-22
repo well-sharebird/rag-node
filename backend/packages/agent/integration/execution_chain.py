@@ -2,9 +2,9 @@
 执行链路集成：将 Phase 1-5 的优化系统集成到 /execute/stream
 
 设计模式：装饰器 (Decorator Pattern)
-- ExecutionOrchestrator 包装 OrchestratorRuntime
+- ExecutionOrchestrator 包装 Orchestrator
 - 提供横切关注点支持（事件/服务/错误/观测/热更新）
-- 业务逻辑仍由 OrchestratorRuntime 负责
+- 业务逻辑仍由 Orchestrator 负责
 """
 import asyncio
 import logging
@@ -61,14 +61,14 @@ class ExecutionOrchestrator:
     """
     执行链路编排器（装饰器）
     
-    包装 OrchestratorRuntime，提供横切关注点支持：
+    包装 Orchestrator，提供横切关注点支持：
     - 事件驱动扩展
     - 服务容器管理
     - 统一错误处理
     - 完整可观测性
     - 热更新能力
     
-    业务逻辑仍由 OrchestratorRuntime 负责
+    业务逻辑仍由 Orchestrator 负责
     """
     
     def __init__(self, db, user_id: int, model_name: str = "deepseek-v3"):
@@ -82,9 +82,12 @@ class ExecutionOrchestrator:
         # 包装现有的业务运行时（被装饰者）
         self._init_business_runtime()
         
-        # Step 执行门面（P0：Step/Turn 模型 + 结构化事件流 + 钩子 + 事件溯源）
-        from packages.agent.execution.runner import StepExecutionRuntime
-        self._step_runtime = None
+        # LLM 将在 execute_stream 中异步初始化（因为需要从数据库加载配置）
+        self._llm = None
+        
+        # Step 执行包装器（StepDrivenEngine：结构化事件流 + 钩子 + 检查点）
+        from packages.agent.execution.step_engine import StepDrivenEngine
+        self._step_runtime: Optional[StepDrivenEngine] = None
         self._execution_hooks = None  # 用户自定义钩子（P1）
     
     def _init_cross_cutting_systems(self):
@@ -108,21 +111,136 @@ class ExecutionOrchestrator:
         self.hot_reload.watch_config(self._on_config_reload)
     
     def _init_business_runtime(self):
-        """初始化业务运行时（延迟导入，避免循环依赖）"""
-        # 注意：这里不立即创建 OrchestratorRuntime，而是在 execute_stream 中按需创建
-        # 这样可以避免测试时的依赖问题
-        self._runtime = None
+        """初始化业务运行时（立即创建，Orchestrator 作为稳定的图节点编排器）"""
+        from packages.agent.orchestrator.graph import Orchestrator
+        self._runtime = Orchestrator(
+            db=self.db,
+            model_name=self.model_name,
+            user_id=self.user_id
+        )
+    
+    async def _create_llm(self, model_name: str):
+        """
+        根据模型名称从数据库动态加载配置并创建 LLM 实例
+        
+        Args:
+            model_name: 模型名称（如 "qwen3.5-397b-a17b"）
+        
+        Returns:
+            LLM 实例
+        
+        动态配置流程：
+        1. 从 ModelProvider 表查询匹配的供应商配置
+        2. 从 ModelRoutingRule 表查询路由规则
+        3. 使用配置创建 CompatibleChatModel 实例
+        """
+        from packages.agent.llm.compatible_llm import create_compatible_llm
+        
+        # 从数据库动态加载模型配置
+        provider_config = await self._load_model_config_from_db(model_name)
+        
+        if not provider_config:
+            # 降级：如果数据库中没有配置，使用默认配置
+            logger.warning("[ExecutionOrchestrator] Model config not found in DB, using default: %s", model_name)
+            provider_config = {
+                "base_url": f"http://1.181.141.96:6018/{model_name}/v1",
+                "api_key": "sk-no-key",
+                "temperature": 0.3,
+            }
+        
+        logger.info(
+            "[ExecutionOrchestrator] Creating LLM: %s (base_url=%s, provider=%s)",
+            model_name,
+            provider_config.get("base_url", "N/A"),
+            provider_config.get("provider_name", "N/A"),
+        )
+        
+        return create_compatible_llm(
+            model_name=model_name,
+            base_url=provider_config["base_url"],
+            api_key=provider_config.get("api_key", "sk-no-key"),
+            temperature=provider_config.get("temperature", 0.3),
+            max_tokens=None,  # 不限制输出长度
+        )
+    
+    async def _load_model_config_from_db(self, model_name: str) -> dict:
+        """
+        从数据库加载模型配置
+        
+        Args:
+            model_name: 模型名称
+        
+        Returns:
+            配置字典，包含 base_url, api_key, temperature 等
+        
+        查询逻辑：
+        1. 先查 ModelRoutingRule 匹配模型名称
+        2. 关联查询 ModelProvider 获取供应商配置
+        3. 返回合并后的配置
+        """
+        if not self.db:
+            return None
+        
+        try:
+            from sqlalchemy import select
+            from packages.model_gateway.models.model_gateway import ModelProvider, ModelRoutingRule
+            
+            # 查询路由规则（匹配模型名称）
+            stmt = (
+                select(ModelRoutingRule, ModelProvider)
+                .join(ModelProvider, ModelRoutingRule.provider_id == ModelProvider.id)
+                .where(
+                    ModelRoutingRule.match_conditions['models'].as_string().contains(model_name),
+                    ModelProvider.is_enabled == True,
+                )
+                .order_by(ModelRoutingRule.priority)
+                .limit(1)
+            )
+            
+            result = await self.db.execute(stmt)
+            row = result.first()
+            
+            if row:
+                routing_rule, provider = row[0], row[1]
+                
+                # 合并配置
+                config = {
+                    "provider_name": provider.name,
+                    "provider_code": provider.code,
+                    "base_url": provider.base_url,
+                    "api_key": provider.api_key,
+                    "temperature": 0.3,  # 默认温度，可从 provider.config 扩展
+                }
+                
+                # 如果有额外配置，合并
+                if provider.config:
+                    config.update(provider.config)
+                
+                logger.info(
+                    "[ExecutionOrchestrator] Loaded model config from DB: %s -> %s",
+                    model_name,
+                    provider.name,
+                )
+                
+                return config
+            else:
+                logger.warning(
+                    "[ExecutionOrchestrator] No matching routing rule found for model: %s",
+                    model_name,
+                )
+                return None
+                
+        except Exception as e:
+            logger.error(
+                "[ExecutionOrchestrator] Failed to load model config from DB: %s",
+                e,
+                exc_info=True,
+            )
+            return None
     
     @property
     def runtime(self):
-        """延迟创建 OrchestratorRuntime"""
-        if self._runtime is None:
-            from packages.agent.orchestrator.graph import OrchestratorRuntime
-            self._runtime = OrchestratorRuntime(
-                db=self.db,
-                model_name=self.model_name,
-                user_id=self.user_id
-            )
+        """获取业务运行时（Orchestrator，图驱动核心编排器）"""
         return self._runtime
     
     # ---- P0/P1/P2 执行框架透出（Step 门面能力） ----
@@ -223,14 +341,14 @@ class ExecutionOrchestrator:
         """
         流式执行（装饰器模式）
         
-        包装 OrchestratorRuntime.run_stream()，添加横切关注点支持：
+        包装 Orchestrator.run_stream()，添加横切关注点支持：
         - 事件发布
         - 指标记录
         - 分布式追踪
         - 审计日志
         - 错误处理
         
-        业务逻辑（Agent 调度、状态管理、RAG 等）仍由 OrchestratorRuntime 负责
+        业务逻辑（Agent 调度、状态管理、RAG 等）仍由 Orchestrator 负责
         """
         correlation_id = f"exec_{datetime.now().timestamp()}"
         start_time = datetime.utcnow()
@@ -274,43 +392,89 @@ class ExecutionOrchestrator:
                 },
             )
             
-            # 3. 委托给 StepExecutionRuntime（P0 执行模型）→ 内部再调用 OrchestratorRuntime.run_stream
-            #    StepExecutionRuntime 产出结构化 step/turn 事件、执行钩子、写入会话日志、保存检查点。
-            from packages.agent.execution.runner import StepExecutionRuntime
-            self._step_runtime = StepExecutionRuntime(
-                self.runtime, session_id=session_id,
-                user_id=self.user_id, agent_id=agent_id,
+            # 3. 初始化 LLM（异步从数据库加载配置）
+            if self._llm is None:
+                self._llm = await self._create_llm(self.model_name)
+            
+            # 4. 委托给 StepDrivenEngine（执行包装器）
+            #    产出结构化 step/turn 事件、执行钩子、写入会话日志、保存检查点。
+            from packages.agent.execution.step_engine import StepDrivenEngine
+            from packages.agent.core.harness.security.permission import PermissionEngine
+            
+            # 使用已初始化的 LLM 实例
+            llm = self._llm
+            tools = []
+            # 创建权限引擎（用于工具调用审批）
+            try:
+                permission_engine = PermissionEngine(
+                    db=self.db,
+                    user_id=self.user_id,
+                    policy={
+                        "blocked_tools": [],  # 可从配置加载
+                        "allowed_tools": [],  # 可从配置加载
+                    }
+                )
+            except Exception as e:
+                logger.warning("[ExecutionOrchestrator] PermissionEngine 初始化失败：%s", e)
+                permission_engine = None
+            # 创建 HookRegistry（P1 横切关注点）
+            from packages.agent.execution.hooks import HookRegistry
+            hook_registry = HookRegistry()
+            
+            self._step_runtime = StepDrivenEngine(
+                llm=llm,
+                tools=tools,
+                hooks=hook_registry,
+                session_id=session_id,
+                user_id=self.user_id,
+                permission_engine=permission_engine,
             )
             # 透传用户自定义钩子（若已注册）
             if getattr(self, "_execution_hooks", None):
-                self._step_runtime.hooks.pre_step.extend(self._execution_hooks.pre_step)
-                self._step_runtime.hooks.post_step.extend(self._execution_hooks.post_step)
+                hook_registry.pre_step.extend(self._execution_hooks.pre_step)
+                hook_registry.post_step.extend(self._execution_hooks.post_step)
                 for ev, transforms in (self._execution_hooks.waterfalls or {}).items():
                     for t in transforms:
-                        self._step_runtime.hooks.add_waterfall(ev, t)
+                        hook_registry.add_waterfall(ev, t)
 
             token_count = 0
-            async for event in self._step_runtime.execute_stream(
-                query=query,
-                main_prompt=main_prompt,
-                run_mode=run_mode,
-                allow_sub_agents=allow_sub_agents,
-                session_id=session_id,
-                agent_id=agent_id,
-            ):
-                # 4. 记录指标
-                if isinstance(event, dict):
-                    event_type = event.get("type", "unknown")
+            try:
+                async for event in self._step_runtime.execute(
+                    query=query,
+                ):
+                    # 4. 记录指标
+                    if isinstance(event, dict):
+                        event_type = event.get("type", "unknown")
+                        
+                        if event_type == "token":
+                            token_count += 1
+                            self.observability.metrics.increment("execution.token.count")
+                        
+                        elif event_type == "sub_agent":
+                            self.observability.metrics.increment("execution.sub_agent.count")
                     
-                    if event_type == "token":
-                        token_count += 1
-                        self.observability.metrics.increment("execution.token.count")
-                    
-                    elif event_type == "sub_agent":
-                        self.observability.metrics.increment("execution.sub_agent.count")
-                
-                # 5. 产出事件
-                yield event
+                    # 5. 产出事件
+                    yield event
+            except Exception as e:
+                # 检查是否是审批中断
+                from langgraph.errors import GraphInterrupt
+                if isinstance(e, GraphInterrupt):
+                    logger.info("[ExecutionOrchestrator] 捕获 GraphInterrupt，转换为 approval_required 事件")
+                    # 提取审批请求
+                    approvals = self._extract_approvals(e)
+                    if approvals:
+                        # 产出 approval_required 事件
+                        yield {
+                            "type": "approval_required",
+                            "data": {
+                                "pending": approvals,
+                                "session_id": session_id,
+                            }
+                        }
+                    return  # 中断执行，等待用户审批
+                else:
+                    # 其他异常，重新抛出
+                    raise
             
             # 6. 计算执行时间
             duration_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
@@ -394,6 +558,57 @@ class ExecutionOrchestrator:
         finally:
             # 结束追踪
             span.end()
+    
+    @staticmethod
+    def _extract_approvals(state_or_exc: Any) -> list[dict]:
+        """从 GraphInterrupt 异常中提取审批请求"""
+        try:
+            # GraphInterrupt 的 interrupts 属性包含审批数据
+            intr = getattr(state_or_exc, "interrupts", None) or getattr(state_or_exc, "value", None)
+            if intr:
+                pending = intr.get("pending") or []
+                if isinstance(pending, list):
+                    return [dict(p) if isinstance(p, dict) else {"tool": str(p)} for p in pending]
+        except Exception as e:
+            logger.debug("[ExecutionOrchestrator] 提取审批请求失败：%s", e)
+        return []
+    
+    async def resume_after_approval(self, thread_id: str, approval_status: str = "approved") -> Any:
+        """
+        用户审批后恢复执行（HITL 断点续跑）
+        
+        Args:
+            thread_id: 线程 ID（用于从 checkpointer 恢复）
+            approval_status: 审批状态（"approved" 或 "rejected"）
+        
+        Returns:
+            执行结果或审批请求列表
+        """
+        from langgraph.errors import GraphInterrupt
+        
+        if not self._step_runtime:
+            raise RuntimeError("StepDrivenEngine 未初始化，无法恢复执行")
+        
+        # 设置审批状态
+        approval_state = {
+            "approval_status": approval_status,
+            "thread_id": thread_id,
+        }
+        
+        try:
+            # 从 checkpointer 恢复并继续执行
+            async for event in self._step_runtime._graph.astream(
+                approval_state,
+                config={"configurable": {"thread_id": thread_id}}
+            ):
+                yield self._step_runtime._transform_event(event, "resume_step", f"resume_{thread_id}")
+        except GraphInterrupt as e:
+            # 仍有待审批的工具
+            logger.info("[ExecutionOrchestrator] 恢复执行时仍有审批请求")
+            raise
+        except Exception as e:
+            logger.error("[ExecutionOrchestrator] 恢复执行失败：%s", e, exc_info=True)
+            raise
 
 
 # ============================================================================
@@ -409,12 +624,12 @@ def create_execution_orchestrator(
     创建执行链路编排器
     
     Args:
-        db: 数据库会话（用于 OrchestratorRuntime）
+        db: 数据库会话（用于 Orchestrator）
         user_id: 用户 ID
         model_name: 模型名称
     
     Returns:
-        ExecutionOrchestrator 实例（包装了 OrchestratorRuntime）
+        ExecutionOrchestrator 实例（包装了 Orchestrator）
     """
     return ExecutionOrchestrator(db, user_id, model_name)
 

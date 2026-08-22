@@ -138,8 +138,9 @@ class ExecutionTraceRepository:
                     "sub_agents": sub_agents,
                     "sub_agent_results": sub_entries,
                 }],
-                input_summary=query[:500] if query else None,
-                output_summary=str(final_output)[:500] if final_output else None,
+                # 保留完整内容，不截断（数据库字段应使用 TEXT 类型）
+                input_summary=query,
+                output_summary=str(final_output) if final_output else None,
             )
             self.db.add(trace)
             await self.db.commit()

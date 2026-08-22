@@ -73,13 +73,17 @@ def build_supervisor_graph(
     ctx: Dict[str, Any] = {"plan": None, "run_mode": run_mode}
 
     def _emit_events(t: SubTask, r: SubAgentResult) -> List[Dict[str, Any]]:
-        """子 Agent 结果 → 事件（审批需求 → approval_required；内容统一脱敏）。"""
+        """子 Agent 结果 → 事件（审批需求 → approval_required；内容直接返回）。
+        
+        修复：移除 PII 脱敏，因为流式脱敏会破坏跨 token 的敏感信息匹配。
+        """
         evs: List[Dict[str, Any]] = []
         if getattr(r, "approvals", None):
             evs.append(ev_approval(sub_agent_id=t.sub_agent_id, pending=r.approvals))
+        # ✅ 直接返回完整内容，不进行 PII 脱敏
         evs.append(ev_sub_agent(
             sub_agent_id=t.sub_agent_id, status="done",
-            success=r.success, content=redact_block(redactor, r.content)))
+            success=r.success, content=r.content))
         return evs
 
     async def plan_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -114,17 +118,43 @@ def build_supervisor_graph(
     async def direct_node(state: Dict[str, Any]) -> Dict[str, Any]:
         if direct_strategy == "quick":
             text = (ctx["plan"].direct_answer if ctx["plan"] is not None else None) or ""
-            return {"final_answer": text[:500] if text else ""}
+            # 移除截断，保留完整内容
+            # 注意：quick 模式不经过图循环，iteration 保持 0，但实际执行了 1 轮
+            return {"final_answer": text, "iteration": 1}
         collected: List[str] = []
-        async for kind, tok in runtime._direct_answer_stream(
-                query, main_prompt, main_agent_cfg, session_id=session_id):
-            if kind == "reasoning":
-                sink.put_nowait(ev_reasoning(content=tok))
+        try:
+            async for kind, tok in runtime._direct_answer_stream(
+                    query, main_prompt, main_agent_cfg, session_id=session_id):
+                # 🔍 打印每个事件的详细信息（用 WARNING 确保能看到）
+                logger.warning("[direct_node] RECV kind=%s, tok_len=%d", kind, len(tok))
+                logger.warning("  [tok_preview] %s", tok[:200] if len(tok) > 200 else tok)
+                
+                if kind == "reasoning":
+                    logger.warning("[direct_node] SEND reasoning event (len=%d)", len(tok))
+                    sink.put_nowait(ev_reasoning(content=tok))
+                else:
+                    logger.warning("[direct_node] SEND token event (len=%d)", len(tok))
+                    collected.append(tok)
+                    sink.put_nowait(ev_token(content=tok))
+            final = "".join(collected)
+            # 移除截断，保留完整内容
+            # ✅ graph 模式也需要返回 iteration: 1（直答执行了 1 轮）
+            return {"final_answer": final, "iteration": 1}
+        except Exception as e:
+            # 检查是否是审批中断
+            from langgraph.errors import GraphInterrupt
+            if isinstance(e, GraphInterrupt):
+                # 提取审批请求并发出 approval_required 事件
+                approvals = runtime._extract_approvals(e)
+                if approvals:
+                    logger.info("[Supervisor] direct_node 捕获审批请求：%d 个", len(approvals))
+                    sink.put_nowait(ev_approval(pending=approvals, sub_agent_id=main_agent_cfg.agent_id if main_agent_cfg else None))
+                # 重新抛出，让上层知道中断
+                raise
             else:
-                collected.append(tok)
-                sink.put_nowait(ev_token(content=tok))
-        final = "".join(collected)
-        return {"final_answer": final[:500]}
+                # 其他异常，记录并返回空回答
+                logger.error("[Supervisor] direct_node 异常：%s", e)
+                return {"final_answer": f"执行失败：{str(e)}"}
 
     async def dispatch_node(state: Dict[str, Any]) -> Dict[str, Any]:
         sub_tasks: List[SubTask] = []
@@ -170,11 +200,13 @@ def build_supervisor_graph(
                 logger.warning("[Supervisor] 结果解析跳过: %s", e)
         llm = await runtime._create_llm()
         collected: List[str] = []
-        async for tok in runtime._aggregate_stream(llm, results, main_prompt, redactor=redactor):
+        # ✅ 移除 redactor 参数，因为流式脱敏会破坏内容
+        async for tok in runtime._aggregate_stream(llm, results, main_prompt):
             collected.append(tok)
             sink.put_nowait(ev_token(content=tok))
         final = "".join(collected)
-        return {"final_answer": final[:500]}
+        # 移除截断，保留完整内容
+        return {"final_answer": final}
 
     async def router(state: Dict[str, Any]) -> str:
         return "direct" if not (state.get("sub_tasks") or []) else "dispatch"

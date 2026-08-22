@@ -54,10 +54,19 @@ export interface DoneData {
   files?: ToolEventFile[];
 }
 
+export interface StateUpdateData {
+  iteration?: number;
+  messages_count?: number;
+  tool_calls_count?: number;
+  reasoning?: string;
+  last_message?: { role?: string; content?: string };
+}
+
 export type AgentStreamEvent =
   | { type: 'orchestrator_plan'; data?: OrchestratorPlanData }
   | { type: 'reasoning'; content?: string }
   | { type: 'token'; content?: string }
+  | { type: 'state_update'; data?: StateUpdateData }
   | { type: 'tool_event'; data?: ToolEventData }
   | { type: 'sub_agent'; data?: SubAgentData }
   | { type: 'approval_required'; data?: ApprovalRequiredData }
@@ -111,4 +120,8 @@ export function isComplete(ev: AgentStreamEvent): ev is Extract<AgentStreamEvent
 
 export function isCitations(ev: AgentStreamEvent): ev is Extract<AgentStreamEvent, { type: 'citations' }> {
   return ev.type === 'citations';
+}
+
+export function isStateUpdate(ev: AgentStreamEvent): ev is Extract<AgentStreamEvent, { type: 'state_update' }> {
+  return ev.type === 'state_update';
 }

@@ -114,9 +114,9 @@ def create_execute_agent_tool(db: AsyncSession, user_id: int, kb_ids: Optional[l
             The agent's response as a string
         """
         try:
-            from packages.agent.orchestrator.graph import OrchestratorRuntime
+            from packages.agent.orchestrator.graph import Orchestrator
 
-            rt = OrchestratorRuntime(db, model_name=model_name, user_id=user_id or 1)
+            rt = Orchestrator(db, model_name=model_name, user_id=user_id or 1)
             response = await rt.execute_agent(agent_id=agent_id, query=query, user_id=user_id)
 
             logger.info(f"[MetaAgent] Executed agent {agent_id}, response length: {len(response)}")

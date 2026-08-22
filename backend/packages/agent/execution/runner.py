@@ -26,17 +26,26 @@ from packages.agent.execution.steps import (
     Turn,
     TurnStatus,
 )
-from packages.agent.execution.step_engine import StepDrivenEngine
+from packages.agent.execution.step_engine import StepDrivenEngineV2
 
 logger = logging.getLogger(__name__)
 
 
 class StepExecutionRuntime:
-    """Step 执行门面。内部委托给 StepDrivenEngine 执行。"""
-
+    """Step 执行门面。内部委托给 StepDrivenEngine 执行。
+    
+    Deprecated: Phase 1 重构后已废弃，请使用 StepExecutor 替代。
+    """
+    
     def __init__(self, orchestrator: Any, *, session_id: Optional[str] = None,
                  user_id: Optional[int] = None, agent_id: Optional[str] = None):
         self._orchestrator = orchestrator
+        warnings.warn(
+            "StepExecutionRuntime is deprecated and will be removed in a future version. "
+            "Please use StepExecutor instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self.session_id = session_id
         self.user_id = user_id
         self.agent_id = agent_id
@@ -89,36 +98,30 @@ class StepExecutionRuntime:
         await self.session_log.append(self.session_id, "user/message", {"content": query}, turn=turn_no)
 
         try:
-            # 创建 StepDrivenEngine 并执行
-            engine = StepDrivenEngine(
-                self._orchestrator,
+            # 方案 B：使用 StepDrivenEngine v2（图驱动）
+            # 获取 LLM 和 tools
+            llm = await self._orchestrator._create_llm()
+            tools = self._orchestrator._load_sub_tools(
+                kwargs.get('main_agent_cfg', None).tools_whitelist 
+                if kwargs.get('main_agent_cfg') 
+                else ["save_workspace_file"]
+            )
+            
+            # 创建 StepDrivenEngine v2（图驱动包装器）
+            engine = StepDrivenEngineV2(
+                orchestrator=self._orchestrator,
+                llm=llm,
+                tools=tools,
                 hooks=self.hooks,
-                signals=type('obj', (object,), {
-                    'checkpoint': self.checkpoint,
-                    'session_log': self.session_log,
-                    'session_id': self.session_id,
-                    'agent': self.agent,
-                    '_events': self._events,
-                })(),
+                session_log=self.session_log,
+                checkpoint=self.checkpoint,
                 session_id=self.session_id,
                 user_id=self.user_id,
             )
             
-            # 提取 run_stream 兼容的参数
-            main_prompt = kwargs.get('main_prompt', '')
-            main_agent_cfg = kwargs.get('main_agent_cfg')
-            catalog = kwargs.get('catalog', [])
-            run_mode = kwargs.get('run_mode', 'serial')
-            allow_sub_agents = kwargs.get('allow_sub_agents', True)
+            # 图驱动执行
             history = kwargs.get('history', [])
-            
-            async for ev in engine.execute(
-                query, main_prompt or '', main_agent_cfg, catalog,
-                run_mode=run_mode, allow_sub_agents=allow_sub_agents, history=history
-            ):
-                # Sync turn from engine
-                if engine.turn:
-                    self.turn = engine.turn
+            async for ev in engine.execute(query, history=history):
                 yield ev
         finally:
             # 结束 turn
@@ -131,3 +134,15 @@ class StepExecutionRuntime:
                 self.session_id, "turn/end",
                 {"status": self.turn.status.value, "duration_ms": self.turn.duration_ms},
                 turn=turn_no)
+
+
+# ============================================================================
+# 别名类（Phase 1 重构：渐进式重命名）
+# ============================================================================
+
+# ============================================================================
+# 别名类（已移除）
+# ============================================================================
+# StepExecutor 和 StepExecutionRuntime 已在 Phase 4 移除
+# 新代码请直接使用 StepDrivenEngineV2
+# ============================================================================

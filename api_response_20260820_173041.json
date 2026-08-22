@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "query": "你可以帮我生成一个 doc 文件吗",
+    "test_time": "2026-08-20T17:30:41.811645",
+    "api_url": "http://localhost:8000/execute/stream",
+    "total_events": 0,
+    "reasoning_count": 0,
+    "token_count": 0,
+    "reasoning_total_length": 0,
+    "token_total_length": 0
+  },
+  "events": [],
+  "summary": {
+    "complete_reasoning": "",
+    "complete_token": ""
+  }
+}

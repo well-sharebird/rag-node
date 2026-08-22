@@ -283,9 +283,9 @@ async def execute_agent_handler(
 ) -> Dict[str, Any]:
     """Execute agent handler."""
     try:
-        from packages.agent.orchestrator.graph import OrchestratorRuntime
+        from packages.agent.orchestrator.graph import Orchestrator
 
-        rt = OrchestratorRuntime(db, user_id=user_id)
+        rt = Orchestrator(db, user_id=user_id)
         response = await rt.execute_agent(agent_id=agent_id, query=query, user_id=user_id)
 
         return {

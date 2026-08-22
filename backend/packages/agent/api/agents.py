@@ -21,11 +21,11 @@ POST /api/v1/agents/execute/stream
     # 绑定知识库
     {"query": "查询文档", "kb_ids": ["kb1", "kb2"]}
 """
+import time
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field
-
 from packages.core.database import get_db
 from packages.core.auth import get_current_user
 from packages.core.system.models.user import User
@@ -308,9 +308,9 @@ async def execute_agent_unified(
 
     一切请求由主 Agent 决策调度（可派生子 Agent 或直接回答）。
     """
-    from packages.agent.orchestrator.graph import OrchestratorRuntime
+    from packages.agent.orchestrator.graph import Orchestrator
 
-    rt = OrchestratorRuntime(db, model_name=data.model_name, user_id=current_user.id)
+    rt = Orchestrator(db, model_name=data.model_name, user_id=current_user.id)
     result = await rt.run(
         query=data.query,
         main_prompt=data.main_prompt,
@@ -352,10 +352,10 @@ async def execute_agent_unified_stream(
 
     async def event_generator():
         try:
-            # Phase 7: 使用 ExecutionOrchestrator 包装 OrchestratorRuntime
+            # Phase 7: 使用 ExecutionOrchestrator 包装 Orchestrator
             from packages.agent.integration.execution_chain import create_execution_orchestrator
 
-            # 创建编排器（包装 OrchestratorRuntime，添加横切关注点支持）
+            # 创建编排器（包装 Orchestrator，添加横切关注点支持）
             orchestrator = create_execution_orchestrator(
                 db=db,  # 传入数据库会话
                 user_id=current_user.id,
@@ -366,7 +366,11 @@ async def execute_agent_unified_stream(
             await orchestrator.start()
             
             try:
-                # 执行流式请求（委托给 OrchestratorRuntime 执行业务逻辑）
+                # 执行流式请求（委托给 Orchestrator 执行业务逻辑）
+                # RuntimeEngine 已经发送 done 事件，不需要重复发送
+                import asyncio
+                event_count = 0
+                
                 async for event in orchestrator.execute_stream(
                     query=data.query,
                     main_prompt=data.main_prompt,
@@ -376,15 +380,20 @@ async def execute_agent_unified_stream(
                     agent_id=data.agent_id,
                 ):
                     if event:
-                        yield serialize_stream_event(event)
-                # 干净停顿语义 + 运行验收单：不再只发裸 done，带上终止原因/轮数/工具/产物文件
-                metrics = getattr(orchestrator.runtime, "_run_metrics", None) or {}
-                yield serialize_stream_event(ev_done(
-                    reason=metrics.get("reason", "completed"),
-                    rounds=metrics.get("rounds", 0),
-                    tools_used=list(metrics.get("tools", [])),
-                    files=metrics.get("files", []),
-                ))
+                        recv_time = time.time()
+                        serialized = serialize_stream_event(event)
+                        serialize_time = time.time()
+                        event_count += 1
+                        # 🚀 强制事件循环切换，确保每个事件立即发送
+                        if event_count <= 10 or event_count % 50 == 0:
+                            import logging
+                            logging.getLogger(__name__).warning(f"[event_generator] 📤 yield event #{event_count} ({event.get('type', 'unknown')}) @ {recv_time:.3f} (serialize={(serialize_time-recv_time)*1000:.2f}ms)")
+                        yield serialized
+                        yield_time = time.time()
+                        if event_count <= 10 or event_count % 50 == 0:
+                            import logging
+                            logging.getLogger(__name__).warning(f"[event_generator] ✅ yielded #{event_count} (yield={(yield_time-serialize_time)*1000:.2f}ms)")
+                        await asyncio.sleep(0)  # 强制切换到下一个事件循环
             finally:
                 # 停止优化系统
                 await orchestrator.stop()
@@ -402,7 +411,18 @@ async def execute_agent_unified_stream(
                 error_category=getattr(e, "category", "unknown"),
             ))
 
-    return EventSourceResponse(event_generator())
+    # 🐛 FIX: 禁用缓冲，确保每个事件立即发送
+    return EventSourceResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        ping=30,  # 30 秒 ping 保持连接
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
+            "Content-Type": "text/event-stream; charset=utf-8",
+        }
+    )
 
 
 # ============================================================

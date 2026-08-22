@@ -1,12 +1,12 @@
-"""内置中间件 - 基于 LangChain AgentMiddleware
+"""内置中间件 - 基于 AgentMiddleware
 
-管控逻辑（日志、上下文、审计、安全事件）统一为官方中间件。
+管控逻辑（日志、上下文、审计、安全事件）统一为中间件。
 """
 import logging
 import time
 from typing import Any, Dict, List, Optional
 
-from langchain.agents.middleware import AgentMiddleware, Runtime
+from .types import AgentMiddleware, Runtime
 
 logger = logging.getLogger(__name__)
 

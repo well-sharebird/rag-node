@@ -33,9 +33,6 @@ from packages.agent.models.runtime import AgentRuntime
 from packages.agent.models.session import AgentSession
 from packages.agent.services.workspace_service import WorkspaceService
 from packages.agent.services.runtime_service import RuntimeService
-from packages.agent.runtime_engine.memory import MemoryEngine
-from packages.agent.runtime_engine.action import ActionEngine
-from packages.agent.runtime_engine.governance import GovernanceEngine
 from packages.agent.sandbox.nsjail import execute_code_in_sandbox
 
 
@@ -146,43 +143,6 @@ async def verify_runtime_service():
         log_fail(f"Runtime 服务验证失败：{e}")
         return False
 
-
-async def verify_harness_engines():
-    """验证 Harness 引擎"""
-    log_info("验证 Harness 引擎...")
-
-    try:
-        # 测试 Memory Engine (不需要 db_session)
-        from packages.agent.runtime_engine.memory import MemoryEngine
-        from packages.agent.runtime_engine.action import ActionEngine
-        from packages.agent.runtime_engine.governance import GovernanceEngine
-
-        # 这些引擎可以独立初始化
-        log_pass("MemoryEngine 类加载成功")
-        log_pass("ActionEngine 类加载成功")
-        log_pass("GovernanceEngine 类加载成功")
-
-        # 测试编排引擎配置
-        from packages.agent.runtime_engine.orchestration import (
-            OrchestrationConfig,
-            OrchestrationMode,
-            WorkerAgent,
-        )
-
-        config = OrchestrationConfig(
-            mode=OrchestrationMode.SUPERVISOR,
-            workers=[
-                WorkerAgent(agent_id="test-1", role="researcher"),
-                WorkerAgent(agent_id="test-2", role="writer"),
-            ],
-        )
-        log_pass("OrchestrationConfig 创建成功")
-
-        return True
-
-    except Exception as e:
-        log_fail(f"Harness 引擎验证失败：{e}")
-        return False
 
 
 async def verify_sandbox_execution():

@@ -1,13 +1,13 @@
 """MiddlewareChain - 中间件执行链
 
-在自定义 TAO 图节点中按生命周期驱动一组 LangChain AgentMiddleware。
+在自定义 TAO 图节点中按生命周期驱动一组 AgentMiddleware。
 向下兼容异步中间件方法（abefore_* / aafter_* 优先），合并返回的 State 更新。
 """
 import inspect
 import logging
 from typing import Any, List, Optional
 
-from langchain.agents.middleware import AgentMiddleware, Runtime
+from .types import AgentMiddleware, Runtime
 
 logger = logging.getLogger(__name__)
 

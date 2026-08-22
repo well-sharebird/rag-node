@@ -52,7 +52,7 @@ class AgentGraphBuilder:
         require_approval 工具的子图）才以 use_checkpointer=True 绑定
         DatabaseCheckpointSaver（经 JsonPlusSerializer 序列化 LangChain 消息）。
         """
-        from packages.agent.runtime_engine.tao_graph import build_tao_graph
+        from packages.agent.runtime import build_agent_graph
         from packages.agent.output.governance import OutputGovernanceNode
         from packages.agent.core.harness.security.permission import PermissionEngine
         from packages.agent.core.harness.context import PromptAssembler
@@ -98,7 +98,10 @@ class AgentGraphBuilder:
             on_tool_event=on_tool_event,
         )
 
-        return build_tao_graph(
+        # 使用纯 Agent Loop 图
+        # 注意：build_agent_graph 不支持 prompt_assembler 和 execution_manager
+        # 这些功能需要迁移到中间件模式
+        return build_agent_graph(
             llm=llm,
             tools=tools or [],
             system_prompt=system_prompt or "你是助手。",
@@ -109,6 +112,4 @@ class AgentGraphBuilder:
             on_token=on_token,
             checkpointer=checkpointer,
             middlewares=middlewares,
-            prompt_assembler=prompt_assembler,
-            execution_manager=execution_manager,
         )

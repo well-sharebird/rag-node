@@ -88,12 +88,11 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
 
             if res.blocked:
                 return f"[安全拦截] {res.blocked}"
-            head = res.stdout[:2000]
-            err_head = res.stderr[:2000]
+            # 保留完整输出，不截断
             return (f"[{res.sandbox}] exit={res.exit_code} {'(超时)' if res.timed_out else ''}\n"
-                    f"stdout:\n{head}\n"
-                    f"stderr:\n{err_head}\n"
-                    f"工作空间产物: {res.files if res.files else '无'}")
+                    f"stdout:\n{res.stdout}\n"
+                    f"stderr:\n{res.stderr}\n"
+                    f"工作空间产物：{res.files if res.files else '无'}")
 
         execute_code.name = "execute_code"
 
@@ -114,9 +113,11 @@ async def ensure_business_tools(db: AsyncSession, user_id: Optional[int] = None)
             sandbox._last_sandbox = res.sandbox or ""
             if res.blocked:
                 return f"[安全拦截] {res.blocked}"
+            # 保留完整输出，不截断
             return (f"[{res.sandbox}] exit={res.exit_code} {'(超时)' if res.timed_out else ''}\n"
-                    f"stdout:\n{res.stdout[:2000]}\nstderr:\n{res.stderr[:2000]}\n"
-                    f"工作空间产物: {res.files if res.files else '无'}")
+                    f"stdout:\n{res.stdout}\n"
+                    f"stderr:\n{res.stderr}\n"
+                    f"工作空间产物：{res.files if res.files else '无'}")
         ToolExecutionManager.register_sandbox_executor("execute_code", _sandbox_execute_code)
 
         if reg.get("execute_code"):

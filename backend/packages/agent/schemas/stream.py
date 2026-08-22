@@ -71,6 +71,16 @@ class OrchestratorPlanEvent(BaseModel):
     data: OrchestratorPlanData
 
 
+class OrchestratorUpdateEvent(BaseModel):
+    type: Literal["orchestrator_update"] = "orchestrator_update"
+    step_id: Optional[str] = None
+    turn_id: Optional[str] = None  # 改为字符串，因为实际是 'turn_xxx' 格式
+    data: Optional[dict] = None
+    plan: Optional[dict] = None
+    todos: Optional[List[dict]] = None
+    timestamp: Optional[str] = None
+
+
 class ReasoningEvent(BaseModel):
     type: Literal["reasoning"] = "reasoning"
     content: str
@@ -94,6 +104,21 @@ class SubAgentEvent(BaseModel):
 class ApprovalRequiredEvent(BaseModel):
     type: Literal["approval_required"] = "approval_required"
     data: Optional[ApprovalRequiredData] = None
+
+
+class StateUpdateData(BaseModel):
+    """状态更新数据"""
+    iteration: int = 0
+    messages_count: int = 0
+    tool_calls_count: int = 0
+    reasoning: Optional[str] = None
+    last_message: Optional[dict] = None
+
+
+class StateUpdateEvent(BaseModel):
+    """状态更新事件（think/act 节点输出）"""
+    type: Literal["state_update"] = "state_update"
+    data: StateUpdateData
 
 
 class DoneEvent(BaseModel):
@@ -126,6 +151,8 @@ class AgentSelectedEvent(BaseModel):
 AgentStreamEvent = Annotated[
     Union[
         OrchestratorPlanEvent,
+        OrchestratorUpdateEvent,
+        StateUpdateEvent,
         ReasoningEvent,
         TokenEvent,
         ToolEvent,
@@ -169,6 +196,10 @@ def ev_approval(**kw) -> dict:
     return ApprovalRequiredEvent(data=ApprovalRequiredData(**kw)).model_dump(mode="json")
 
 
+def ev_state_update(**kw) -> dict:
+    return StateUpdateEvent(data=StateUpdateData(**kw)).model_dump(mode="json")
+
+
 def ev_done(**kw) -> dict:
     return DoneEvent(data=DoneData(**kw)).model_dump(mode="json")
 
@@ -204,6 +235,40 @@ def serialize_stream_event(event, *, fail_closed: bool = True) -> str:
 
     fail_closed=True：不匹配协议即抛 ValidationError（由 api 外层 except 捕获产 error 事件）。
     """
+    import logging
+    import time
+    logger = logging.getLogger(__name__)
+    
     if isinstance(event, str):
         return event
-    return _STREAM_ADAPTER.validate_python(event).model_dump_json(exclude_none=True)
+    
+    # 🔍 详细打印序列化过程
+    serialize_start = time.time()
+    event_type = event.get("type") if isinstance(event, dict) else "unknown"
+    
+    # 验证
+    validate_start = time.time()
+    validated = _STREAM_ADAPTER.validate_python(event)
+    validate_duration = (time.time() - validate_start) * 1000
+    
+    # 序列化
+    dump_start = time.time()
+    result = validated.model_dump_json(exclude_none=True)
+    dump_duration = (time.time() - dump_start) * 1000
+    
+    total_duration = (time.time() - serialize_start) * 1000
+    
+    # 打印每个事件的序列化时间（前 10 个和慢的）
+    event_count = getattr(serialize_stream_event, '_count', 0)
+    setattr(serialize_stream_event, '_count', event_count + 1)
+    
+    if event_count < 10 or total_duration > 0.5:
+        content_preview = ""
+        if event_type in ('reasoning', 'token'):
+            content_preview = event.get("content", "")[:50]
+        logger.warning(
+            f"[serialize_stream_event] #{event_count:4d} {event_type:15s} "
+            f"total={total_duration:.2f}ms (validate={validate_duration:.2f}ms, dump={dump_duration:.2f}ms) - {content_preview}"
+        )
+    
+    return result

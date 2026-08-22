@@ -1,4 +1,4 @@
-"""异步检查点持久化 - LangGraph 层（Checkpoint 归属 LangGraph 铁律）
+"""异步检查点持久化 - Runtime 层
 
 LangGraph 新版本要求 checkpoint saver 提供异步 API（aget_tuple/aput/aput_writes）。
 现有 DatabaseCheckpointSaver 仅实现同步方法，此处用一个包装器把同步实现适配为异步，

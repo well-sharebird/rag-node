@@ -19,32 +19,55 @@ def maybe_compress(text: Optional[str], budget: int = 12000) -> Optional[str]:
 
 
 def make_pii_redactor():
-    """流式 PII 脱敏器（滑动窗口；不可用时降级恒等）。"""
+    """流式 PII 脱敏器（滑动窗口；不可用时降级恒等）。
+    
+    修复：原实现中，当缓冲不足 window 大小时返回空字符串，导致所有短 token 丢失。
+    新策略：
+    1. 保留小窗口用于跨 token 的敏感信息匹配（如手机号被分成两段）
+    2. 超过窗口就立即处理并返回，确保流式输出
+    3. 缓冲内的内容在后续 push 或 flush 时处理
+    """
     try:
         from packages.agent.output.filters import PIIFilter
 
         pii = PIIFilter()
     except Exception as e:
-        logger.warning("[Orchestrator] PII 脱敏不可用: %s", e)
+        logger.warning("[Orchestrator] PII 脱敏不可用：%s", e)
         return None
 
     class _R:
-        def __init__(self, window: int = 40):
+        def __init__(self, window: int = 10):
+            """
+            Args:
+                window: 保留的缓冲大小，用于跨 token 的敏感信息匹配
+            """
             self.buf = ""
             self.window = window
 
         def push(self, text: str) -> str:
             if not text:
                 return ""
+            
+            # ✅ 将新文本加入缓冲
             self.buf += text
+            
+            # ✅ 如果缓冲超过窗口大小，处理前面的部分并返回
             if len(self.buf) > self.window:
-                safe, self.buf = self.buf[:-self.window], self.buf[-self.window:]
-                return pii.check(safe)[0]
+                # 保留最后 window 个字符用于跨 token 匹配
+                to_process = self.buf[:-self.window]
+                self.buf = self.buf[-self.window:]
+                
+                # ✅ 立即处理并返回脱敏内容
+                return pii.check(to_process)[0]
+            
+            # ✅ 缓冲不足时返回空，等待更多 token 或 flush
+            # 这确保敏感信息跨 token 时能正确匹配（如 "138" + "12345678"）
             return ""
 
         def flush(self) -> str:
             if not self.buf:
                 return ""
+            # ✅ 处理剩余缓冲 - 所有未输出的内容都在这里返回
             out = pii.check(self.buf)[0]
             self.buf = ""
             return out

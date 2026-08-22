@@ -4,7 +4,7 @@ import pytest
 
 from packages.agent.core.harness.security.retry import RetryPolicy, with_retry
 from packages.agent.core.harness.context import ContextCompressor
-from packages.agent.runtime_engine.state import append_lists, extract_tasks, update_todos_from_message
+from packages.agent.runtime.state import append_lists, extract_tasks, update_todos_from_message
 
 
 # ============================================================

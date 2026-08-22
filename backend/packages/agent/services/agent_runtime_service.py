@@ -8,10 +8,14 @@ v2.0: 整合 AgentGraphFactory，支持 LangGraph 工厂函数模式
 - 支持技能渐进式加载
 - 支持中间件链
 """
+from packages.agent.llm.factory import create_llm
+import logging
 import time
 from typing import Optional, AsyncGenerator, Any
 from datetime import datetime
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
@@ -125,28 +129,26 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
         )
 
     elif provider_code == "openai":
-        from langchain_openai import ChatOpenAI
-        import os
-        return ChatOpenAI(
-            model=model_name,
+        # 使用统一工厂
+        return create_llm(
+            provider="openai",
+            model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
-            api_key=api_key or os.environ.get("OPENAI_API_KEY", ""),
-            base_url=api_url if api_url else None,
+            base_url=api_url,
+            api_key=api_key,
         )
 
     elif provider_code == "azure":
-        from langchain_openai import AzureChatOpenAI
-        import os
-        return AzureChatOpenAI(
-            azure_deployment=model_name,
+        # 使用统一工厂
+        return create_llm(
+            provider="azure",
+            model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
-            azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", ""),
-            api_key=api_key or os.environ.get("AZURE_OPENAI_API_KEY", ""),
-            api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-02-15-preview"),
+            api_key=api_key,
         )
 
     elif provider_code == "google":
@@ -172,25 +174,15 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
 
     elif provider_code == "local_qwen":
         # 本地 Qwen 模型，使用 OpenAI 兼容接口
-        from langchain_openai import ChatOpenAI
-
-        # 确保 api_url 以 /v1 结尾（ChatOpenAI 内部不再添加）
-        if api_url:
-            api_url = api_url.rstrip("/")
-            if not api_url.endswith("/v1"):
-                api_url = f"{api_url}/v1"
-
-        # 本地模型 API Key 处理：not_required 或空都视为不需要 key
-        effective_api_key = None if (api_key and api_key.lower() in ["not_required", "not-needed", "none", ""]) else api_key
-
-        return ChatOpenAI(
-            model=model_name,
+        # 使用统一工厂
+        return create_llm(
+            provider="local_qwen",
+            model_name=model_name,
             temperature=temperature,
             max_tokens=max_tokens,
             top_p=top_p,
             base_url=api_url,
-            api_key=effective_api_key or "not-required",
-            streaming=True,  # 启用流式输出
+            api_key=api_key,
         )
 
     else:
@@ -324,6 +316,9 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                 from langchain_core.messages import AIMessageChunk
                 from langchain_core.outputs import ChatGenerationChunk
 
+                # 模型先输出 reasoning，然后切换到 content，不会交叉
+                # 直接按字段区分即可，不需要额外的状态追踪
+
                 openai_messages = self._to_openai_messages(messages)
 
                 payload = {
@@ -338,6 +333,11 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                     payload["tools"] = self._bound_tools
                     payload["tool_choice"] = "auto"
 
+                logger.info("=" * 80)
+                logger.info("[_astream] START - Model: %s", self.model_name)
+                logger.info("=" * 80)
+
+                chunk_idx = 0
                 async with self._client.stream(
                     "POST",
                     f"{self.base_url}/chat/completions",
@@ -349,6 +349,7 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                             continue
                         data = line[6:].strip()
                         if data == "[DONE]":
+                            logger.info("[_astream] END - [DONE] received")
                             break
                         try:
                             obj = json.loads(data)
@@ -362,14 +363,36 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                             # 与"最终答案"分开渲染（思考块走独立 reasoning 事件）。
                             reason_text = delta.get("reasoning_content") or delta.get("reasoning")
                             answer_text = delta.get("content")
-                            if reason_text and not answer_text:
+                            
+                            # 🔍 打印模型原始输出（用 WARNING 确保能看到）
+                            logger.warning("[_astream] RAW DELTA (chunk #%d):", chunk_idx)
+                            if reason_text:
+                                logger.warning("  [reasoning] %s", reason_text[:200] if len(reason_text) > 200 else reason_text)
+                            if answer_text:
+                                logger.warning("  [content] %s", answer_text[:200] if len(answer_text) > 200 else answer_text)
+                            
+                            # 🐛 SWITCHING POINT 监控
+                            if reason_text and answer_text:
+                                logger.warning("[_astream] ⚠️ SWITCHING POINT DETECTED (chunk #%d):", chunk_idx)
+                                logger.warning("  reasoning: %s", repr(reason_text))
+                                logger.warning("  content: %s", repr(answer_text))
+                            
+                            # 模型先输出 reasoning，然后切换到 content，不会交叉
+                            # 使用两个独立的 if，确保 reasoning 和 content 都能正确输出
+                            # 注意：即使同一个 delta 同时包含，也会分别 yield 两个 Chunk
+                            # 但由于模型特性，这不会导致混淆（reasoning 总是在前）
+                            
+                            if reason_text:
+                                logger.warning("[_astream] YIELD reasoning chunk #%d (len=%d)", chunk_idx, len(reason_text))
                                 yield ChatGenerationChunk(
                                     message=AIMessageChunk(
                                         content=reason_text,
                                         additional_kwargs={"reasoning": True},
                                     )
                                 )
+                            
                             if answer_text:
+                                logger.warning("[_astream] YIELD content chunk #%d (len=%d)", chunk_idx, len(answer_text))
                                 yield ChatGenerationChunk(
                                     message=AIMessageChunk(content=answer_text)
                                 )
@@ -389,8 +412,13 @@ async def create_langchain_llm(model_config: Any, db: Any = None) -> Any:
                                         }],
                                     )
                                 )
-                        except Exception:
+                            chunk_idx += 1
+                        except Exception as e:
+                            logger.error("[_astream] Error parsing SSE data: %s", e)
                             continue
+                
+                logger.info("[_astream] TOTAL CHUNKS PROCESSED: %d", chunk_idx)
+                logger.info("[_astream] " + "=" * 80)
 
             def _generate(
                 self,

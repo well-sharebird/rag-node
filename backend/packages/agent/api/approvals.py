@@ -12,7 +12,7 @@ from packages.core.database import get_db
 from packages.core.auth import get_current_user
 from packages.core.system.models.user import User
 from packages.agent.core.harness.security.permission import PermissionEngine
-from packages.agent.orchestrator.graph import OrchestratorRuntime
+from packages.agent.orchestrator.graph import Orchestrator
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -78,7 +78,7 @@ async def resume_after_approval(
     engine = PermissionEngine(db, user_id=current_user.id)
     if not await engine.is_approved(request_id):
         raise HTTPException(status_code=400, detail="审批请求未批准，无法续跑")
-    rt = OrchestratorRuntime(db, user_id=current_user.id)
+    rt = Orchestrator(db, user_id=current_user.id)
     try:
         result = await rt.resume_sub_agent(
             body.sub_agent_id, body.thread_id, main_prompt=body.main_prompt,

@@ -1,0 +1,57 @@
+{
+  "summary": {
+    "total_tests": 3,
+    "passed_tests": 3,
+    "failed_tests": 0,
+    "total_events": 3,
+    "total_duration_ms": 234,
+    "timestamp": "2026-08-21T15:15:24.305325"
+  },
+  "results": [
+    {
+      "test_name": "simple_query",
+      "start_time": "2026-08-21T15:15:24.069659",
+      "end_time": "2026-08-21T15:15:24.299750",
+      "duration_ms": 230,
+      "metrics": {
+        "total_events": 1,
+        "token_events": 0,
+        "tool_calls": 0,
+        "sub_agents": 0,
+        "errors": 0
+      },
+      "errors": [],
+      "events_count": 1
+    },
+    {
+      "test_name": "multi_step_task",
+      "start_time": "2026-08-21T15:15:24.299755",
+      "end_time": "2026-08-21T15:15:24.302413",
+      "duration_ms": 2,
+      "metrics": {
+        "total_events": 1,
+        "token_events": 0,
+        "tool_calls": 0,
+        "sub_agents": 0,
+        "errors": 0
+      },
+      "errors": [],
+      "events_count": 1
+    },
+    {
+      "test_name": "tool_calling",
+      "start_time": "2026-08-21T15:15:24.302417",
+      "end_time": "2026-08-21T15:15:24.305311",
+      "duration_ms": 2,
+      "metrics": {
+        "total_events": 1,
+        "token_events": 0,
+        "tool_calls": 0,
+        "sub_agents": 0,
+        "errors": 0
+      },
+      "errors": [],
+      "events_count": 1
+    }
+  ]
+}

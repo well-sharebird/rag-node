@@ -11,7 +11,7 @@
 - 横切中间件  - middleware/（base.py + builtin.py）
 - 配置        - config.py（HarnessConfig）
 
-LangGraph 层（图构建）在 runtime_engine.tao_graph；LangChain 能力层在 langchain 生态。
+LangGraph 层（图构建）在 runtime.graph；LangChain 能力层在 langchain 生态。
 """
 from packages.agent.core.harness.context import PromptAssembler, ContextCompressor
 from packages.agent.core.harness.config import RuntimeConfig, HarnessConfig, CollaborationMode

@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from packages.agent.core.harness.config import RuntimeConfig
-from packages.agent.runtime_engine.state import ExecutionResult
+from packages.agent.runtime import ExecutionResult
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +28,10 @@ class GraphRuntime:
         """惰性创建数据库 checkpointer（断点/会话恢复，Harness 运行时增强）。"""
         if self._checkpointer is None:
             try:
-                from packages.agent.runtime_engine.checkpointer import create_async_checkpointer
+                from packages.agent.runtime.checkpointer import create_async_checkpointer
                 self._checkpointer = create_async_checkpointer()
             except Exception as e:
-                logger.warning("[GraphRuntime] checkpointer 初始化失败: %s", e)
+                logger.warning("[GraphRuntime] checkpointer 初始化失败：%s", e)
                 self._checkpointer = None
         return self._checkpointer
 

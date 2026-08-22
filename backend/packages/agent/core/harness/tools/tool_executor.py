@@ -117,14 +117,9 @@ class ToolExecutionManager:
     # ---------------- 流式工具事件（前端实时工具调用链渲染）----------------
     @staticmethod
     def _truncate_input(tool_input: dict) -> dict:
-        """截断入参字符串字段，避免 code/content 等大字段刷爆事件流。"""
-        out: Dict[str, Any] = {}
-        for k, v in (tool_input or {}).items():
-            if isinstance(v, str) and len(v) > 500:
-                out[k] = v[:500] + "..."
-            else:
-                out[k] = v
-        return out
+        """保留完整入参，不截断（前端需要完整上下文）。"""
+        # 不做任何截断，直接返回原始输入
+        return tool_input if tool_input else {}
 
     async def _emit_tool_event(self, phase: str, tool: str, tool_input: dict, *,
                                status: Optional[str] = None, result: Optional[str] = None,
@@ -139,8 +134,9 @@ class ToolExecutionManager:
         }
         if status is not None:
             data["status"] = status
+        # 保留完整结果，不截断
         if result is not None:
-            data["result"] = str(result)[:2000]
+            data["result"] = str(result)
         if files is not None:
             data["files"] = files
         if sandbox is not None:
@@ -149,7 +145,7 @@ class ToolExecutionManager:
             from packages.agent.schemas.stream import ev_tool
             await self._on_tool_event(ev_tool(data))
         except Exception as e:
-            logger.warning("[ToolExecution] tool_event 发送失败: %s", e)
+            logger.warning("[ToolExecution] tool_event 发送失败：%s", e)
 
     # ---------------- 沙箱执行（Phase 1 落地）----------------
     async def _execute_in_sandbox(self, tool, tool_input: dict) -> tuple[str, list, str]:
@@ -299,10 +295,11 @@ class ToolExecutionManager:
             self._record_success(tool_name)
             status = "success"
 
+        # 保留完整结果，不截断（前端需要完整内容）
         await self._emit_tool_event("done", tool_name, clean_input, status=status,
-                                    result=str(result)[:2000], files=products or None,
+                                    result=str(result), files=products or None,
                                     sandbox=sandbox)
 
-        # 4. 审计
-        self.audit(tool_name, clean_input, str(result)[:500], sandbox)
+        # 审计日志保留完整内容
+        self.audit(tool_name, clean_input, str(result), sandbox)
         return result

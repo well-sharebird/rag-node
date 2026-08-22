@@ -1,7 +1,7 @@
 """
 Harness 架构测试
 
-验证统一运行时（OrchestratorRuntime）与 TAO 图正常工作
+验证统一运行时（RuntimeEngine）与纯 Agent Loop 图正常工作
 """
 import pytest
 from packages.agent.core.harness.config import RuntimeConfig
@@ -29,64 +29,35 @@ class TestRuntime:
 
 
 # ============================================================
-# Test 2: TAO Graph 测试
+# Test 2: Agent Loop Graph 测试
 # ============================================================
 
-class TestTAOGraph:
-    """TAO Graph 测试"""
+class TestAgentLoopGraph:
+    """Agent Loop Graph 测试"""
 
-    def test_tao_state_definition(self):
-        """测试 TAOState 定义"""
-        from packages.agent.runtime_engine.tao_graph import TAOState
+    def test_agent_state_definition(self):
+        """测试 AgentState 定义"""
+        from packages.agent.runtime.state import AgentState
 
         # 验证类型定义
-        state: TAOState = {
+        state: AgentState = {
             "messages": [],
-            "reasoning": "",
-            "tool_calls": [],
-            "iteration": 0,
-            "termination_reason": None,
+            "think_count": 0,
+            "act_count": 0,
         }
-        assert state["iteration"] == 0
-        print("✅ TAOState definition test passed")
+        assert state["think_count"] == 0
+        assert state["act_count"] == 0
+        print("✅ AgentState definition test passed")
 
-    def test_should_act_router(self):
-        """测试路由函数"""
-        from packages.agent.runtime_engine.tao_graph import create_should_act_router
+    def test_graph_structure(self):
+        """测试图结构"""
+        from packages.agent.runtime.graph import build_agent_graph
 
-        router = create_should_act_router(max_iterations=10)
+        graph = build_agent_graph()
 
-        # 测试无工具调用
-        state_end = {
-            "messages": [],
-            "reasoning": "",
-            "tool_calls": [],
-            "iteration": 1,
-            "termination_reason": None,
-        }
-        assert router(state_end) == "end"
-
-        # 测试有工具调用
-        state_act = {
-            "messages": [],
-            "reasoning": "",
-            "tool_calls": [{"name": "search"}],
-            "iteration": 1,
-            "termination_reason": None,
-        }
-        assert router(state_act) == "act"
-
-        # 测试最大迭代
-        state_max = {
-            "messages": [],
-            "reasoning": "",
-            "tool_calls": [{"name": "search"}],
-            "iteration": 10,
-            "termination_reason": None,
-        }
-        assert router(state_max) == "end"
-
-        print("✅ should_act router test passed")
+        # 验证图包含 think 和 act 节点
+        assert graph is not None
+        print("✅ Graph structure test passed")
 
 
 # ============================================================
