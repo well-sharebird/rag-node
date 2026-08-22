@@ -395,12 +395,27 @@ export function QAChatView() {
       // 线性时间线：按事件到达顺序累积（思考/工具/总结），替代按类型聚合
       const steps: Step[] = [];
       let round = 0;
-      const patchSteps = () => {
-        flushSync(() => {
-          setMessages(prev => prev.map(msg =>
-            msg.messageId === messageId ? { ...msg, steps: [...steps] } : msg
-          ));
-        });
+      
+      // 🐛 FIX: 使用 requestAnimationFrame 批量更新，避免每个 chunk 都触发渲染
+      let pendingUpdate = false;
+      const scheduleUpdate = () => {
+        if (!pendingUpdate) {
+          pendingUpdate = true;
+          requestAnimationFrame(() => {
+            setMessages(prev => prev.map(msg =>
+              msg.messageId === messageId
+                ? {
+                    ...msg,
+                    steps: [...steps],
+                    content: accumulatedContent,
+                    // ✅ 当使用 steps 时，不设置 reasoning 字段，避免重复渲染（reasoning 已在 steps 中）
+                    reasoning: steps.length > 0 ? undefined : accumulatedReasoning,
+                  }
+                : msg
+            ));
+            pendingUpdate = false;
+          });
+        }
       };
 
       while (true) {
@@ -507,20 +522,18 @@ export function QAChatView() {
               // Handle reasoning (thinking process) - 独立于答案渲染成思考块
               if (isReasoning(ev) && ev.content) {
                 accumulatedReasoning += ev.content;
-                const lastR = steps[steps.length - 1];
-                if (lastR && lastR.kind === 'reasoning') {
-                  lastR.content += ev.content;
+                // ✅ 查找最后一个 reasoning step（而不是最后一个 step），支持 reasoning 和 token 交替
+                const lastReasoningIndex = steps.map((s, i) => s.kind === 'reasoning' ? i : -1).filter(i => i >= 0).pop();
+                if (lastReasoningIndex !== undefined && lastReasoningIndex >= 0) {
+                  // 累加到最后一个 reasoning step
+                  steps[lastReasoningIndex] = { ...steps[lastReasoningIndex], content: steps[lastReasoningIndex].content + ev.content };
                 } else {
+                  // 第一个 reasoning step，创建新轮次
                   round += 1;
-                  steps.push({ kind: 'reasoning', round, content: ev.content, show: false });
+                  steps.push({ kind: 'reasoning', round, content: ev.content, show: true });
                 }
-                flushSync(() => {
-                  setMessages(prev => prev.map(msg =>
-                    msg.messageId === messageId
-                      ? { ...msg, reasoning: accumulatedReasoning, showReasoning: true, steps: [...steps] }
-                      : msg
-                  ));
-                });
+                // 🐛 FIX: 批量更新，不再使用 flushSync
+                scheduleUpdate();
                 continue;
               }
 
@@ -529,17 +542,12 @@ export function QAChatView() {
                 accumulatedContent += ev.content;
                 const lastA = steps[steps.length - 1];
                 if (lastA && lastA.kind === 'answer') {
-                  lastA.content += ev.content;
+                  steps[steps.length - 1] = { ...lastA, content: lastA.content + ev.content };
                 } else {
                   steps.push({ kind: 'answer', content: ev.content });
                 }
-                flushSync(() => {
-                  setMessages(prev => prev.map(msg =>
-                    msg.messageId === messageId
-                      ? { ...msg, content: accumulatedContent, steps: [...steps] }
-                      : msg
-                  ));
-                });
+                // 🐛 FIX: 批量更新，不再使用 flushSync
+                scheduleUpdate();
                 continue;
               }
 

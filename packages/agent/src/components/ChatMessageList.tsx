@@ -1,6 +1,6 @@
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useI18n } from '@/src/lib/i18n';
-import { Bot, User, Loader2, Brain, ChevronDown, ChevronRight, BookOpen } from 'lucide-react';
+import { Bot, User, Loader2, Brain, ChevronDown, ChevronRight, BookOpen, Sparkles, Hammer, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/src/components/MarkdownRenderer';
 
@@ -84,8 +84,8 @@ function ToolStepCard({ tool, status, input, result, files, sandbox }: {
 }) {
   return (
     <div
-      className="rounded-lg px-3 py-2 text-[12px]"
-      style={{ background: '#f6f7f8', border: '0.5px solid #e5e5e5' }}
+      className="rounded-lg px-2.5 py-2 text-[11px] mb-1.5"
+      style={{ background: '#f3f4f6', border: '0.5px solid #e5e7eb' }}
     >
       <div className="flex items-center gap-2">
         {status === 'running' ? (
@@ -93,36 +93,38 @@ function ToolStepCard({ tool, status, input, result, files, sandbox }: {
         ) : (
           <span className="inline-block w-2 h-2 rounded-full" style={{ background: TOOL_STATUS_COLOR[status] || '#ef4444' }} />
         )}
-        <span className="font-medium" style={{ color: '#333' }}>{tool}</span>
-        <span className="text-[11px]" style={{ color: '#9b9b9b' }}>
+        <span className="font-medium" style={{ color: '#374151' }}>{tool}</span>
+        <span className="text-[10px]" style={{ color: '#9ca3af' }}>
           {TOOL_STATUS_LABEL[status]} {sandbox ? `· ${sandbox}` : ''}
         </span>
       </div>
 
       {status === 'running' && (
-        <div className="mt-1 flex items-center gap-1.5 text-[11px]" style={{ color: '#9b6bff' }}>
-          <span>工具执行中…</span>
+        <div className="mt-1 flex items-center gap-1.5 text-[10px]" style={{ color: '#9b6bff' }}>
+          <Sparkles className="w-3 h-3" />
+          <span>执行中…</span>
         </div>
       )}
 
       {result !== undefined && (
         <pre
-          className="mt-1.5 rounded-md px-2.5 py-1.5 text-[11px] text-left overflow-auto max-h-32 whitespace-pre-wrap break-words"
-          style={{ background: '#fff', border: '0.5px solid #eee', color: '#444' }}
+          className="mt-1.5 rounded-md px-2 py-1.5 text-[10px] text-left overflow-auto max-h-24 whitespace-pre-wrap break-words"
+          style={{ background: '#fff', border: '0.5px solid #e5e7eb', color: '#374151' }}
         >
-          {result.length > 1200 ? `${result.slice(0, 1200)}\n…(已截断)` : result}
+          {result.length > 800 ? `${result.slice(0, 800)}\n…(已截断)` : result}
         </pre>
       )}
 
       {files && files.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <div className="mt-1.5 flex flex-wrap gap-1">
           {files.map(f => (
             <span
               key={f.relative_path}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]"
-              style={{ background: '#eeedfe', color: '#534ab7' }}
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] rounded"
+              style={{ background: '#eeedfe', color: '#534ab7', border: '0.5px solid #e5e7eb' }}
               title={`工作空间 ${f.relative_path}`}
             >
+              <FileText className="w-2.5 h-2.5" />
               {f.filename}
             </span>
           ))}
@@ -139,24 +141,42 @@ function ThinkingBlock({ round, rounds, content, show, onToggle }: {
   show?: boolean;
   onToggle?: () => void;
 }) {
+  // 直接使用 show prop，移除内部状态（避免与外部不同步）
+  // 默认展开（show 为 undefined 或 true 时都展开）
+  const isExpanded = show !== false;
+  
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onToggle?.();
+  };
+  
   return (
-    <div className="mb-1.5">
+    <div className="mb-2.5 rounded-lg border overflow-hidden" style={{ borderColor: '#e5e7eb', background: '#f9fafb' }}>
       <button
-        onClick={onToggle}
-        className="flex items-center gap-1.5 text-[11px] font-medium hover:opacity-70 transition-opacity"
-        style={{ color: '#9b6bff' }}
+        onClick={handleToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium hover:bg-gray-50 transition-colors"
+        style={{ color: '#6b7280' }}
+        type="button"
       >
-        <Brain className="w-3.5 h-3.5" />
-        {rounds > 1 ? `思考过程 · 第 ${round} 轮` : '思考过程'}
-        {show ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        <Brain className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#9b6bff' }} />
+        <span>思考过程</span>
+        {rounds > 1 && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: '#eeedfe', color: '#534ab7' }}>
+            第 {round} 轮
+          </span>
+        )}
+        {isExpanded ? (
+          <ChevronDown className="w-3 h-3 ml-auto flex-shrink-0" />
+        ) : (
+          <ChevronRight className="w-3 h-3 ml-auto flex-shrink-0" />
+        )}
       </button>
-      {show && (
+      {isExpanded && (
         <div
-          className="rounded-lg px-3 py-2 text-[12px] leading-relaxed italic overflow-auto max-h-48"
+          className="px-3 pb-3 text-[12px] leading-relaxed"
           style={{
-            background: '#f8f7ff',
-            borderLeft: '2px solid #9b6bff',
-            color: '#6b5b8a',
+            color: '#4b5563',
             whiteSpace: 'pre-wrap',
           }}
         >
@@ -196,43 +216,48 @@ function RunSummaryCard({ summary }: { summary: RunSummary }) {
   const meta = RUN_REASON_META[summary.reason] || RUN_REASON_META.interrupted;
   return (
     <div
-      className="mt-2 rounded-lg px-3 py-2 text-[12px] leading-relaxed"
-      style={{ background: meta.bg, border: `0.5px solid ${meta.color}33` }}
+      className="mt-3 rounded-lg px-3 py-2.5 text-[11px]"
+      style={{ background: meta.bg, border: `1px solid ${meta.color}40` }}
     >
-      <div className="flex items-center gap-2">
-        <span
-          className="inline-block w-2 h-2 rounded-full shrink-0"
-          style={{ background: meta.color }}
-        />
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="inline-block w-2 h-2 rounded-full" style={{ background: meta.color }} />
         <span className="font-medium" style={{ color: meta.color }}>{meta.label}</span>
       </div>
-      <div className="mt-1.5 text-[11px]" style={{ color: '#6b7280' }}>
-        共 {summary.rounds ?? 0} 轮 · 使用 {summary.toolsUsed?.length ?? 0} 个工具
+      <div className="flex items-center gap-3 text-[10px]" style={{ color: '#6b7280' }}>
+        <span>共 {summary.rounds ?? 0} 轮</span>
+        {summary.toolsUsed && summary.toolsUsed.length > 0 && (
+          <>
+            <span>·</span>
+            <span>使用 {summary.toolsUsed.length} 个工具</span>
+          </>
+        )}
       </div>
       {summary.toolsUsed && summary.toolsUsed.length > 0 && (
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1.5">
           {summary.toolsUsed.map(t => (
             <span
               key={t}
-              className="inline-flex items-center rounded px-1.5 py-0.5 text-[11px]"
-              style={{ background: 'rgba(255,255,255,0.7)', color: '#444', border: '0.5px solid #e5e5e5' }}
+              className="inline-flex items-center rounded px-2 py-1 text-[10px] font-medium"
+              style={{ background: '#fff', color: '#534ab7', border: '0.5px solid #e5e7eb' }}
             >
+              <Hammer className="w-2.5 h-2.5 mr-1" />
               {t}
             </span>
           ))}
         </div>
       )}
       {summary.files && summary.files.length > 0 && (
-        <div className="mt-1.5">
-          <div className="text-[11px]" style={{ color: meta.color }}>产出文件</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
+        <div className="mt-2 pt-2 border-t" style={{ borderColor: `${meta.color}30` }}>
+          <div className="text-[10px] font-medium mb-1.5" style={{ color: meta.color }}>产出文件</div>
+          <div className="flex flex-wrap gap-1.5">
             {summary.files.map(f => (
               <span
                 key={f.relative_path}
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]"
-                style={{ background: 'rgba(255,255,255,0.7)', color: '#534ab7', border: '0.5px solid #e5e5e5' }}
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px]"
+                style={{ background: '#fff', color: '#534ab7', border: '0.5px solid #e5e7eb' }}
                 title={`工作空间 ${f.relative_path}`}
               >
+                <FileText className="w-2.5 h-2.5" />
                 {f.filename}
               </span>
             ))}
@@ -270,11 +295,16 @@ export function ChatMessageList({
 }: ChatMessageListProps) {
   const { t } = useI18n();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const prevMessagesLengthRef = useRef(0);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom - only when new messages are added
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    // 只在消息数量增加时自动滚动（避免展开思考过程时滚动）
+    if (messages.length > prevMessagesLengthRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    prevMessagesLengthRef.current = messages.length;
+  }, [messages.length]);
 
   if (messages.length === 0) {
     return (
@@ -394,11 +424,11 @@ export function ChatMessageList({
                   </div>
                 )}
               </div>
-              {/* Loading indicator for streaming messages */}
-              {msg.isStreaming && (
-                <div className="flex items-center gap-2 mt-2 ml-1">
-                  <Loader2 className="w-3 h-3 animate-spin text-[#9b9b9b]" />
-                  <span className="text-[11px] text-[#9b9b9b]">{t('qa.loading')}</span>
+              {/* Loading indicator - only show during initial retrieval/thinking phase */}
+              {msg.isStreaming && !msg.content && !msg.steps?.some(s => s.kind === 'answer') && (
+                <div className="flex items-center gap-1.5 mt-1.5 ml-0.5">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" style={{ color: '#9b6bff' }} />
+                  <span className="text-[11px] italic" style={{ color: '#9b6bff' }}>思考中...</span>
                 </div>
               )}
             </div>
@@ -409,12 +439,7 @@ export function ChatMessageList({
             )}
           </div>
         ))}
-        {loading && (
-          <div className="flex items-center gap-2 text-[13px] text-[#9b9b9b] ml-10">
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            {t('qa.loading')}
-          </div>
-        )}
+        {/* 移除重复的 loading 显示 - 只用 msg.isStreaming 即可 */}
         <div ref={messagesEndRef} />
       </div>
     </div>
